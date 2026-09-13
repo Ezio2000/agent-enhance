@@ -1,10 +1,12 @@
-import { access, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
-import { constants } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { resolveLayout, type LayoutPaths } from "./layout.ts";
+
+export { serviceExecutable } from "./layout.ts";
 
 export interface Runtime {
   command: string;
@@ -20,16 +22,6 @@ const SKY_SOCKET_DIR = join(homedir(), "Library", "Group Containers", "2DC432GLL
 const SERVICE_START_TIMEOUT_MS = 10_000;
 const SERVICE_STOP_TIMEOUT_MS = 1_500;
 
-/** Resolve the signed Sky service executable; SKY_CUA_SERVICE_PATH may name its app bundle or binary. */
-export function serviceExecutable(codexHome: string): string {
-  const override = process.env.SKY_CUA_SERVICE_PATH;
-  if (override) {
-    if (!isAbsolute(override)) throw new Error("SKY_CUA_SERVICE_PATH must be an absolute path.");
-    return override.endsWith(".app") ? join(override, "Contents", "MacOS", "SkyComputerUseService") : override;
-  }
-  return join(codexHome, "computer-use", "Codex Computer Use.app", "Contents", "MacOS", "SkyComputerUseService");
-}
-
 /** Private socket name stays well under the macOS 104-byte sun_path limit. */
 export function privateSocketPath(): string {
   return join(SKY_SOCKET_DIR, `pi-${randomBytes(4).toString("hex")}.sock`);
@@ -38,10 +30,10 @@ export function privateSocketPath(): string {
 /** Minimal environment for the service: no pi credentials, loaders or safety flags.
  * Resources leads PATH: the service resolves the packaged codex there and spawns its own
  * codex app-server (auth status + computer-use policy) for every cua operation. */
-function serviceEnvironment(codexHome: string, socket: string, resources: string): NodeJS.ProcessEnv {
+function serviceEnvironment(layout: LayoutPaths, socket: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
-    HOME: homedir(), TMPDIR: tmpdir(), PATH: `${resources}:/usr/bin:/bin:/usr/sbin:/sbin`,
-    LANG: process.env.LANG ?? "en_US.UTF-8", CODEX_HOME: codexHome,
+    HOME: homedir(), TMPDIR: tmpdir(), PATH: `${layout.resources}:/usr/bin:/bin:/usr/sbin:/sbin`,
+    LANG: process.env.LANG ?? "en_US.UTF-8", CODEX_HOME: layout.codexHome,
     SKY_CUA_SERVICE_NATIVE_PIPE_PATH: socket,
   };
   for (const key of ["USER", "LOGNAME", "__CF_USER_TEXT_ENCODING"]) {
@@ -49,6 +41,26 @@ function serviceEnvironment(codexHome: string, socket: string, resources: string
     if (value) env[key] = value;
   }
   return env;
+}
+
+/** Do not forward OAuth credentials, NODE_OPTIONS, loader injection, or safety-override flags.
+ * Surfaces stay computer-only, and the trusted Sky service is stated explicitly rather than
+ * inherited from whatever a launcher happens to default to. */
+export function runtimeEnvironment(layout: LayoutPaths, socket: string): NodeJS.ProcessEnv {
+  return {
+    HOME: homedir(), TMPDIR: tmpdir(),
+    PATH: `${join(layout.root, "bin")}:${layout.resources}:/usr/bin:/bin:/usr/sbin:/sbin`,
+    LANG: process.env.LANG ?? "en_US.UTF-8",
+    CODEX_HOME: layout.codexHome,
+    CODEX_CLI_PATH: layout.codex,
+    CUA_REPL_NODE_REPL_PATH: layout.repl,
+    CUA_REPL_ENABLED_SURFACES: "computer",
+    NODE_REPL_NODE_PATH: layout.node,
+    NODE_REPL_NODE_MODULE_DIRS: layout.modules,
+    NODE_REPL_TRUSTED_CODE_PATHS: layout.modules,
+    NODE_REPL_TRUSTED_SERVICES: JSON.stringify({ sky: "@oai/sky/service" }),
+    SKY_CUA_SERVICE_NATIVE_PIPE_PATH: socket,
+  };
 }
 
 function listening(socket: string): Promise<boolean> {
@@ -83,55 +95,31 @@ async function removeSocket(socket: string): Promise<void> {
   await rm(`${socket}.lock`, { force: true });
 }
 
-// User-configured application bundle only; never discover executables from the project.
+/** User-configured application bundle only; never discover executables from the project. */
 export async function officialRuntime(): Promise<Runtime> {
   if (process.platform !== "darwin") throw new Error("codex_computer currently supports macOS only.");
   const app = process.env.OPENAI_CODEX_COMPUTER_APP ?? "/Applications/ChatGPT.app";
   if (!isAbsolute(app)) throw new Error("OPENAI_CODEX_COMPUTER_APP must be an absolute application path.");
-  const resources = join(await realpath(app), "Contents", "Resources");
-  const root = join(resources, "cua_node");
-  const node = join(root, "bin", "node");
-  const repl = join(root, "bin", "node_repl");
-  const codex = join(resources, "codex");
-  const modules = join(root, "lib", "node_modules");
-  const launcher = join(resources, "plugins", "openai-bundled", "plugins", "unified-computer-use", "scripts", "launch.mjs");
-  const codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
-  const service = serviceExecutable(codexHome);
-  try {
-    await Promise.all([access(node, constants.X_OK), access(repl, constants.X_OK), access(codex, constants.X_OK), access(launcher), access(service, constants.X_OK), access(join(modules, "@oai", "sky")), access(join(modules, "@oai", "cua"))]);
-  } catch {
-    throw new Error(`Official Computer Use runtime not found in ${app}. Install a compatible ChatGPT desktop app; no runtime is downloaded automatically.`);
-  }
+  const layout = await resolveLayout({ app, codexHome: process.env.CODEX_HOME ?? join(homedir(), ".codex") });
   // Start a bridge-owned Sky service on a private socket before node_repl connects. The
   // shipped @oai/sky client prefers SKY_CUA_SERVICE_NATIVE_PIPE_PATH, so it never touches a
   // shared ChatGPT service, and this instance dies with the bridge-owned connection.
   await mkdir(SKY_SOCKET_DIR, { recursive: true });
   const socket = privateSocketPath();
-  const child = spawn(service, [], { env: serviceEnvironment(codexHome, socket, resources), stdio: "ignore" });
+  const child = spawn(layout.service, [], { env: serviceEnvironment(layout, socket), stdio: "ignore" });
   let cwd: string | undefined;
   try {
     await awaitService(socket, child, SERVICE_START_TIMEOUT_MS);
     cwd = await mkdtemp(join(tmpdir(), "pi-codex-computer-"));
-    await symlink(modules, join(cwd, "node_modules"), "dir");
+    await symlink(layout.modules, join(cwd, "node_modules"), "dir");
   } catch (error) {
     await stopService(child); await removeSocket(socket);
     if (cwd) await rm(cwd, { recursive: true, force: true });
     throw error;
   }
-  // Do not forward OAuth credentials, NODE_OPTIONS, loader injection, or safety-override flags.
-  const env: NodeJS.ProcessEnv = {
-    HOME: homedir(), TMPDIR: tmpdir(), PATH: `${join(root, "bin")}:${resources}:/usr/bin:/bin:/usr/sbin:/sbin`,
-    LANG: process.env.LANG ?? "en_US.UTF-8",
-    CODEX_HOME: codexHome,
-    CODEX_CLI_PATH: codex,
-    CUA_REPL_NODE_REPL_PATH: repl, CUA_REPL_ENABLED_SURFACES: "computer",
-    NODE_REPL_NODE_PATH: node, NODE_REPL_NODE_MODULE_DIRS: modules,
-    NODE_REPL_TRUSTED_CODE_PATHS: modules,
-    SKY_CUA_SERVICE_NATIVE_PIPE_PATH: socket,
-  };
   let disposed = false;
   return {
-    command: node, args: [launcher], cwd, env,
+    command: layout.command, args: layout.args, cwd, env: runtimeEnvironment(layout, socket),
     dispose: async () => {
       if (disposed) return;
       disposed = true;
