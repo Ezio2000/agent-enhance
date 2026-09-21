@@ -80,8 +80,9 @@ test("missing quota headers degrade silently with no quota line", async () => {
   }
 });
 
-test("ticker emits periodic progress updates and is cleaned up", async () => {
+test("ticker emits periodic progress updates and is cleaned up", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "enhance-progress-"));
+  t.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 });
   try {
     const updates: string[] = [];
     let release!: () => void;
@@ -102,12 +103,15 @@ test("ticker emits periodic progress updates and is cleaned up", async () => {
       (update) => updates.push(String(update.content[0]?.text)),
       ctx(root),
     );
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    t.mock.timers.tick(1000);
+    t.mock.timers.tick(1000);
     release();
     await execution;
-    assert.ok(updates.length >= 3, `expected initial + ticker updates, got ${updates.length}`);
+    assert.equal(updates.length, 3);
     assert.match(updates[1]!, /⏱ 1s/);
-    assert.match(updates[updates.length - 1]!, /⏱ [12]s/);
+    assert.match(updates[2]!, /⏱ 2s/);
+    t.mock.timers.tick(5000);
+    assert.equal(updates.length, 3, "settled execution must clear its ticker");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
