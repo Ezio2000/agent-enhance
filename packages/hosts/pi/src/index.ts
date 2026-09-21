@@ -14,6 +14,7 @@ import { transformControlledRequest } from "../../../core/src/controls.ts";
 import type { ExecutionContext, ModelInfo } from "../../../core/src/contracts.ts";
 import { PiCredentialResolver } from "./auth.ts";
 import { piHistory } from "./history.ts";
+import { installEnhanceFooter, type FooterLabel } from "./footer.ts";
 
 const command = "pi-enhance";
 const support = new Set(["approval", "task-settled", "request-interception"]);
@@ -53,6 +54,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   let disposed = false;
   let registered = new Set<string>();
   const knownNames = new Set<string>();
+  let footerLabels: readonly FooterLabel[] = [];
   const report = (ctx: ExtensionContext, text: string, error = false) => {
     if (ctx.hasUI) ctx.ui.notify(text, error ? "error" : "info");
     else {
@@ -62,7 +64,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   };
   const statusLine = (ctx: ExtensionContext) => {
     const model = modelInfo(ctx.model);
-    const labels = registry
+    footerLabels = registry
       .list()
       .filter((e) => {
         const control = e.instance.control;
@@ -74,15 +76,19 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
           control.supported(model)
         );
       })
-      .map((e): [string, string] => {
+      .map((e): FooterLabel => {
         const control = e.instance.control!,
           value = config.controls[control.id] ?? "off";
-        return [control.id, control.formatValue ? control.formatValue(value, model!) : value];
+        return {
+          id: control.id,
+          value: control.formatValue ? control.formatValue(value, model!) : value,
+          active: value !== "off",
+        };
       });
     if (ctx.hasUI)
       ctx.ui.setStatus(
         command,
-        labels.length ? labels.map(([id, value]) => `${id}:${value}`).join(" ") : undefined,
+        footerLabels.length ? footerLabels.map((l) => `${l.id}:${l.value}`).join(" ") : undefined,
       );
   };
   const refresh = (ctx: ExtensionContext) => {
@@ -337,6 +343,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
       }
     }
     statusLine(ctx);
+    installEnhanceFooter(ctx, command, () => footerLabels);
   });
   pi.on("model_select", async (event, ctx) => {
     const currentModel = (event.model ?? ctx.model) as ExtensionContext["model"];
@@ -374,7 +381,10 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     try {
       await registry.dispose();
     } finally {
-      if (ctx.hasUI) ctx.ui.setStatus(command, undefined);
+      if (ctx.hasUI) {
+        ctx.ui.setStatus(command, undefined);
+        ctx.ui.setFooter(undefined);
+      }
     }
   });
 }

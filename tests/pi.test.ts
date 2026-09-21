@@ -49,6 +49,7 @@ async function harness(home: string) {
         statusCalls.push([id, value]);
       },
       select: async () => nextChoice,
+      setFooter() {},
       notify(message: string) {
         messages.push(message);
       },
