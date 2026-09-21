@@ -68,11 +68,10 @@ test("search assigns z-references; open resolves them and passes reader options"
   assert.deepEqual(client.searchBodies[0], {
     search_query: "q1",
     search_engine: "search_std",
-    search_intent: false,
-    count: 10,
     search_domain_filter: "a.example",
     search_recency_filter: "oneWeek",
     content_size: undefined,
+    location: undefined,
   });
   assert.deepEqual(client.readBodies[0], {
     url: "https://a.example/1",

@@ -1,12 +1,10 @@
 export interface WebSearchRequest {
   search_query: string;
   search_engine: string;
-  search_intent: boolean;
-  count: number;
   search_domain_filter?: string;
   search_recency_filter?: string;
   content_size?: string;
-  request_id?: string;
+  location?: string;
 }
 export interface WebSearchResult {
   title?: string;

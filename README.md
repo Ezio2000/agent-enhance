@@ -129,7 +129,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 使用 Pi 原生 `/login` 配置对应渠道。平台 OpenAI API Key 不能替代 Codex OAuth。将来其他 Agent 自行实现获取方式与登录引导；现有 `StaticCredentialResolver` 可用于显式配置的独立宿主和测试。凭据只发送至相应供应商的固定受限地址，日志脱敏，拒绝认证请求重定向。
 
-zai 渠道面向 GLM Coding Plan 订阅：search_web/zai 与 view_image/zai 直连订阅自带的工具 API（`/api/coding/paas/v4` 下的 `web_search`、`reader` 与多模态 `chat/completions`），与模型调用共享套餐额度，按官方 MCP 同口径计费（搜索／阅读按次，视觉按 token）。仅限个人编码场景交互式使用；密钥严禁共享或转售。view_image 的任务提示词来自官方 `@z_ai/mcp-server`（Apache-2.0），原样内置并保留署名。
+zai 渠道面向 GLM Coding Plan 订阅：search_web/zai 与 view_image/zai 使用订阅额度，计费入口按实测区分 —— 联网搜索走套餐 MCP 端点（`/api/mcp/web_search_prime`，按次计费，与官方 MCP 同口径）；网页阅读走 coding REST（`/api/coding/paas/v4/reader`，也计入套餐次数）；view_image 走多模态 `chat/completions`（glm-5.3-flash，按 token）。注意 coding REST 下的 `web_search` 不计套餐额度（无按量余额时报 1113），搜索必须走 MCP 端点。仅限个人编码场景交互式使用；密钥严禁共享或转售。view_image 的任务提示词来自官方 `@z_ai/mcp-server`（Apache-2.0），原样内置并保留署名。
 
 Muse contributor 模型涉及上游数据使用政策，勿上传机密。Computer Use 使用外部官方运行时，其本地登录／系统权限检查与本项目的云 API 凭据接口分开。
 

@@ -39,11 +39,8 @@ export const ZaiWebSchema = object({
       "Default search_std (Zhipu basic); applies to every query in the batch",
     ),
   ),
-  count: Type.Optional(
-    Type.Integer({ minimum: 1, maximum: 50, description: "Results per query; default 10" }),
-  ),
+  location: Type.Optional(text("Location preference for results, e.g. China / United States", 100)),
   content_size: Type.Optional(choices(["medium", "high"], "Result content richness")),
-  search_intent: Type.Optional(Type.Boolean({ description: "Run intent recognition first; default false" })),
   return_format: Type.Optional(choices(["markdown", "text"], "Page format for open; default markdown")),
   no_cache: Type.Optional(Type.Boolean({ description: "Bypass the reader cache; default false" })),
   retain_images: Type.Optional(Type.Boolean({ description: "Keep image references in pages; default true" })),

@@ -82,13 +82,13 @@ test("search_web merge floats shared commands and namespaces provider extras", a
     {
       provider: "zai",
       search_query: [{ q: "x" }],
-      options: { zai: { search_engine: "search_pro", count: 5 } },
+      options: { zai: { search_engine: "search_pro", location: "China" } },
     },
     undefined,
     undefined,
     context,
   );
-  assert.deepEqual(seen[0], { search_query: [{ q: "x" }], search_engine: "search_pro", count: 5 });
+  assert.deepEqual(seen[0], { search_query: [{ q: "x" }], search_engine: "search_pro", location: "China" });
   await assert.rejects(
     merged.execute(
       "c2",
