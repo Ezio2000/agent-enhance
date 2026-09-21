@@ -13,6 +13,7 @@ import type { CapabilityModule, ExecutionContext } from "../packages/core/src/co
 import openai from "../packages/capabilities/gen_image/openai/src/index.ts";
 import xai from "../packages/capabilities/gen_image/xai/src/index.ts";
 import { transformControlledRequest } from "../packages/core/src/controls.ts";
+import { annotateError } from "../packages/core/src/errors.ts";
 import { fastControl } from "../packages/capabilities/fast/openai/src/control.ts";
 import { verbosityControl } from "../packages/capabilities/verbosity/openai/src/control.ts";
 import { imageDetailControl } from "../packages/capabilities/image_detail/openai/src/control.ts";
@@ -159,6 +160,24 @@ test("busy module cannot unload; cancellation reaches implementation; no stale h
   const abort = new AbortController();
   abort.abort();
   await assert.rejects(tool.execute("x", { prompt: "x" }, abort.signal, undefined, context), /abort/i);
+});
+test("aborted and timed-out requests keep their real reason instead of a read-only message error", () => {
+  // DOMException (AbortSignal.throwIfAborted / timeouts) exposes `message` as a getter.
+  const aborted = new DOMException("The operation was aborted.", "AbortError");
+  const annotated = annotateError(aborted, '\nPrompt: "circle" · elapsed 12.0s') as Error;
+  assert.match(annotated.message, /aborted/i);
+  assert.match(annotated.message, /elapsed 12\.0s/);
+  assert.ok(!/only a getter/.test(annotated.message));
+  assert.equal(annotated.name, "AbortError");
+  assert.equal((annotated as Error & { cause?: unknown }).cause, aborted);
+  // Ordinary errors keep their identity and code so host routing stays intact.
+  const coded = Object.assign(new Error("AUTH_MISSING"), { code: "AUTH_MISSING" });
+  const same = annotateError(coded, '\nPrompt: "x"') as Error & { code?: string };
+  assert.equal(same, coded);
+  assert.equal(same.code, "AUTH_MISSING");
+  assert.match(same.message, /AUTH_MISSING\nPrompt: "x"/);
+  // Non-Error rejections pass through untouched.
+  assert.equal(annotateError("boom", " suffix"), "boom");
 });
 test("request controls remain API/model scoped and preserve payloads when off", () => {
   const model = {

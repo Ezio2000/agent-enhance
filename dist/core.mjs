@@ -129,6 +129,23 @@ function transformControlledRequest(payload, model, controls, state) {
   return result;
 }
 
+// packages/core/src/errors.ts
+function annotateError(error, suffix) {
+  if (!(error instanceof Error)) return error;
+  try {
+    error.message += suffix;
+    return error;
+  } catch {
+    const wrapped = new Error(`${error.message}${suffix}`, { cause: error });
+    wrapped.name = error.name;
+    const source = error;
+    const target = wrapped;
+    for (const key of ["code", "status", "statusCode", "retryable", "requestId"])
+      if (source[key] !== void 0) target[key] = source[key];
+    return wrapped;
+  }
+}
+
 // packages/core/src/modules.ts
 import { createHash, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -8771,6 +8788,7 @@ export {
   EnhanceError,
   ModuleManager,
   StaticCredentialResolver,
+  annotateError,
   emptyConfig,
   enhanceHome,
   readJson,
