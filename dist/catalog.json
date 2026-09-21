@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "e59e6e960693831ffbc8189ff6f78110dcea9550",
+  "revision": "f4921b89895acc439cd4e57ba6c49aaed24ad679",
   "repository": "Ezio2000/agent-enhance",
   "modules": [
     {
@@ -154,8 +154,8 @@
         ]
       },
       "file": "search_web--zai.mjs",
-      "sha256": "9d4bafde4a2cb50715232d77ed65c7872ca1283c6ea1e27a38a38ecdfbdedefe",
-      "bytes": 393027
+      "sha256": "2d25b1b6f8363d993f4076a308938d6eff55ae3467fb68b3f986f794eca55a47",
+      "bytes": 398208
     },
     {
       "apiVersion": 1,
