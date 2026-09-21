@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { webTool } from "../../../../packages/capabilities/search_web/openai/src/tool.ts";
 import { WebOutputStore } from "../../../../packages/capabilities/search_web/openai/src/output.ts";
-import { ctx, fakeWebClient } from "../helpers.ts";
+import { ctx, fakeWebClient } from "../../../fixtures/openai/helpers.ts";
 
 test("web adapter returns raw reference IDs, bounded content and saved full output", async () => {
   const root = await mkdtemp(join(tmpdir(), "enhance-web-test-"));

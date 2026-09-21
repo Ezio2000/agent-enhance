@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WebClient } from "../../../../packages/capabilities/search_web/openai/src/client.ts";
-import { auth, search, json } from "../helpers.ts";
+import { auth, search, json } from "../../../fixtures/openai/helpers.ts";
 
 test("search uses exact Codex route, POST, no redirects and fresh auth per request", async () => {
   let calls = 0;

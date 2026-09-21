@@ -6,7 +6,7 @@ import {
   IMAGE_DEFAULTS,
   type ImageRequest,
 } from "../../../../packages/capabilities/gen_image/openai/src/types.ts";
-import { auth, image, search, json } from "../helpers.ts";
+import { auth, image, search, json } from "../../../fixtures/openai/helpers.ts";
 
 test("image edit sends fixed defaults and URL references without SDK translation", async () => {
   const request: ImageRequest = {

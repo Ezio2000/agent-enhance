@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateSearchRequest } from "../../../../packages/capabilities/search_web/openai/src/validation.ts";
-import { search } from "../helpers.ts";
+import { search } from "../../../fixtures/openai/helpers.ts";
 
 test("search validation checks operations, query count, domains and location", () => {
   assert.throws(() => validateSearchRequest({ ...search, commands: {} }));

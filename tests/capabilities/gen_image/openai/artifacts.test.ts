@@ -8,7 +8,7 @@ import {
   decodeImage,
   resolveImage,
 } from "../../../../packages/capabilities/gen_image/openai/src/artifacts.ts";
-import { png } from "../fixtures.ts";
+import { png } from "../../../fixtures/openai/fixtures.ts";
 
 test("image file validation and exclusive path/URL references", async () => {
   const root = await mkdtemp(join(tmpdir(), "enhance-image-test-"));

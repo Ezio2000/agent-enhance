@@ -5,7 +5,7 @@ import {
   IMAGE_DEFAULTS,
   type ImageRequest,
 } from "../../../../packages/capabilities/gen_image/openai/src/types.ts";
-import { image } from "../helpers.ts";
+import { image } from "../../../fixtures/openai/helpers.ts";
 
 test("image constraints follow current public docs, not older fixed-size assumptions", () => {
   for (const size of ["auto", "1024x1024", "2048x1152", "3840x2160", "2160x3840"])

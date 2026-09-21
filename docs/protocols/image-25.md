@@ -6,4 +6,4 @@ Common inputs: explicit prompt, optional image references, model, deadline. Open
 
 No generation/edit retry is automatic. Local and remote references are explicit; conversation images are never attached implicitly. Maximum input sizes, dimensions and counts are enforced by the module. Credentials are provided by the host resolver for `openai/codex`, validated against the fixed ChatGPT origin, and never substituted with a public API key.
 
-Implementation and regression tests are in `packages/capabilities/gen_image/openai/` and `tests/ported/openai/image/`.
+Implementation and regression tests are in `packages/capabilities/gen_image/openai/` and `tests/capabilities/gen_image/openai/`.

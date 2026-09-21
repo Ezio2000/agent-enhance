@@ -11,8 +11,8 @@ import {
 } from "../../../../packages/capabilities/gen_image/openai/src/tool.ts";
 import { ImageArtifactStore } from "../../../../packages/capabilities/gen_image/openai/src/artifacts.ts";
 import { ImageClient } from "../../../../packages/capabilities/gen_image/openai/src/client.ts";
-import { png } from "../fixtures.ts";
-import { ctx, json } from "../helpers.ts";
+import { png } from "../../../fixtures/openai/fixtures.ts";
+import { ctx, json } from "../../../fixtures/openai/helpers.ts";
 
 const quotaHeaders = {
   "x-codex-plan-type": "pro",

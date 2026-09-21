@@ -28,7 +28,7 @@
   "scripts": {
     "build": "tsx scripts/build.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts tests/ported/*/*/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/capabilities/*/*/*.test.ts tests/transports/*/*.test.ts",
     "check:boundaries": "tsx scripts/check-boundaries.ts",
     "check": "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test",
     "smoke": "tsx scripts/smoke.ts",

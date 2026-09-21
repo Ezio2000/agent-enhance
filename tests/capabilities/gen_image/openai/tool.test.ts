@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { imageTool } from "../../../../packages/capabilities/gen_image/openai/src/tool.ts";
 import { ImageArtifactStore } from "../../../../packages/capabilities/gen_image/openai/src/artifacts.ts";
 import { IMAGE_DEFAULTS } from "../../../../packages/capabilities/gen_image/openai/src/types.ts";
-import { png } from "../fixtures.ts";
-import { ctx, fakeImageClient } from "../helpers.ts";
+import { png } from "../../../fixtures/openai/fixtures.ts";
+import { ctx, fakeImageClient } from "../../../fixtures/openai/helpers.ts";
 
 test("image adapter sends image JSON, saves originals, returns previews and persists metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "enhance-tool-test-"));

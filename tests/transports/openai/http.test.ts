@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ProtocolError, readJSON, readSSE } from "../../../../packages/transports/openai/src/http.ts";
-import { ImageClient } from "../../../../packages/capabilities/gen_image/openai/src/client.ts";
-import { WebClient } from "../../../../packages/capabilities/search_web/openai/src/client.ts";
-import { auth, image, search, json } from "../helpers.ts";
+import { ProtocolError, readJSON, readSSE } from "../../../packages/transports/openai/src/http.ts";
+import { ImageClient } from "../../../packages/capabilities/gen_image/openai/src/client.ts";
+import { WebClient } from "../../../packages/capabilities/search_web/openai/src/client.ts";
+import { auth, image, search, json } from "../../fixtures/openai/helpers.ts";
 
 test("authentication and quota errors preserve codes but redact credentials; no retries", async () => {
   for (const status of [400, 401, 403, 429, 500]) {
