@@ -516,12 +516,23 @@ function createPiEnhance(pi, options) {
   };
   const statusLine = (ctx) => {
     const model = modelInfo(ctx.model);
-    const labels = registry.list().filter((e) => e.instance.control).map((e) => {
+    const labels = registry.list().filter((e) => {
+      const control = e.instance.control;
+      return control && model?.provider === "openai" && model.channel === "codex" && model.api === "codex-responses" && control.supported(model);
+    }).map((e) => {
       const control = e.instance.control, value = config.controls[control.id] ?? "off";
-      const applicable = model?.provider === "openai" && model.channel === "codex" && control.supported(model);
-      return `${control.id}:${model && control.formatValue ? control.formatValue(value, model) : value}${value !== "off" && !applicable ? "(n/a)" : ""}`;
+      return [control.id, control.formatValue ? control.formatValue(value, model) : value];
     });
-    if (ctx.hasUI) ctx.ui.setStatus(command, labels.length ? labels.join(" ") : void 0);
+    if (!labels.length) {
+      if (ctx.hasUI) ctx.ui.setStatus(command, void 0);
+      return;
+    }
+    const active = labels.filter(([, value]) => value !== "off");
+    if (ctx.hasUI)
+      ctx.ui.setStatus(
+        command,
+        active.length ? active.map(([id, value]) => `${id}:${value}`).join(" ") : void 0
+      );
   };
   const refresh = (ctx) => {
     const tools = registry.tools();
@@ -760,11 +771,12 @@ function createPiEnhance(pi, options) {
     statusLine(ctx);
   });
   pi.on("model_select", async (event, ctx) => {
-    const current = (event.model ?? ctx.model)?.provider;
+    const currentModel = event.model ?? ctx.model;
+    const current = currentModel?.provider;
     if (previousProvider !== void 0 && current !== previousProvider)
       await registry.lifecycle("provider_change");
     previousProvider = current;
-    statusLine(ctx);
+    statusLine({ ...ctx, model: currentModel });
   });
   pi.on("before_provider_request", (event, ctx) => {
     if (disposed) return;

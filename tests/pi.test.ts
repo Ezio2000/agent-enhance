@@ -15,6 +15,7 @@ async function harness(home: string) {
   const events = new Map<string, Function[]>(),
     commands = new Map<string, any>();
   const messages: string[] = [];
+  const statusCalls: Array<[string, string | undefined]> = [];
   const pi = {
     registerTool(tool: any) {
       tools.set(tool.name, tool);
@@ -41,8 +42,22 @@ async function harness(home: string) {
   const ctx = {
     cwd: process.cwd(),
     mode: "print",
-    hasUI: false,
-    model: { provider: "anthropic", id: "test", api: "anthropic-messages" },
+    hasUI: true,
+    ui: {
+      setStatus(id: string, value?: string) {
+        statusCalls.push([id, value]);
+      },
+      select: async () => undefined,
+      notify(message: string) {
+        messages.push(message);
+      },
+    },
+    model: {
+      provider: "openai-codex",
+      id: "gpt-6-astra",
+      api: "openai-codex-responses",
+      input: ["text", "image"],
+    },
     sessionManager: { getSessionId: () => "test", buildContextEntries: () => [] },
     modelRegistry: { getProviderAuth: async () => undefined },
     waitForIdle: async () => {},
@@ -68,6 +83,7 @@ async function harness(home: string) {
       active = names;
     },
     messages,
+    statuses: () => statusCalls,
   };
 }
 test("Pi commands install/load two providers but expose only one image tool; unload/reload updates schema", async () => {
@@ -129,6 +145,20 @@ test("Pi preferences accept explicit values headlessly and do not silently load/
     await h.command("openai fast load --save");
     assert.match(await h.command("openai fast on"), /Saved fast: on/);
     assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
+    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
+    await h.emit("model_select", { model: { provider: "kimi-coding", id: "k3", api: "custom" } });
+    assert.equal(h.statuses().at(-1)?.[1], undefined);
+    await h.emit("model_select", {
+      model: {
+        provider: "openai-codex",
+        id: "gpt-6-astra",
+        api: "openai-codex-responses",
+        input: ["text"],
+      },
+    });
+    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
+    await h.command("openai fast off");
+    assert.equal(h.statuses().at(-1)?.[1], undefined);
     assert.match(await h.command("openai fast"), /Explicit action/);
     assert.match(await h.command("openai fast nonsense"), /Choose/);
     assert.match(await h.command("defaults gen_image openai"), /Saved default/);
