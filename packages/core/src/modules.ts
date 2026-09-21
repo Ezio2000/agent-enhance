@@ -36,7 +36,7 @@ export class ModuleManager {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {
     this.lockPath = join(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/openai-codex-enhance")
+    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance")
       throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
     for (const entry of catalog.modules)
       if (

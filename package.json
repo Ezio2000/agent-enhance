@@ -4,7 +4,7 @@
   "description": "Agent Enhance: host-neutral optional capabilities with a Pi adapter",
   "type": "module",
   "license": "MIT",
-  "repository": "github:Ezio2000/openai-codex-enhance",
+  "repository": "github:Ezio2000/agent-enhance",
   "keywords": [
     "pi-package",
     "agent-enhance",

@@ -277,7 +277,7 @@ test("download uses pinned HTTPS source without credentials and rejects corrupt 
     const manager = new ModuleManager(home, catalog, undefined, async (url, init) => {
       assert.equal(
         String(url),
-        `https://raw.githubusercontent.com/Ezio2000/openai-codex-enhance/${catalog.revision}/dist/modules/${entry.file}`,
+        `https://raw.githubusercontent.com/Ezio2000/agent-enhance/${catalog.revision}/dist/modules/${entry.file}`,
       );
       assert.equal(init?.redirect, "error");
       assert.equal(init?.headers, undefined);
