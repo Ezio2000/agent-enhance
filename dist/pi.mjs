@@ -20,7 +20,10 @@ var EnhanceError = class extends Error {
 };
 
 // packages/core/src/registry.ts
-var imageCommon = /* @__PURE__ */ new Set(["prompt", "images", "model", "timeout_seconds"]);
+var COMMON_FIELDS = {
+  gen_image: ["prompt", "images", "model", "timeout_seconds"],
+  search_web: ["search_query", "open"]
+};
 var strings = (values) => Type.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 var CapabilityRegistry = class {
@@ -93,7 +96,8 @@ var CapabilityRegistry = class {
       const specific = {};
       const required = schema.required ?? [];
       for (const [key, field] of Object.entries(schema.properties)) {
-        if (capability === "gen_image" && !imageCommon.has(key))
+        const common = COMMON_FIELDS[capability];
+        if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : Type.Optional(field);
         else if (!properties[key]) properties[key] = required.includes(key) ? field : Type.Optional(field);
       }
@@ -133,7 +137,7 @@ var CapabilityRegistry = class {
     return {
       name: capability,
       label: capability,
-      description: `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback. Provider-specific image parameters belong in options.<provider>.
+      description: `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback.${COMMON_FIELDS[capability] ? ` Shared fields stay at the top level; provider-specific parameters belong in options.<provider>.` : ""}
 ` + entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool.promptGuidelines ?? []))],
@@ -401,7 +405,9 @@ var channels = {
   "openai/codex": "openai-codex",
   "xai/imagine": "xai",
   "opencode/go": "opencode-go",
-  "minimax/token-plan": "minimax-cn"
+  "minimax/token-plan": "minimax-cn",
+  "zai/coding-plan": "zai",
+  "zai/coding-plan-cn": "zai-coding-cn"
 };
 var PiCredentialResolver = class {
   constructor(registry) {
@@ -435,7 +441,7 @@ var PiCredentialResolver = class {
         if (typeof value === "string") headers.set(key, value);
       const secret = auth?.apiKey ?? headers.get("authorization")?.replace(/^Bearer\s+/i, "");
       if (!secret) return { status: "missing", guidance };
-      const kind = ["opencode-go", "minimax-cn", "minimax"].includes(provider) ? "api_key" : "oauth";
+      const kind = ["opencode-go", "minimax-cn", "minimax", "zai", "zai-coding-cn"].includes(provider) ? "api_key" : "oauth";
       if (kind === "oauth" && secret.split(".").length !== 3)
         return {
           status: "login_required",
@@ -674,8 +680,18 @@ function createPiEnhance(pi, options) {
         footerLabels.length ? footerLabels.map((l) => `${l.id}:${l.value}`).join(" ") : void 0
       );
   };
+  const excludedCapabilities = (ctx) => {
+    const input = modelInfo(ctx.model)?.input;
+    if (!input?.length) return /* @__PURE__ */ new Set();
+    return new Set(
+      registry.list().filter(
+        (e) => e.instance.tool && e.module.manifest.modelInputExcludes?.some((modality) => input.includes(modality))
+      ).map((e) => e.module.manifest.capability)
+    );
+  };
   const refresh = (ctx) => {
-    const tools = registry.tools();
+    const excluded = excludedCapabilities(ctx);
+    const tools = registry.tools().filter((tool) => !excluded.has(tool.name));
     const active = new Set(pi.getActiveTools());
     for (const tool of tools) {
       const collision = pi.getAllTools().find((t) => t.name === tool.name);
@@ -706,6 +722,11 @@ function createPiEnhance(pi, options) {
     });
     try {
       synchronize(ctx);
+      if (manifest.modelInputExcludes?.length)
+        report(
+          ctx,
+          `${id}: registered only while the active model lacks ${manifest.modelInputExcludes.join("/")} input.`
+        );
     } catch (error) {
       await registry.unload(id);
       throw error;
@@ -915,6 +936,7 @@ function createPiEnhance(pi, options) {
       await registry.lifecycle("provider_change");
     previousProvider = current;
     statusLine({ ...ctx, model: currentModel });
+    synchronize({ ...ctx, model: currentModel });
   });
   pi.on("before_provider_request", (event, ctx) => {
     if (disposed) return;

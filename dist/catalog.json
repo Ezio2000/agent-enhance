@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "568c0f6e92500a3aac1e67a9b022cc2ce03a7e23",
+  "revision": "e59e6e960693831ffbc8189ff6f78110dcea9550",
   "repository": "Ezio2000/agent-enhance",
   "modules": [
     {
@@ -141,6 +141,24 @@
     },
     {
       "apiVersion": 1,
+      "id": "search_web/zai",
+      "capability": "search_web",
+      "provider": "zai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "zai",
+        "channel": "coding-plan",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "file": "search_web--zai.mjs",
+      "sha256": "9d4bafde4a2cb50715232d77ed65c7872ca1283c6ea1e27a38a38ecdfbdedefe",
+      "bytes": 393027
+    },
+    {
+      "apiVersion": 1,
       "id": "use_computer/openai",
       "capability": "use_computer",
       "provider": "openai",
@@ -170,6 +188,27 @@
       "file": "verbosity--openai.mjs",
       "sha256": "01707f2e41214bf7b995e64e9eb801e928797667dfe8671d70dddd9f77814b53",
       "bytes": 2306
+    },
+    {
+      "apiVersion": 1,
+      "id": "view_image/zai",
+      "capability": "view_image",
+      "provider": "zai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "zai",
+        "channel": "coding-plan",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "modelInputExcludes": [
+        "image"
+      ],
+      "file": "view_image--zai.mjs",
+      "sha256": "00fad642fa5b06a4203e7cdd6b7adedb7e573519b82c5bb25d9cb64ab4d1f218",
+      "bytes": 451247
     },
     {
       "apiVersion": 1,

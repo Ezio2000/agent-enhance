@@ -8639,7 +8639,10 @@ __export(value_exports, {
 });
 
 // packages/core/src/registry.ts
-var imageCommon = /* @__PURE__ */ new Set(["prompt", "images", "model", "timeout_seconds"]);
+var COMMON_FIELDS = {
+  gen_image: ["prompt", "images", "model", "timeout_seconds"],
+  search_web: ["search_query", "open"]
+};
 var strings = (values) => typebox_exports.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 var CapabilityRegistry = class {
@@ -8712,7 +8715,8 @@ var CapabilityRegistry = class {
       const specific = {};
       const required = schema.required ?? [];
       for (const [key, field] of Object.entries(schema.properties)) {
-        if (capability === "gen_image" && !imageCommon.has(key))
+        const common = COMMON_FIELDS[capability];
+        if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : typebox_exports.Optional(field);
         else if (!properties[key]) properties[key] = required.includes(key) ? field : typebox_exports.Optional(field);
       }
@@ -8752,7 +8756,7 @@ var CapabilityRegistry = class {
     return {
       name: capability,
       label: capability,
-      description: `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback. Provider-specific image parameters belong in options.<provider>.
+      description: `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback.${COMMON_FIELDS[capability] ? ` Shared fields stay at the top level; provider-specific parameters belong in options.<provider>.` : ""}
 ` + entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool.promptGuidelines ?? []))],
