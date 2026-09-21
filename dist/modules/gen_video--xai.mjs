@@ -190,6 +190,23 @@ var VideoArtifactStore = class {
   }
 };
 
+// packages/core/src/errors.ts
+function annotateError(error, suffix) {
+  if (!(error instanceof Error)) return error;
+  try {
+    error.message += suffix;
+    return error;
+  } catch {
+    const wrapped = new Error(`${error.message}${suffix}`, { cause: error });
+    wrapped.name = error.name;
+    const source = error;
+    const target = wrapped;
+    for (const key of ["code", "status", "statusCode", "retryable", "requestId"])
+      if (source[key] !== void 0) target[key] = source[key];
+    return wrapped;
+  }
+}
+
 // packages/capabilities/gen_image/xai/src/artifacts.ts
 import { mkdir as mkdir2, mkdtemp as mkdtemp2, readFile, writeFile as writeFile2, rm as rm2 } from "node:fs/promises";
 import { join as join2, resolve } from "node:path";
@@ -8952,10 +8969,11 @@ function videoTool(deps) {
           timeoutMs: (args.timeout_seconds ?? VIDEO_TIMEOUT.defaultSeconds) * 1e3
         });
       } catch (error) {
-        if (error instanceof Error)
-          error.message += `
-Prompt: "${promptSnippetText(request.prompt || "(no prompt)")}" \xB7 elapsed ${formatElapsed(elapsed())}`;
-        throw error;
+        throw annotateError(
+          error,
+          `
+Prompt: "${promptSnippetText(request.prompt || "(no prompt)")}" \xB7 elapsed ${formatElapsed(elapsed())}`
+        );
       } finally {
         clearInterval(ticker);
       }

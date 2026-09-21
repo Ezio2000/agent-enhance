@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Value } from "typebox/value";
 import type { ExecutionContext, ToolDefinition } from "../../../../core/src/contracts.ts";
+import { annotateError } from "../../../../core/src/errors.ts";
 import { ImageArtifactStore, MAX_IMAGE_BYTES, MAX_TOTAL_INPUT_BYTES, resolveImage } from "./artifacts.ts";
 import { ImageClient } from "./client.ts";
 import {
@@ -139,13 +140,10 @@ export function imageTool(deps: ImageDependencies): ToolDefinition<typeof ImageS
         });
         if (result.quota) quota = result.quota;
       } catch (error) {
-        if (error instanceof Error) {
-          const context = [`elapsed ${formatElapsed(elapsedSeconds())}`, quotaLine(quota)]
-            .filter(Boolean)
-            .join(" · ");
-          error.message += `\nPrompt: "${promptSnippetText(request.prompt)}" · ${context}`;
-        }
-        throw error;
+        const context = [`elapsed ${formatElapsed(elapsedSeconds())}`, quotaLine(quota)]
+          .filter(Boolean)
+          .join(" · ");
+        throw annotateError(error, `\nPrompt: "${promptSnippetText(request.prompt)}" · ${context}`);
       } finally {
         clearInterval(ticker);
       }

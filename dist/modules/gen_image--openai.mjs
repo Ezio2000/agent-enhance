@@ -8805,6 +8805,23 @@ __export(value_exports, {
   Repair: () => Repair
 });
 
+// packages/core/src/errors.ts
+function annotateError(error, suffix) {
+  if (!(error instanceof Error)) return error;
+  try {
+    error.message += suffix;
+    return error;
+  } catch {
+    const wrapped = new Error(`${error.message}${suffix}`, { cause: error });
+    wrapped.name = error.name;
+    const source = error;
+    const target = wrapped;
+    for (const key of ["code", "status", "statusCode", "retryable", "requestId"])
+      if (source[key] !== void 0) target[key] = source[key];
+    return wrapped;
+  }
+}
+
 // packages/capabilities/gen_image/openai/src/warnings.ts
 function imageWarnings(request, response, actual = []) {
   const warnings = [...response.warnings ?? []];
@@ -9125,12 +9142,9 @@ function imageTool(deps) {
         });
         if (result.quota) quota = result.quota;
       } catch (error) {
-        if (error instanceof Error) {
-          const context = [`elapsed ${formatElapsed(elapsedSeconds())}`, quotaLine(quota)].filter(Boolean).join(" \xB7 ");
-          error.message += `
-Prompt: "${promptSnippetText(request.prompt)}" \xB7 ${context}`;
-        }
-        throw error;
+        const context = [`elapsed ${formatElapsed(elapsedSeconds())}`, quotaLine(quota)].filter(Boolean).join(" \xB7 ");
+        throw annotateError(error, `
+Prompt: "${promptSnippetText(request.prompt)}" \xB7 ${context}`);
       } finally {
         clearInterval(ticker);
       }

@@ -32,8 +32,8 @@
         ]
       },
       "file": "gen_image--openai.mjs",
-      "sha256": "2dc04a57d6dee80087ec6fd436bcdb38dbca18558206086432a255dc489051f4",
-      "bytes": 411592
+      "sha256": "7943a832e1d7743b66e608c9c3298d7f82f35d86b2ea423a13d5f25c74d05af6",
+      "bytes": 412048
     },
     {
       "apiVersion": 1,
@@ -50,8 +50,8 @@
         ]
       },
       "file": "gen_image--xai.mjs",
-      "sha256": "251c027cfdc4265a5155580e6135ca6e67191001a19022d19b11357a9d861183",
-      "bytes": 391587
+      "sha256": "45aa33adc55542aeb8ef631407a8d872304afe342f1b1a76ccea61dc49e537bc",
+      "bytes": 392087
     },
     {
       "apiVersion": 1,
@@ -68,8 +68,8 @@
         ]
       },
       "file": "gen_video--xai.mjs",
-      "sha256": "688fe42f66322d4c42ae3ea34af43129bb534d503d3539007eba324a7de4e286",
-      "bytes": 400517
+      "sha256": "8406751b16e87b13f87e96a0e51aa45e55d44fbfaec0a1cb32e0118830e92cca",
+      "bytes": 401017
     },
     {
       "apiVersion": 1,

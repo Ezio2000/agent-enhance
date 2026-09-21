@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { ExecutionContext, ToolDefinition } from "../../../../core/src/contracts.ts";
+import { annotateError } from "../../../../core/src/errors.ts";
 import { ImageArtifactStore, resolveImage } from "./artifacts.ts";
 import { ImageClient } from "./client.ts";
 import { ImageSchema, type ImageArgs } from "./schema.ts";
@@ -81,9 +82,10 @@ export function imageTool(
           timeoutMs: (args.timeout_seconds ?? IMAGE_TIMEOUT.defaultSeconds) * 1000,
         });
       } catch (error) {
-        if (error instanceof Error)
-          error.message += `\nPrompt: "${promptSnippetText(request.prompt)}" · elapsed ${formatElapsed(elapsed())}`;
-        throw error;
+        throw annotateError(
+          error,
+          `\nPrompt: "${promptSnippetText(request.prompt)}" · elapsed ${formatElapsed(elapsed())}`,
+        );
       } finally {
         clearInterval(ticker);
       }

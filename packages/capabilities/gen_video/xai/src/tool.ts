@@ -1,4 +1,5 @@
 import type { ExecutionContext, ToolDefinition } from "../../../../core/src/contracts.ts";
+import { annotateError } from "../../../../core/src/errors.ts";
 import { resolveImage } from "../../../gen_image/xai/src/artifacts.ts";
 import { formatElapsed, promptSnippetText } from "../../../gen_image/xai/src/tool.ts";
 import { VideoArtifactStore } from "./artifacts.ts";
@@ -120,9 +121,10 @@ export function videoTool(
           timeoutMs: (args.timeout_seconds ?? VIDEO_TIMEOUT.defaultSeconds) * 1000,
         });
       } catch (error) {
-        if (error instanceof Error)
-          error.message += `\nPrompt: "${promptSnippetText(request.prompt || "(no prompt)")}" · elapsed ${formatElapsed(elapsed())}`;
-        throw error;
+        throw annotateError(
+          error,
+          `\nPrompt: "${promptSnippetText(request.prompt || "(no prompt)")}" · elapsed ${formatElapsed(elapsed())}`,
+        );
       } finally {
         clearInterval(ticker);
       }
