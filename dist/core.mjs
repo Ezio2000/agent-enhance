@@ -176,6 +176,16 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join as join2 } from "node:path";
 import { pathToFileURL } from "node:url";
 var emptyLock = () => ({ version: 1, modules: {} });
+var moduleId = /^[a-z_]+\/[a-z]+$/;
+var hash = /^[a-f0-9]{64}$/;
+function validateLock(lock) {
+  if (lock?.version !== 1 || !lock.modules || typeof lock.modules !== "object" || Array.isArray(lock.modules) || Object.entries(lock.modules).some(
+    ([id, entry]) => !moduleId.test(id) || !entry || typeof entry.version !== "string" || !hash.test(entry.sha256) || entry.file !== `${id.replace("/", "--")}.mjs`
+  ))
+    throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
+  return lock;
+}
+var sameInstallation = (a, b) => a?.sha256 === b?.sha256 && a?.version === b?.version && a?.file === b?.file;
 var ModuleManager = class {
   constructor(home, catalog, bundledDirectory, fetchImpl = fetch) {
     this.home = home;
@@ -183,11 +193,14 @@ var ModuleManager = class {
     this.bundledDirectory = bundledDirectory;
     this.fetchImpl = fetchImpl;
     this.lockPath = join2(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance")
+    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance" || !Array.isArray(catalog.modules))
       throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
-    for (const entry of catalog.modules)
-      if (!/^[a-z_]+\/[a-z]+$/.test(entry.id) || !/^[a-z_]+--[a-z]+\.mjs$/.test(entry.file) || !/^[a-f0-9]{64}$/.test(entry.sha256) || entry.bytes > 25 * 1024 * 1024)
+    const ids = /* @__PURE__ */ new Set();
+    for (const entry of catalog.modules) {
+      if (!moduleId.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.apiVersion !== 1 || typeof entry.version !== "string" || entry.file !== `${entry.id.replace("/", "--")}.mjs` || !hash.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > 25 * 1024 * 1024 || ids.has(entry.id))
         throw new EnhanceError("CATALOG_INVALID", "Invalid module entry.");
+      ids.add(entry.id);
+    }
   }
   lockPath;
   find(id) {
@@ -195,11 +208,16 @@ var ModuleManager = class {
     if (!entry) throw new EnhanceError("MODULE_UNKNOWN", `Unknown capability/provider: ${id}`);
     return entry;
   }
+  readLock() {
+    return validateLock(readJson(this.lockPath, emptyLock));
+  }
   installed(id) {
-    const lock = readJson(this.lockPath, emptyLock);
-    if (lock.version !== 1 || !lock.modules)
-      throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
-    return lock.modules[id];
+    return this.readLock().modules[id];
+  }
+  /** Local catalog comparison only: no network, imports, or authentication. */
+  updates() {
+    const lock = this.readLock();
+    return this.catalog.modules.filter((e) => lock.modules[e.id] && lock.modules[e.id].sha256 !== e.sha256);
   }
   path(entry) {
     return join2(this.home, "packages", `${entry.sha256}-${entry.file}`);
@@ -208,15 +226,22 @@ var ModuleManager = class {
     if (bytes.byteLength !== entry.bytes || createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
       throw new EnhanceError("MODULE_INTEGRITY", `Integrity verification failed: ${entry.id}`);
   }
-  async install(id, signal) {
-    const entry = this.find(id);
+  /** Stage verified bytes without changing installation records or executing the module. */
+  async stage(entry, signal) {
     signal?.throwIfAborted();
+    try {
+      this.verify(await readFile(this.path(entry), { signal }), entry);
+      return;
+    } catch (error) {
+      if (error.code !== "ENOENT" && !(error instanceof EnhanceError && error.code === "MODULE_INTEGRITY"))
+        throw error;
+    }
     let bytes;
     if (this.bundledDirectory) {
       try {
         bytes = await readFile(join2(this.bundledDirectory, entry.file), { signal });
-      } catch (e) {
-        if (e.code !== "ENOENT") throw e;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
       }
     }
     if (!bytes) {
@@ -233,6 +258,7 @@ var ModuleManager = class {
       const chunks = [];
       let size = 0;
       for await (const chunk of response.body) {
+        requestSignal.throwIfAborted();
         size += chunk.byteLength;
         if (size > entry.bytes)
           throw new EnhanceError("MODULE_INTEGRITY", "Downloaded module exceeds its declared size.");
@@ -250,17 +276,48 @@ var ModuleManager = class {
     } finally {
       await rm(temp, { force: true });
     }
-    updateJson(this.lockPath, emptyLock, (lock) => ({
-      version: 1,
-      modules: { ...lock.modules, [id]: { version: entry.version, sha256: entry.sha256, file: entry.file } }
-    }));
+  }
+  async commit(entries, before, signal) {
+    if (!entries.length) return;
+    for (const entry of entries) await this.stage(entry, signal);
+    signal?.throwIfAborted();
+    updateJson(this.lockPath, emptyLock, (raw) => {
+      const current = validateLock(raw);
+      for (const entry of entries)
+        if (!sameInstallation(current.modules[entry.id], before.modules[entry.id]))
+          throw new EnhanceError(
+            "MODULE_CONFLICT",
+            `Installation changed during download: ${entry.id}. Retry explicitly.`
+          );
+      const modules = { ...current.modules };
+      for (const entry of entries)
+        modules[entry.id] = { version: entry.version, sha256: entry.sha256, file: entry.file };
+      return { version: 1, modules };
+    });
+  }
+  async install(id, signal) {
+    await this.commit([this.find(id)], this.readLock(), signal);
+  }
+  /** Updates installed modules only; loaded instances remain untouched until a later load. */
+  async update(ids, signal) {
+    const before = this.readLock();
+    const entries = [
+      ...new Set(ids ?? this.catalog.modules.filter((e) => before.modules[e.id]).map((e) => e.id))
+    ].map((id) => {
+      const entry = this.find(id);
+      if (!before.modules[id])
+        throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before updating.`);
+      return entry;
+    }).filter((entry) => before.modules[entry.id].sha256 !== entry.sha256);
+    await this.commit(entries, before, signal);
+    return entries.map((e) => e.id);
   }
   async load(id) {
     const entry = this.find(id), installed = this.installed(id);
     if (!installed)
       throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before loading.`);
     if (installed.sha256 !== entry.sha256)
-      throw new EnhanceError("MODULE_VERSION", `Reinstall ${id} to match this host version.`);
+      throw new EnhanceError("MODULE_VERSION", `Update or reinstall ${id} to match this host catalog.`);
     this.verify(await readFile(this.path(entry)), entry);
     const loaded = (await import(pathToFileURL(this.path(entry)).href)).default;
     if (JSON.stringify(loaded?.manifest) !== JSON.stringify(
@@ -273,8 +330,8 @@ var ModuleManager = class {
   }
   uninstall(id) {
     this.find(id);
-    updateJson(this.lockPath, emptyLock, (lock) => {
-      const modules = { ...lock.modules };
+    updateJson(this.lockPath, emptyLock, (raw) => {
+      const modules = { ...validateLock(raw).modules };
       delete modules[id];
       return { version: 1, modules };
     });
@@ -6748,10 +6805,10 @@ function ErrorUniqueItems(_stack, context, schemaPath, instancePath, schema, val
     return true;
   const set = /* @__PURE__ */ new Set();
   const duplicateItems = value.reduce((result, value2, index) => {
-    const hash = hash_exports.Hash(value2);
-    if (set.has(hash))
+    const hash2 = hash_exports.Hash(value2);
+    if (set.has(hash2))
       return [...result, index];
-    set.add(hash);
+    set.add(hash2);
     return result;
   }, []);
   const isUniqueItems = guard_exports.IsEqual(duplicateItems.length, 0);
@@ -8415,10 +8472,10 @@ var RepairError = class extends Error {
 function MakeUnique(values) {
   const [hashes, result] = [/* @__PURE__ */ new Set(), []];
   for (const value of values) {
-    const hash = Hash2(value);
-    if (hashes.has(hash))
+    const hash2 = Hash2(value);
+    if (hashes.has(hash2))
       continue;
-    hashes.add(hash);
+    hashes.add(hash2);
     result.push(value);
   }
   return result;
@@ -8670,9 +8727,12 @@ var CapabilityRegistry = class {
       throw new EnhanceError("MODULE_CONTRACT", "Tool name must match capability.");
     this.entries.set(manifest.id, { module, instance });
   }
-  async unload(id) {
+  assertIdle(id) {
     if (this.pending.has(id))
       throw new EnhanceError("MODULE_BUSY", "Wait for the active call before unloading.");
+  }
+  async unload(id) {
+    this.assertIdle(id);
     const entry = this.entries.get(id);
     await entry?.instance.dispose?.();
     this.entries.delete(id);

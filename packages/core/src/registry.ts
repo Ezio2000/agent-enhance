@@ -54,9 +54,12 @@ export class CapabilityRegistry {
       throw new EnhanceError("MODULE_CONTRACT", "Tool name must match capability.");
     this.entries.set(manifest.id, { module, instance });
   }
-  async unload(id: string): Promise<void> {
+  assertIdle(id: string): void {
     if (this.pending.has(id))
       throw new EnhanceError("MODULE_BUSY", "Wait for the active call before unloading.");
+  }
+  async unload(id: string): Promise<void> {
+    this.assertIdle(id);
     const entry = this.entries.get(id);
     await entry?.instance.dispose?.();
     this.entries.delete(id);

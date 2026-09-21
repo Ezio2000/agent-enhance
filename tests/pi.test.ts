@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -17,6 +17,8 @@ async function harness(home: string) {
   const messages: string[] = [];
   const statusCalls: Array<[string, string | undefined]> = [];
   let nextChoice: string | undefined;
+  let choices: Array<string | undefined | ((items: string[]) => string | undefined)> = [];
+  const dialogs: Array<{ title: string; items: string[] }> = [];
   const pi = {
     registerTool(tool: any) {
       tools.set(tool.name, tool);
@@ -48,7 +50,11 @@ async function harness(home: string) {
       setStatus(id: string, value?: string) {
         statusCalls.push([id, value]);
       },
-      select: async () => nextChoice,
+      select: async (title: string, items: string[]) => {
+        dialogs.push({ title, items });
+        const choice = choices.length ? choices.shift() : nextChoice;
+        return typeof choice === "function" ? choice(items) : choice;
+      },
       setFooter() {},
       notify(message: string) {
         messages.push(message);
@@ -86,6 +92,10 @@ async function harness(home: string) {
     },
     messages,
     statuses: () => statusCalls,
+    dialogs,
+    choose: (...values: typeof choices) => {
+      choices = values;
+    },
     chooseOnce: (value: string | undefined) => {
       nextChoice = value;
     },
@@ -235,4 +245,159 @@ test("Pi auth isolates channels, delegates refresh, sanitizes errors and respect
   const pending = waiting.resolve(requirement, { interactive: false, signal: controller.signal });
   controller.abort();
   await assert.rejects(pending, /abort/i);
+});
+
+test("one-step enable is selective and idempotent; disable/uninstall preserve user artifacts and preferences", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-enable-"));
+  try {
+    const h = await harness(home);
+    await h.emit("session_start");
+    assert.match(await h.command("openai gen_image enable"), /Enabled gen_image\/openai/);
+    assert.deepEqual(
+      (await readdir(join(home, "packages"))).map((f) => f.split("-").slice(1).join("-")),
+      ["gen_image--openai.mjs"],
+    );
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai"]);
+    await h.command("openai gen_image enable");
+    assert.deepEqual(new ConfigStore(home, "pi").load().autoload, ["gen_image/openai"]);
+    await h.command("openai fast enable");
+    assert.equal(
+      new ConfigStore(home, "pi").load().controls.fast,
+      undefined,
+      "enable must not turn on priority billing",
+    );
+    await h.command("openai fast on");
+    await h.command("openai fast disable");
+    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
+    await h.command("openai fast enable");
+    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
+    await h.command("openai gen_image disable");
+    assert.ok(!h.active().includes("gen_image"));
+    assert.ok(!new ConfigStore(home, "pi").load().autoload.includes("gen_image/openai"));
+    assert.match(
+      await h.command("openai gen_image status"),
+      /installed, unloaded, autoload:off, auth:missing/,
+    );
+    const artifacts = join(home, "artifacts/pi/gen_image/openai");
+    await mkdir(artifacts, { recursive: true });
+    await writeFile(join(artifacts, "keep.txt"), "keep");
+    await h.command("openai gen_image uninstall");
+    assert.match(await h.command("openai gen_image status"), /not installed/);
+    assert.equal(await readFile(join(artifacts, "keep.txt"), "utf8"), "keep");
+    assert.equal((await readdir(join(home, "packages"))).length, 2, "cache retained");
+    await h.emit("session_shutdown");
+    const next = await harness(home);
+    await next.emit("session_start");
+    assert.ok(!next.active().includes("gen_image"));
+    assert.equal(next.statuses().at(-1)?.[1], "fast:on(2.5x)");
+    await next.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("failed enable/save and uninstall recover state without changing other modules", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-recovery-"));
+  try {
+    const h = await harness(home),
+      store = new ConfigStore(home, "pi");
+    await h.emit("session_start");
+    store.update((c) => c);
+    await writeFile(`${store.path}.lock`, "");
+    assert.match(await h.command("openai gen_image enable"), /CONFIG_LOCKED/);
+    assert.ok(!h.active().includes("gen_image"));
+    assert.deepEqual(store.load().autoload, []);
+    await rm(`${store.path}.lock`);
+    await h.command("openai gen_image enable");
+    await h.command("xai gen_image enable");
+    await writeFile(`${store.path}.lock`, "");
+    assert.match(await h.command("openai gen_image disable"), /CONFIG_LOCKED/);
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai", "xai"]);
+    assert.deepEqual(store.load().autoload, ["gen_image/openai", "gen_image/xai"]);
+    await rm(`${store.path}.lock`);
+    await writeFile(join(home, "modules.lock.json.lock"), "");
+    assert.match(await h.command("openai gen_image uninstall"), /CONFIG_LOCKED/);
+    assert.deepEqual(
+      new Set(h.tools.get("gen_image").parameters.properties.provider.enum),
+      new Set(["openai", "xai"]),
+    );
+    assert.ok(h.active().includes("gen_image"));
+    assert.deepEqual(new Set(store.load().autoload), new Set(["gen_image/openai", "gen_image/xai"]));
+    await rm(join(home, "modules.lock.json.lock"));
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("feature-first panel shows requirements, performs one action and cancels without installation", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-panel-"));
+  try {
+    const h = await harness(home);
+    (h.ctx as any).mode = "tui";
+    await h.emit("session_start");
+    h.choose(
+      (items) => items.find((x) => x.includes("Images")),
+      (items) => items.find((x) => x.includes("/ xai")),
+      undefined,
+    );
+    await h.command("");
+    assert.equal(h.tools.size, 0);
+    await assert.rejects(readFile(join(home, "modules.lock.json")), /ENOENT/);
+    assert.match(h.dialogs.at(-1)!.title, /KiB/);
+    assert.match(h.dialogs.at(-1)!.title, /Auth: xai\/imagine/);
+    assert.match(h.dialogs.at(-1)!.title, /Platform:/);
+    h.choose(
+      (items) => items.find((x) => x.includes("Images")),
+      (items) => items.find((x) => x.includes("/ xai")),
+      "enable",
+    );
+    assert.match(await h.command(""), /Enabled gen_image\/xai/);
+    assert.equal(h.dialogs.length, 6, "one selection closes the panel");
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["xai"]);
+    h.choose("set default");
+    await h.command("xai gen_image manage");
+    assert.equal(new ConfigStore(home, "pi").load().defaults.gen_image, "xai");
+    h.choose("disable");
+    await h.command("xai gen_image manage");
+    assert.ok(!h.active().includes("gen_image"));
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("update commands compare local catalog, preserve preferences and never add uninstalled modules", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-update-command-"));
+  try {
+    const h = await harness(home);
+    await h.emit("session_start");
+    assert.match(await h.command("openai fast update"), /NOT_INSTALLED/);
+    assert.match(await h.command("update --installed"), /No downloads/);
+    await h.command("openai fast enable");
+    await h.command("openai fast on");
+    await h.command("openai fast unload");
+    const path = join(home, "modules.lock.json");
+    const lock = JSON.parse(await readFile(path, "utf8"));
+    lock.modules["fast/openai"].sha256 = "f".repeat(64);
+    await writeFile(path, JSON.stringify(lock));
+    assert.match(await h.command("updates"), /fast\/openai: ffffffffffff/);
+    assert.match(
+      await h.command("openai fast enable"),
+      /MODULE_VERSION/,
+      "enable must not silently update existing installs",
+    );
+    assert.match(await h.command("update --installed"), /Updated fast\/openai/);
+    assert.equal(h.statuses().at(-1)?.[1], undefined, "update must not load");
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(path, "utf8")).modules), ["fast/openai"]);
+    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
+    assert.deepEqual(new ConfigStore(home, "pi").load().autoload, ["fast/openai"]);
+    assert.match(await h.command("updates"), /No updates/);
+    assert.match(await h.command("openai fast load"), /Loaded/);
+    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
+    assert.match(await h.command("openai fast enable --save"), /--save is valid only/);
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });

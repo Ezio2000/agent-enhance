@@ -30,21 +30,47 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 移除单独安装的 grok-enhance、muse-enhance 等来源，并重启 Pi 或执行 `/reload`。不要同时加载其他 `pi-enhance` 来源；同一工具的冲突会在加载时明确报错。能力及偏好保存在 `~/.agent-enhance`，切换安装来源不移动认证或历史产物。
 
-新安装默认**不加载任何能力**，不会启动桌面进程或调用模型。按需安装：
+新安装默认**不安装、不加载任何能力**，不会启动桌面进程或调用模型。打开 `/pi-enhance` 按功能选择供应商，或直接一步启用：
 
 ```text
-/pi-enhance catalog
-/pi-enhance openai gen_image install
-/pi-enhance openai gen_image load --save
-/pi-enhance xai gen_image install
-/pi-enhance xai gen_image load --save
+/pi-enhance openai gen_image enable
+/pi-enhance xai gen_image enable
 /pi-enhance defaults gen_image openai
 /pi-enhance status
 ```
 
-`install` 安装能力模块，不下载云端模型权重，也不自动加载。`load` 仅当前会话生效；`load --save` 保存为 Pi 自动加载偏好。`unload --save` 同时移除自动加载；`uninstall` 移除安装记录，保留历史产物及可能被其他进程使用的内容寻址缓存。
+安装粒度是 **功能 × 供应商**：启用 `gen_image/openai` 只安装该模块，不附带搜索、桌面操作或其他供应商。面板按图片、视频、语音、搜索、文件理解、桌面操作和请求增强分组，展示大小、平台、认证要求，以及安装／加载／自动加载状态。选择动作后返回，Esc 取消不修改。
 
-模块是独立、自包含的 ESM 文件。安装从本地仓库构建产物或目录中锁定的 Git commit 下载，校验 SHA-256 与长度后提交；**不会隐式回退到其他模型、供应商或登录态**。发布 tarball 只含适配器与目录，不含全部能力；Git 安装本身会克隆完整仓库，模块仍须显式安装与加载。
+| 操作                       | 行为                                                   |
+| -------------------------- | ------------------------------------------------------ |
+| `enable`                   | 缺失时安装 → 当前会话加载 → 保存自动加载               |
+| `disable`                  | 卸载当前实例并取消自动加载，保留安装与控制偏好         |
+| `install`                  | 仅安装，不自动加载，也不下载云端模型权重               |
+| `load` / `load --save`     | 当前会话加载；加 `--save` 保存自动加载                 |
+| `unload` / `unload --save` | 当前会话卸载；加 `--save` 取消自动加载                 |
+| `uninstall`                | 禁用并移除安装记录，保留历史产物和内容寻址缓存         |
+| `manage`                   | 打开模块管理面板；已加载的请求增强仍可用原快捷设置入口 |
+
+旧命令保持兼容。`enable` 不隐式更新已安装的旧模块，不修改 `fast` 等控制值；已有控制值会在重新启用后恢复作用。安装或启用不会调用收费模型、启动桌面运行时或自动登录；认证通过 Pi `/login` 配置，`status` 单独显示认证与工具可用性。加载／保存失败时不新增自动加载偏好；已校验的安装文件可以保留供重试。
+
+### 模块更新
+
+先更新 Pi 包并执行 `/reload`，取得新模块目录，再显式更新已安装模块：
+
+```text
+/pi-enhance updates
+/pi-enhance update --installed
+# 或只更新一个模块
+/pi-enhance openai gen_image update
+```
+
+`updates` 只比较当前主包携带的目录与安装记录，不联网查询最新版。主包升级不会自动安装或更新能力。批量更新先校验全部目标，再一次性切换安装记录；失败保留旧记录。更新不加载模块、不修改偏好，也不替换当前实例；新代码在后续卸载／加载或 `/reload` 后使用。目录与模块使用精确哈希匹配，不能把保留旧缓存理解成跨主包版本兼容。
+
+### 轻量分发
+
+模块是独立、自包含的 ESM 文件。安装复用已校验缓存，或从本地仓库构建产物／目录锁定的 Git commit 获取，校验 SHA-256 与长度后提交；不运行安装脚本，**不会隐式回退到其他模型、供应商或登录态**。
+
+发布 tarball 只含适配器、目录和文档，不含能力模块。维护者完成 npm 发布后，可用 `pi install npm:pi-enhance` 获得真正按需下载的入口（此说明不代表已经发布）。Git 安装仍会克隆完整仓库，能力的安装与加载保持显式。发布前也可 `npm pack --ignore-scripts`，解压后通过 `pi install /absolute/path/to/package` 使用同样的最小包。
 
 ## 能力与工具
 
@@ -113,7 +139,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 最后两项也要求事先安装／加载对应模块。`fast` 设置 `service_tier=priority`，可能增加额度消耗；`verbosity` 控制回答详细程度；`image_detail on` 对应 `original`，不关闭宿主图片缩放。`off` 表示不覆盖原请求。仅作用于支持的 OpenAI Codex 主模型请求，不影响独立工具。
 
-`/pi-enhance` 打开选择面板；`/pi-enhance openai fast` 打开设置选择器，选中即保存并返回，Esc 取消不改值。控制状态以自定义 Footer 呈现：标签显示在项目地址右侧（启用的值高亮），仅在当前主模型为受支持的 OpenAI Codex Responses 模型时出现，切到其他模型即隐藏；其余扩展状态仍在统计行下方。提供命令参数补全，不替换编辑器。非交互模式须提供显式操作或值。
+`/pi-enhance` 打开按功能分组的管理面板；`/pi-enhance openai fast manage` 管理安装／禁用／更新，`/pi-enhance openai fast` 打开设置选择器，选中即保存并返回，Esc 取消不改值。控制状态以自定义 Footer 呈现：标签显示在项目地址右侧（启用的值高亮），仅在当前主模型为受支持的 OpenAI Codex Responses 模型时出现，切到其他模型即隐藏；其余扩展状态仍在统计行下方。提供命令参数补全，不替换编辑器。非交互模式须提供显式操作或值。
 
 ## 认证
 
@@ -160,13 +186,14 @@ hosts/pi.json
 artifacts/pi/<capability>/<provider>/<session>/<call>/
 ```
 
-本版只使用宿主级配置，不自动读取项目级配置。配置原子写入并使用跨进程写锁；损坏配置不会被默认值覆盖。`status` 检查已加载云能力的认证可用性，不执行计费请求；实际模型额度与后端权限仍须调用验证。
+本版只使用宿主级配置，不自动读取项目级配置。配置原子写入并使用跨进程写锁；损坏配置不会被默认值覆盖。`status` 检查目录中云能力的认证可用性（单模块 `status` 只检查该模块），不执行计费请求；实际模型额度与后端权限仍须调用验证。浏览面板及 `catalog` 只读元数据，不检查认证、不下载模块。
 
 ## 开发与验收
 
 ```bash
 npm ci --ignore-scripts
-npm run check
+npm run check                         # 包含离线最小 tarball + 独立 Pi SDK 进程验收
+npm run verify:distribution -- --download # 可选：真实下载锁定的公开模块，不调用模型
 npm run smoke                         # 仅打印用法，不发起付费请求
 npm run smoke -- --live               # search + PDF；上传合成测试文件
 npm run smoke -- --live --images      # 两个供应商各生成一张图
@@ -174,6 +201,6 @@ npm run smoke -- --live --video       # 合成参考图生成短视频，并交�
 npm run smoke -- --live --computer    # 仅读取桌面应用列表，清理私有运行时
 ```
 
-测试包含迁移的协议／运行时回归、参数合并、认证隔离、安装完整性、Pi 真实 SDK 注册／卸载、宿主工具排除规则。真实 smoke 使用现有 Pi 登录态，只发送合成测试内容，记录本地产物，不上传验收结果到仓库。
+测试包含迁移的协议／运行时回归、参数合并、认证隔离、安装完整性、一步启用／禁用、交互取消、批量更新失败恢复、并发安装冲突、Pi 真实 SDK 注册／卸载、宿主工具排除规则和最小安装包隔离验收。真实 smoke 使用现有 Pi 登录态，只发送合成测试内容，记录本地产物，不上传验收结果到仓库。
 
 详见 [架构](docs/architecture.md)、[发布与回滚](docs/release.md)。

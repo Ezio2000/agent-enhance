@@ -2,9 +2,7 @@
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { dirname as dirname2, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  resizeImage
-} from "@earendil-works/pi-coding-agent";
+import { resizeImage } from "@earendil-works/pi-coding-agent";
 
 // packages/core/src/registry.ts
 import { Type } from "typebox";
@@ -51,9 +49,12 @@ var CapabilityRegistry = class {
       throw new EnhanceError("MODULE_CONTRACT", "Tool name must match capability.");
     this.entries.set(manifest.id, { module, instance });
   }
-  async unload(id) {
+  assertIdle(id) {
     if (this.pending.has(id))
       throw new EnhanceError("MODULE_BUSY", "Wait for the active call before unloading.");
+  }
+  async unload(id) {
+    this.assertIdle(id);
     const entry = this.entries.get(id);
     await entry?.instance.dispose?.();
     this.entries.delete(id);
@@ -78,13 +79,13 @@ var CapabilityRegistry = class {
       );
   }
   tools() {
-    const groups = /* @__PURE__ */ new Map();
+    const groups2 = /* @__PURE__ */ new Map();
     for (const entry of this.list())
       if (entry.instance.tool) {
         const cap = entry.module.manifest.capability;
-        groups.set(cap, [...groups.get(cap) ?? [], entry]);
+        groups2.set(cap, [...groups2.get(cap) ?? [], entry]);
       }
-    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([cap, entries]) => this.merge(cap, entries));
+    return [...groups2].sort(([a], [b]) => a.localeCompare(b)).map(([cap, entries]) => this.merge(cap, entries));
   }
   merge(capability, entries) {
     const providers = entries.map((e) => e.module.manifest.provider);
@@ -280,6 +281,16 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join as join2 } from "node:path";
 import { pathToFileURL } from "node:url";
 var emptyLock = () => ({ version: 1, modules: {} });
+var moduleId = /^[a-z_]+\/[a-z]+$/;
+var hash = /^[a-f0-9]{64}$/;
+function validateLock(lock) {
+  if (lock?.version !== 1 || !lock.modules || typeof lock.modules !== "object" || Array.isArray(lock.modules) || Object.entries(lock.modules).some(
+    ([id, entry]) => !moduleId.test(id) || !entry || typeof entry.version !== "string" || !hash.test(entry.sha256) || entry.file !== `${id.replace("/", "--")}.mjs`
+  ))
+    throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
+  return lock;
+}
+var sameInstallation = (a, b) => a?.sha256 === b?.sha256 && a?.version === b?.version && a?.file === b?.file;
 var ModuleManager = class {
   constructor(home, catalog, bundledDirectory, fetchImpl = fetch) {
     this.home = home;
@@ -287,11 +298,14 @@ var ModuleManager = class {
     this.bundledDirectory = bundledDirectory;
     this.fetchImpl = fetchImpl;
     this.lockPath = join2(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance")
+    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance" || !Array.isArray(catalog.modules))
       throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
-    for (const entry of catalog.modules)
-      if (!/^[a-z_]+\/[a-z]+$/.test(entry.id) || !/^[a-z_]+--[a-z]+\.mjs$/.test(entry.file) || !/^[a-f0-9]{64}$/.test(entry.sha256) || entry.bytes > 25 * 1024 * 1024)
+    const ids = /* @__PURE__ */ new Set();
+    for (const entry of catalog.modules) {
+      if (!moduleId.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.apiVersion !== 1 || typeof entry.version !== "string" || entry.file !== `${entry.id.replace("/", "--")}.mjs` || !hash.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > 25 * 1024 * 1024 || ids.has(entry.id))
         throw new EnhanceError("CATALOG_INVALID", "Invalid module entry.");
+      ids.add(entry.id);
+    }
   }
   lockPath;
   find(id) {
@@ -299,11 +313,16 @@ var ModuleManager = class {
     if (!entry) throw new EnhanceError("MODULE_UNKNOWN", `Unknown capability/provider: ${id}`);
     return entry;
   }
+  readLock() {
+    return validateLock(readJson(this.lockPath, emptyLock));
+  }
   installed(id) {
-    const lock = readJson(this.lockPath, emptyLock);
-    if (lock.version !== 1 || !lock.modules)
-      throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
-    return lock.modules[id];
+    return this.readLock().modules[id];
+  }
+  /** Local catalog comparison only: no network, imports, or authentication. */
+  updates() {
+    const lock = this.readLock();
+    return this.catalog.modules.filter((e) => lock.modules[e.id] && lock.modules[e.id].sha256 !== e.sha256);
   }
   path(entry) {
     return join2(this.home, "packages", `${entry.sha256}-${entry.file}`);
@@ -312,15 +331,22 @@ var ModuleManager = class {
     if (bytes.byteLength !== entry.bytes || createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
       throw new EnhanceError("MODULE_INTEGRITY", `Integrity verification failed: ${entry.id}`);
   }
-  async install(id, signal) {
-    const entry = this.find(id);
+  /** Stage verified bytes without changing installation records or executing the module. */
+  async stage(entry, signal) {
     signal?.throwIfAborted();
+    try {
+      this.verify(await readFile(this.path(entry), { signal }), entry);
+      return;
+    } catch (error) {
+      if (error.code !== "ENOENT" && !(error instanceof EnhanceError && error.code === "MODULE_INTEGRITY"))
+        throw error;
+    }
     let bytes;
     if (this.bundledDirectory) {
       try {
         bytes = await readFile(join2(this.bundledDirectory, entry.file), { signal });
-      } catch (e) {
-        if (e.code !== "ENOENT") throw e;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
       }
     }
     if (!bytes) {
@@ -337,6 +363,7 @@ var ModuleManager = class {
       const chunks = [];
       let size = 0;
       for await (const chunk of response.body) {
+        requestSignal.throwIfAborted();
         size += chunk.byteLength;
         if (size > entry.bytes)
           throw new EnhanceError("MODULE_INTEGRITY", "Downloaded module exceeds its declared size.");
@@ -354,17 +381,48 @@ var ModuleManager = class {
     } finally {
       await rm(temp, { force: true });
     }
-    updateJson(this.lockPath, emptyLock, (lock) => ({
-      version: 1,
-      modules: { ...lock.modules, [id]: { version: entry.version, sha256: entry.sha256, file: entry.file } }
-    }));
+  }
+  async commit(entries, before, signal) {
+    if (!entries.length) return;
+    for (const entry of entries) await this.stage(entry, signal);
+    signal?.throwIfAborted();
+    updateJson(this.lockPath, emptyLock, (raw) => {
+      const current = validateLock(raw);
+      for (const entry of entries)
+        if (!sameInstallation(current.modules[entry.id], before.modules[entry.id]))
+          throw new EnhanceError(
+            "MODULE_CONFLICT",
+            `Installation changed during download: ${entry.id}. Retry explicitly.`
+          );
+      const modules = { ...current.modules };
+      for (const entry of entries)
+        modules[entry.id] = { version: entry.version, sha256: entry.sha256, file: entry.file };
+      return { version: 1, modules };
+    });
+  }
+  async install(id, signal) {
+    await this.commit([this.find(id)], this.readLock(), signal);
+  }
+  /** Updates installed modules only; loaded instances remain untouched until a later load. */
+  async update(ids, signal) {
+    const before = this.readLock();
+    const entries = [
+      ...new Set(ids ?? this.catalog.modules.filter((e) => before.modules[e.id]).map((e) => e.id))
+    ].map((id) => {
+      const entry = this.find(id);
+      if (!before.modules[id])
+        throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before updating.`);
+      return entry;
+    }).filter((entry) => before.modules[entry.id].sha256 !== entry.sha256);
+    await this.commit(entries, before, signal);
+    return entries.map((e) => e.id);
   }
   async load(id) {
     const entry = this.find(id), installed = this.installed(id);
     if (!installed)
       throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before loading.`);
     if (installed.sha256 !== entry.sha256)
-      throw new EnhanceError("MODULE_VERSION", `Reinstall ${id} to match this host version.`);
+      throw new EnhanceError("MODULE_VERSION", `Update or reinstall ${id} to match this host catalog.`);
     this.verify(await readFile(this.path(entry)), entry);
     const loaded = (await import(pathToFileURL(this.path(entry)).href)).default;
     if (JSON.stringify(loaded?.manifest) !== JSON.stringify(
@@ -377,8 +435,8 @@ var ModuleManager = class {
   }
   uninstall(id) {
     this.find(id);
-    updateJson(this.lockPath, emptyLock, (lock) => {
-      const modules = { ...lock.modules };
+    updateJson(this.lockPath, emptyLock, (raw) => {
+      const modules = { ...validateLock(raw).modules };
       delete modules[id];
       return { version: 1, modules };
     });
@@ -540,12 +598,12 @@ function installEnhanceFooter(ctx, statusKey, getLabels) {
         }
         let input = 0, output = 0, cacheRead = 0, cacheWrite = 0, cost = 0;
         let latestCacheHitRate;
-        const add = (usage) => {
-          input += usage.input;
-          output += usage.output;
-          cacheRead += usage.cacheRead;
-          cacheWrite += usage.cacheWrite;
-          cost += usage.cost?.total ?? 0;
+        const add = (usage2) => {
+          input += usage2.input;
+          output += usage2.output;
+          cacheRead += usage2.cacheRead;
+          cacheWrite += usage2.cacheWrite;
+          cost += usage2.cost?.total ?? 0;
         };
         for (const entry of ctx.sessionManager.getEntries()) {
           if (entry.type === "usage" && entry.usage) add(entry.usage);
@@ -619,6 +677,318 @@ function installEnhanceFooter(ctx, statusKey, getLabels) {
   });
 }
 
+// packages/hosts/pi/src/management.ts
+var groups = [
+  { label: "\u56FE\u7247\u751F\u6210 / Images", capabilities: ["gen_image"] },
+  { label: "\u89C6\u9891\u751F\u6210 / Video", capabilities: ["gen_video"] },
+  { label: "\u8BED\u97F3\u5408\u6210 / Voice", capabilities: ["gen_voice"] },
+  { label: "\u8054\u7F51\u641C\u7D22 / Search", capabilities: ["search_web"] },
+  { label: "\u6587\u4EF6\u7406\u89E3 / File understanding", capabilities: ["view_pdf", "view_video", "view_image"] },
+  { label: "\u684C\u9762\u64CD\u4F5C / Computer use", capabilities: ["use_computer"] },
+  { label: "\u8BF7\u6C42\u589E\u5F3A / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] }
+];
+var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
+var errorText = (error) => error instanceof Error ? error.message : String(error);
+function registerManagement(pi, options) {
+  const { manager, registry, config, save, load, refresh, report } = options;
+  const setAutoload = (id, enabled) => save((c) => ({
+    ...c,
+    autoload: enabled ? [.../* @__PURE__ */ new Set([...c.autoload, id])] : c.autoload.filter((value) => value !== id)
+  }));
+  const state = (entry) => {
+    const installed = manager.installed(entry.id);
+    return [
+      installed ? "installed" : "not installed",
+      registry.get(entry.id) ? "loaded" : "unloaded",
+      config().autoload.includes(entry.id) ? "autoload:on" : "autoload:off",
+      installed && installed.sha256 !== entry.sha256 ? "update available" : void 0
+    ].filter(Boolean).join(", ");
+  };
+  const requirements = (entry) => [
+    `${entry.id} \xB7 ${entry.version} \xB7 ${(entry.bytes / 1024).toFixed(1)} KiB`,
+    `Platform: ${entry.platforms?.join(", ") ?? "all supported Node.js platforms"}`,
+    entry.auth ? `Auth: ${entry.auth.provider}/${entry.auth.channel} (${entry.auth.acceptedKinds.join("/")}); configure via /login` : entry.capability === "use_computer" ? "Requires compatible ChatGPT desktop runtime, local login and macOS permissions; checked on first use" : "Auth: follows the supported main-model request",
+    `State: ${state(entry)}`
+  ].join("\n");
+  const status = async (ctx, only) => {
+    const credentials = new PiCredentialResolver(ctx.modelRegistry);
+    const lines = [];
+    for (const entry of only ? [only] : manager.catalog.modules) {
+      let auth = "not checked";
+      if (entry.auth)
+        auth = (await credentials.resolve(entry.auth, { signal: ctx.signal, interactive: false })).status;
+      else auth = entry.capability === "use_computer" ? "runtime checked on first use" : "main-model auth";
+      const availability = entry.kind === "tool" ? `, tool:${registry.get(entry.id) && pi.getActiveTools().includes(entry.capability) ? "active" : "inactive (unloaded, model rule or host exclusion)"}` : "";
+      lines.push(`${entry.id}: ${state(entry)}, auth:${auth}${availability}`);
+      if (only && registry.get(entry.id)?.instance.status)
+        lines.push(JSON.stringify(registry.get(entry.id).instance.status(), null, 2));
+    }
+    if (!only)
+      lines.push(
+        `Defaults: ${JSON.stringify(config().defaults)}`,
+        `Controls: ${JSON.stringify(config().controls)}`,
+        `Home: ${manager.home}`
+      );
+    return lines.join("\n");
+  };
+  const update = async (ctx, ids) => {
+    const updated = await manager.update(ids, options.signal());
+    report(
+      ctx,
+      updated.length ? `Updated ${updated.join(", ")}. Loaded instances are unchanged; new code is used on the next load/reload. Autoload and control preferences retained.` : "Installed modules match this host catalog. No downloads. Update the pi-enhance package first to obtain a newer catalog."
+    );
+  };
+  const remove = async (id, ctx, persist, uninstall) => {
+    registry.assertIdle(id);
+    const wasAutoload = config().autoload.includes(id);
+    const previous = registry.get(id);
+    const active = pi.getActiveTools();
+    let saved = false;
+    try {
+      if (persist) {
+        setAutoload(id, false);
+        saved = true;
+      }
+      await registry.unload(id);
+      refresh(ctx);
+      if (uninstall) manager.uninstall(id);
+    } catch (error) {
+      const failures = [errorText(error)];
+      try {
+        if (saved) setAutoload(id, wasAutoload);
+      } catch (rollback) {
+        failures.push(`Autoload recovery failed: ${errorText(rollback)}`);
+      }
+      try {
+        if (previous && !registry.get(id)) {
+          await options.restore(previous.module, ctx);
+          pi.setActiveTools(active);
+        }
+      } catch (rollback) {
+        failures.push(`Runtime recovery failed; reload explicitly: ${errorText(rollback)}`);
+      }
+      throw new Error(failures.join("\n"));
+    }
+  };
+  const modulePanel = async (entry, ctx) => {
+    const installed = manager.installed(entry.id);
+    const loaded = registry.get(entry.id);
+    const choices = [
+      ...!loaded || !config().autoload.includes(entry.id) ? ["enable"] : [],
+      ...!installed ? ["install"] : [],
+      ...installed && !loaded ? ["load", "load --save"] : [],
+      ...loaded || config().autoload.includes(entry.id) ? ["disable"] : [],
+      ...loaded ? ["unload"] : [],
+      ...installed ? ["update", "uninstall"] : [],
+      ...entry.kind === "tool" ? ["set default"] : [],
+      ...loaded?.instance.control ? ["settings"] : [],
+      ...loaded?.instance.manage ? ["ask", "auto", "reset", "revoke"] : [],
+      "status"
+    ];
+    const action = await ctx.ui.select(
+      `${requirements(entry)}
+Enable installs only this module; no model calls. Saved control values are retained.`,
+      choices
+    );
+    if (!action) return;
+    if (action === "set default") await run(`defaults ${entry.capability} ${entry.provider}`, ctx);
+    else await run(`${entry.provider} ${entry.capability}${action === "settings" ? "" : ` ${action}`}`, ctx);
+  };
+  const panel = async (ctx) => {
+    const known = new Set(groups.flatMap((group2) => group2.capabilities));
+    const available = [
+      ...groups,
+      ...manager.catalog.modules.filter((e) => !known.has(e.capability)).map((e) => ({ label: e.capability, capabilities: [e.capability] }))
+    ].filter((group2) => manager.catalog.modules.some((e) => group2.capabilities.includes(e.capability)));
+    const selected = await ctx.ui.select("Pi Enhance \xB7 \u6309\u529F\u80FD\u9009\u62E9", [
+      ...available.map((g) => g.label),
+      "status",
+      "catalog",
+      "updates",
+      "update --installed"
+    ]);
+    if (!selected) return;
+    const group = available.find((g) => g.label === selected);
+    if (!group) {
+      await run(selected, ctx);
+      return;
+    }
+    const entries = manager.catalog.modules.filter((e) => group.capabilities.includes(e.capability));
+    const labels = entries.map((e) => `${e.capability} / ${e.provider} \xB7 ${state(e)}`);
+    const choice = await ctx.ui.select(group.label, labels);
+    const entry = entries[labels.indexOf(choice ?? "")];
+    if (entry) await modulePanel(entry, ctx);
+  };
+  const run = async (args, ctx) => {
+    options.signal().throwIfAborted();
+    const words = args.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      if (ctx.mode !== "tui") report(ctx, usage);
+      else await panel(ctx);
+      return;
+    }
+    if (words[0] === "status" && words.length === 1) {
+      report(ctx, await status(ctx));
+      return;
+    }
+    if (words[0] === "catalog" && words.length === 1) {
+      report(ctx, manager.catalog.modules.map(requirements).join("\n\n"));
+      return;
+    }
+    if (words[0] === "updates" && words.length === 1) {
+      const entries = manager.updates();
+      report(
+        ctx,
+        entries.length ? entries.map(
+          (e) => `${e.id}: ${manager.installed(e.id).sha256.slice(0, 12)} \u2192 ${e.sha256.slice(0, 12)} (${(e.bytes / 1024).toFixed(1)} KiB)`
+        ).join("\n") : "No updates in this host catalog. Update the pi-enhance package first to obtain a newer catalog."
+      );
+      return;
+    }
+    if (words.join(" ") === "update --installed") {
+      await update(ctx);
+      return;
+    }
+    if (words[0] === "defaults" && words.length === 3) {
+      const [, capability2, provider2] = words;
+      if (manager.find(`${capability2}/${provider2}`).kind !== "tool")
+        throw new Error("Only tools have default providers.");
+      save((c) => ({ ...c, defaults: { ...c.defaults, [capability2]: provider2 } }));
+      report(ctx, `Saved default ${capability2}: ${provider2}. No backend calls were made.`);
+      return;
+    }
+    if (words.length < 2 || words.length > 4 || words.length === 4 && words[3] !== "--save")
+      throw new Error(usage);
+    const [provider, capability, action] = words;
+    const id = `${capability}/${provider}`, entry = manager.find(id);
+    const persist = words[3] === "--save";
+    if (persist && action !== "load" && action !== "unload")
+      throw new Error("--save is valid only with load/unload.");
+    if (!action || action === "manage") {
+      if (ctx.mode !== "tui") throw new Error("Explicit action/value required outside TUI.");
+      const control = registry.get(id)?.instance.control;
+      if (!action && control) {
+        const choice = await ctx.ui.select(`${id}: ${config().controls[control.id] ?? "off"}`, [
+          ...control.choices
+        ]);
+        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
+      } else await modulePanel(entry, ctx);
+      return;
+    }
+    if (action === "install") {
+      await manager.install(id, options.signal());
+      report(
+        ctx,
+        `Installed ${id}; not loaded by this operation. Run /pi-enhance ${provider} ${capability} enable.`
+      );
+      return;
+    }
+    if (action === "update") {
+      await update(ctx, [id]);
+      return;
+    }
+    if (action === "enable" || action === "load") {
+      if (entry.platforms && !entry.platforms.includes(process.platform))
+        throw new Error(`Module requires ${entry.platforms.join(", ")}.`);
+      const wasLoaded = !!registry.get(id);
+      if (action === "enable" && !manager.installed(id)) await manager.install(id, options.signal());
+      options.signal().throwIfAborted();
+      await load(id, ctx);
+      try {
+        if (persist || action === "enable") setAutoload(id, true);
+      } catch (error) {
+        if (!wasLoaded) {
+          await registry.unload(id);
+          refresh(ctx);
+        }
+        throw error;
+      }
+      report(
+        ctx,
+        `${action === "enable" ? "Enabled" : "Loaded"} ${id}${persist || action === "enable" ? "; saved for future Pi sessions" : "; session only"}. No model calls. Saved control values retained.${entry.auth ? ` Auth required: ${entry.auth.provider}/${entry.auth.channel}; use /login and status to check readiness.` : ""}`
+      );
+      return;
+    }
+    if (action === "disable" || action === "unload" || action === "uninstall") {
+      await remove(id, ctx, persist || action !== "unload", action === "uninstall");
+      report(
+        ctx,
+        `${action}: ${id}. Historical artifacts retained.${action === "disable" ? " Installation and control preferences retained." : ""}`
+      );
+      return;
+    }
+    if (action === "status") {
+      report(ctx, await status(ctx, entry));
+      return;
+    }
+    const instance = registry.get(id)?.instance;
+    if (!instance) throw new Error(`Load ${id} first. No implicit downloads or loading.`);
+    if (instance.control) {
+      const control = instance.control, value = control.aliases?.[action] ?? action;
+      if (!control.choices.includes(value)) throw new Error(`Choose ${control.choices.join(" / ")}`);
+      save((c) => ({ ...c, controls: { ...c.controls, [control.id]: value } }));
+      refresh(ctx);
+      report(
+        ctx,
+        `Saved ${control.id}: ${value}. ${value === "off" ? "No request override." : control.enabledNotice ?? "Only applied to supported API/models."}`
+      );
+      return;
+    }
+    if (instance.manage) {
+      report(ctx, await instance.manage(action));
+      return;
+    }
+    throw new Error(usage);
+  };
+  let busy = false;
+  pi.registerCommand("pi-enhance", {
+    description: "Optional capabilities: browse, enable, disable and update installed modules",
+    getArgumentCompletions(prefix) {
+      const candidates = [
+        "status",
+        "catalog",
+        "updates",
+        "update --installed",
+        ...manager.catalog.modules.flatMap(
+          (e) => [
+            "",
+            "enable",
+            "disable",
+            "install",
+            "load",
+            "load --save",
+            "unload",
+            "unload --save",
+            "uninstall",
+            "update",
+            "status",
+            "manage",
+            ...e.kind === "request-control" ? e.capability === "verbosity" ? ["off", "low", "medium", "high"] : ["off", "on"] : e.capability === "use_computer" ? ["ask", "auto", "reset", "revoke"] : []
+          ].map((a) => `${e.provider} ${e.capability}${a ? ` ${a}` : ""}`)
+        ),
+        ...manager.catalog.modules.filter((e) => e.kind === "tool").map((e) => `defaults ${e.capability} ${e.provider}`)
+      ];
+      const items = candidates.filter((c) => c.startsWith(prefix.trimStart())).map((value) => ({ value, label: value }));
+      return items.length ? items : null;
+    },
+    handler: async (args, ctx) => {
+      if (busy) {
+        report(ctx, "Another pi-enhance operation is running. Retry after it finishes.", true);
+        return;
+      }
+      busy = true;
+      try {
+        await ctx.waitForIdle();
+        await run(args, ctx);
+      } catch (error) {
+        report(ctx, errorText(error), true);
+      } finally {
+        busy = false;
+      }
+    }
+  });
+}
+
 // packages/hosts/pi/src/index.ts
 var command = "pi-enhance";
 var support = /* @__PURE__ */ new Set(["approval", "task-settled", "request-interception"]);
@@ -651,6 +1021,7 @@ function createPiEnhance(pi, options) {
   const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
   let previousProvider;
   let disposed = false;
+  let operations = new AbortController();
   let registered = /* @__PURE__ */ new Set();
   const knownNames = /* @__PURE__ */ new Set();
   let footerLabels = [];
@@ -711,11 +1082,8 @@ function createPiEnhance(pi, options) {
     statusLine(ctx);
   };
   const synchronize = refresh;
-  const load = async (id, ctx) => {
-    const manifest = manager.find(id);
-    const unsupported = manifest.requires?.filter((r) => !support.has(r));
-    if (unsupported?.length) throw new Error(`Host lacks: ${unsupported.join(", ")}`);
-    const module = await manager.load(id);
+  const activate = async (module, ctx) => {
+    const manifest = module.manifest, id = manifest.id;
     registry.load(module, {
       artifactRoot: join3(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
       preview: (bytes, mime) => resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 })
@@ -732,190 +1100,34 @@ function createPiEnhance(pi, options) {
       throw error;
     }
   };
+  const load = async (id, ctx) => {
+    const manifest = manager.find(id);
+    const unsupported = manifest.requires?.filter((r) => !support.has(r));
+    if (unsupported?.length) throw new Error(`Host lacks: ${unsupported.join(", ")}`);
+    const module = await manager.load(id);
+    operations.signal.throwIfAborted();
+    if (registry.get(id)) return;
+    await activate(module, ctx);
+  };
   const saveConfig = (update) => {
     config = store.update(update);
     for (const key of Object.keys(registry.defaults)) delete registry.defaults[key];
     Object.assign(registry.defaults, config.defaults);
   };
-  const status = async (ctx) => {
-    const credentials = new PiCredentialResolver(ctx.modelRegistry);
-    const lines = [];
-    for (const entry of options.catalog.modules) {
-      const loaded = registry.get(entry.id);
-      let ready = "\u2014";
-      if (loaded) {
-        if (entry.auth)
-          ready = (await credentials.resolve(entry.auth, { signal: ctx.signal, interactive: false })).status;
-        else if (entry.capability === "use_computer") ready = "runtime checked on first use";
-        else ready = "ready";
-      }
-      lines.push(
-        `${entry.id}: ${manager.installed(entry.id) ? "installed" : "not installed"}, ${loaded ? "loaded" : "unloaded"}, ${ready}`
-      );
-    }
-    return [
-      ...lines,
-      `Defaults: ${JSON.stringify(config.defaults)}`,
-      `Controls: ${JSON.stringify(config.controls)}`,
-      `Home: ${options.home}`
-    ].join("\n");
-  };
-  const usage = "/pi-enhance <provider> <capability> install|load [--save]|unload [--save]|uninstall|status; /pi-enhance openai fast on; /pi-enhance defaults gen_image openai; /pi-enhance status|catalog";
-  const run = async (args, ctx) => {
-    if (disposed) return;
-    await ctx.waitForIdle();
-    const words = args.trim().split(/\s+/).filter(Boolean);
-    if (!words.length) {
-      if (ctx.mode !== "tui") {
-        report(ctx, usage);
-        return;
-      }
-      const choices = [
-        "status",
-        "catalog",
-        ...options.catalog.modules.map((e) => `${e.provider} ${e.capability}`)
-      ];
-      const chosen = await ctx.ui.select("Pi Enhance", choices);
-      if (chosen) await run(chosen, ctx);
-      return;
-    }
-    if (words[0] === "status" && words.length === 1) {
-      report(ctx, await status(ctx));
-      return;
-    }
-    if (words[0] === "catalog" && words.length === 1) {
-      report(ctx, options.catalog.modules.map((e) => `${e.id} (${e.kind}, ${e.version})`).join("\n"));
-      return;
-    }
-    if (words[0] === "defaults" && words.length === 3) {
-      const [, capability2, provider2] = words;
-      const entry2 = manager.find(`${capability2}/${provider2}`);
-      if (entry2.kind !== "tool") throw new Error("Only tools have default providers.");
-      saveConfig((c) => ({ ...c, defaults: { ...c.defaults, [capability2]: provider2 } }));
-      report(ctx, `Saved default ${capability2}: ${provider2}. No backend calls were made.`);
-      return;
-    }
-    if (words.length < 2 || words.length > 4 || words.length === 4 && words[3] !== "--save")
-      throw new Error(usage);
-    const [provider, capability, action] = words;
-    const id = `${capability}/${provider}`, entry = manager.find(id);
-    const persist = words[3] === "--save";
-    if (persist && action !== "load" && action !== "unload")
-      throw new Error("--save is valid only with load/unload.");
-    if (!action) {
-      if (ctx.mode !== "tui") throw new Error("Explicit action/value required outside TUI.");
-      if (!registry.get(id)) {
-        const action2 = await ctx.ui.select(
-          id,
-          manager.installed(id) ? ["load", "load --save", "uninstall"] : ["install"]
-        );
-        if (action2) await run(`${provider} ${capability} ${action2}`, ctx);
-        return;
-      }
-      const control = registry.get(id)?.instance.control;
-      if (control) {
-        const choice = await ctx.ui.select(`${id}: ${config.controls[control.id] ?? "off"}`, [
-          ...control.choices
-        ]);
-        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
-      } else {
-        const choice = await ctx.ui.select(
-          id,
-          capability === "use_computer" ? ["status", "ask", "auto", "reset", "revoke", "unload"] : ["status", "unload"]
-        );
-        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
-      }
-      return;
-    }
-    if (action === "install") {
-      await manager.install(id);
-      report(ctx, `Installed ${id}; not loaded. Run /pi-enhance ${provider} ${capability} load --save.`);
-      return;
-    }
-    if (action === "load") {
-      const wasLoaded = !!registry.get(id);
-      await load(id, ctx);
-      try {
-        if (persist) saveConfig((c) => ({ ...c, autoload: [.../* @__PURE__ */ new Set([...c.autoload, id])] }));
-      } catch (error) {
-        if (!wasLoaded) {
-          await registry.unload(id);
-          synchronize(ctx);
-        }
-        throw error;
-      }
-      report(ctx, `Loaded ${id}${persist ? "; saved for future Pi sessions" : "; session only"}.`);
-      return;
-    }
-    if (action === "unload" || action === "uninstall") {
-      if (persist || action === "uninstall")
-        saveConfig((c) => ({ ...c, autoload: c.autoload.filter((value) => value !== id) }));
-      await registry.unload(id);
-      synchronize(ctx);
-      if (action === "uninstall") manager.uninstall(id);
-      report(ctx, `${action}: ${id}. Historical artifacts retained.`);
-      return;
-    }
-    if (action === "status") {
-      report(
-        ctx,
-        registry.get(id)?.instance.status ? JSON.stringify(registry.get(id).instance.status(), null, 2) : (await status(ctx)).split("\n").find((line) => line.startsWith(id)) ?? id
-      );
-      return;
-    }
-    const instance = registry.get(id)?.instance;
-    if (!instance) throw new Error(`Load ${id} first. No implicit downloads or loading.`);
-    if (instance.control) {
-      const control = instance.control, value = control.aliases?.[action] ?? action;
-      if (!control.choices.includes(value)) throw new Error(`Choose ${control.choices.join(" / ")}`);
-      saveConfig((c) => ({ ...c, controls: { ...c.controls, [control.id]: value } }));
-      statusLine(ctx);
-      report(
-        ctx,
-        `Saved ${control.id}: ${value}. ${value === "off" ? "No request override." : control.enabledNotice ?? "Only applied to supported API/models."}`
-      );
-      return;
-    }
-    if (instance.manage) {
-      report(ctx, await instance.manage(action));
-      return;
-    }
-    throw new Error(usage);
-  };
-  pi.registerCommand(command, {
-    description: "Capability installation, loading and provider settings",
-    getArgumentCompletions(prefix) {
-      const candidates = [
-        "status",
-        "catalog",
-        ...options.catalog.modules.flatMap(
-          (e) => [
-            "",
-            "install",
-            "load",
-            "load --save",
-            "unload",
-            "unload --save",
-            "uninstall",
-            "status",
-            ...e.kind === "request-control" ? e.capability === "verbosity" ? ["off", "low", "medium", "high"] : ["off", "on"] : e.capability === "use_computer" ? ["ask", "auto", "reset", "revoke"] : []
-          ].map((a) => `${e.provider} ${e.capability}${a ? ` ${a}` : ""}`)
-        ),
-        ...options.catalog.modules.filter((e) => e.kind === "tool").map((e) => `defaults ${e.capability} ${e.provider}`)
-      ];
-      const items = candidates.filter((c) => c.startsWith(prefix.trimStart())).map((value) => ({ value, label: value }));
-      return items.length ? items : null;
-    },
-    handler: async (args, ctx) => {
-      try {
-        await run(args, ctx);
-      } catch (error) {
-        report(ctx, error instanceof Error ? error.message : "Enhancement operation failed", true);
-      }
-    }
+  registerManagement(pi, {
+    manager,
+    registry,
+    config: () => config,
+    save: saveConfig,
+    load,
+    restore: activate,
+    refresh,
+    report,
+    signal: () => operations.signal
   });
   pi.on("session_start", async (_event, ctx) => {
     disposed = false;
+    if (operations.signal.aborted) operations = new AbortController();
     previousProvider = ctx.model?.provider;
     config = store.load();
     Object.assign(registry.defaults, config.defaults);
@@ -962,6 +1174,7 @@ function createPiEnhance(pi, options) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     disposed = true;
+    operations.abort();
     try {
       await registry.dispose();
     } finally {

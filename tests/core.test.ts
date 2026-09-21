@@ -371,7 +371,13 @@ test("download uses pinned HTTPS source without credentials and rejects corrupt 
     await manager.install(entry.id);
     assert.equal((await manager.load(entry.id)).manifest.kind, "request-control");
     const corrupt = new ModuleManager(home, catalog, undefined, async () => new Response("corrupt"));
+    await corrupt.install(entry.id); // Valid cached bytes avoid a redundant download.
+    const path = join(home, "packages", `${entry.sha256}-${entry.file}`);
+    await writeFile(path, "tampered");
+    const lock = await readFile(manager.lockPath, "utf8");
     await assert.rejects(corrupt.install(entry.id), /INTEGRITY/);
+    assert.equal(await readFile(manager.lockPath, "utf8"), lock);
+    await manager.install(entry.id); // Explicit install repairs a corrupt cache.
     assert.equal((await manager.load(entry.id)).manifest.id, entry.id);
   } finally {
     await rm(home, { recursive: true, force: true });

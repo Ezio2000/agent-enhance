@@ -57,8 +57,7 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
         throw new Error(String(e));
       },
     });
-    await session.prompt("/pi-enhance openai gen_image install");
-    await session.prompt("/pi-enhance openai gen_image load --save");
+    await session.prompt("/pi-enhance openai gen_image enable");
     await session.prompt("/pi-enhance xai gen_image install");
     await session.prompt("/pi-enhance xai gen_image load");
     const image = session.getAllTools().find((t) => t.name === "gen_image");
@@ -66,13 +65,12 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
     assert.deepEqual((image.parameters as any).properties.provider.enum, ["openai", "xai"]);
     assert.equal(session.getAllTools().filter((t) => t.name === "gen_image").length, 1);
     assert.ok(session.getActiveToolNames().includes("gen_image"));
-    await session.prompt("/pi-enhance xai gen_video install");
-    await session.prompt("/pi-enhance xai gen_video load");
+    await session.prompt("/pi-enhance xai gen_video enable");
     assert.ok(
       !session.getActiveToolNames().includes("gen_video"),
       "host exclusions must not be bypassed by dynamic activation",
     );
-    await session.prompt("/pi-enhance openai gen_image unload --save");
+    await session.prompt("/pi-enhance openai gen_image disable");
     assert.deepEqual(
       (session.getAllTools().find((t) => t.name === "gen_image")!.parameters as any).properties.provider.enum,
       ["xai"],
