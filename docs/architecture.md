@@ -14,9 +14,11 @@ The protocol still sends `originator: pi` for the verified Codex wire channel; i
 
 ## Tool merging
 
-`CapabilityRegistry` groups loaded implementations by capability ID. A single top-level object schema exposes the loaded provider enum. `gen_image` shares prompt/model/reference/timeout fields and namespaces divergent options under `options.openai` and `options.xai`. All other current capabilities have only one implementation and retain their established function arguments plus provider selection. Adding another implementation must define semantic common fields before merging incompatible schemas; identical spelling is not sufficient proof of compatibility.
+`CapabilityRegistry` groups loaded implementations by capability ID. A single top-level object schema exposes the loaded provider enum. `gen_image` shares prompt/model/reference/timeout fields and namespaces divergent options under `options.openai` and `options.xai`; `search_web` shares the `search_query`/`open` commands and namespaces provider-only commands and parameters the same way. The shared-field sets live in a per-capability policy map in the registry; capabilities without an entry treat every field as common. All other current capabilities have only one implementation and retain their established function arguments plus provider selection. Adding another implementation must define semantic common fields before merging incompatible schemas; identical spelling is not sufficient proof of compatibility.
 
 Routing is explicit provider, saved per-capability default, or sole loaded provider. The main agent model never selects a tool backend. Missing or ambiguous selection is an error. Arguments are checked against the merged schema and then against the selected implementation's original schema. Models, image counts, dimensions and semantic constraints are validated again by the implementation. In-flight calls keep their chosen implementation; unloading busy modules is refused. Old host-held definitions cannot call an unloaded module.
+
+A manifest may declare `modelInputExcludes` (e.g. `["image"]`): hosts keep such tools unregistered while the active model already accepts that input modality, and re-synchronize on model changes. This availability rule is derived from the host model, not a user disable, and follows the same registration path as load/unload; `view_image/zai` uses it so multimodal models never see a redundant vision tool.
 
 ## Installation
 

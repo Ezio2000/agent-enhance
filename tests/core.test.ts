@@ -12,6 +12,8 @@ import { ModuleManager, type Catalog } from "../packages/core/src/modules.ts";
 import type { CapabilityModule, ExecutionContext } from "../packages/core/src/contracts.ts";
 import openai from "../packages/capabilities/gen_image/openai/src/index.ts";
 import xai from "../packages/capabilities/gen_image/xai/src/index.ts";
+import webOpenai from "../packages/capabilities/search_web/openai/src/index.ts";
+import webZai from "../packages/capabilities/search_web/zai/src/index.ts";
 import { transformControlledRequest } from "../packages/core/src/controls.ts";
 import { annotateError } from "../packages/core/src/errors.ts";
 import { fastControl } from "../packages/capabilities/fast/openai/src/control.ts";
@@ -40,6 +42,70 @@ function fake(
     },
   };
 }
+test("search_web merge floats shared commands and namespaces provider extras", async () => {
+  const registry = new CapabilityRegistry();
+  registry.load(fake(webOpenai), services);
+  registry.load(fake(webZai), services);
+  const merged = registry.tools().find((t) => t.name === "search_web")!;
+  const top = Object.keys(merged.parameters.properties);
+  assert.ok(top.includes("search_query") && top.includes("open") && top.includes("provider"));
+  assert.ok(!top.includes("click") && !top.includes("search_engine"));
+  const options = merged.parameters.properties.options.properties as Record<
+    string,
+    { properties: Record<string, unknown> }
+  >;
+  assert.deepEqual(Object.keys(options), ["openai", "zai"]);
+  assert.ok("click" in options.openai!.properties && "finance" in options.openai!.properties);
+  assert.ok("search_engine" in options.zai!.properties && "return_format" in options.zai!.properties);
+  const seen: unknown[] = [];
+  const routed = new CapabilityRegistry();
+  routed.load(
+    {
+      ...fake(webZai),
+      create(s) {
+        const instance = fake(webZai).create(s);
+        instance.tool = {
+          ...instance.tool!,
+          execute: async (_id, args) => {
+            seen.push(args);
+            return { content: [{ type: "text", text: "ok" }], details: {} };
+          },
+        };
+        return instance;
+      },
+    },
+    services,
+  );
+  const zaiTool = routed.tools()[0]!;
+  await zaiTool.execute(
+    "c1",
+    {
+      provider: "zai",
+      search_query: [{ q: "x" }],
+      options: { zai: { search_engine: "search_pro", count: 5 } },
+    },
+    undefined,
+    undefined,
+    context,
+  );
+  assert.deepEqual(seen[0], { search_query: [{ q: "x" }], search_engine: "search_pro", count: 5 });
+  await assert.rejects(
+    merged.execute(
+      "c2",
+      {
+        provider: "zai",
+        search_query: [{ q: "x" }],
+        options: { openai: { click: [{ ref_id: "1", id: 1 }] } },
+      } as never,
+      undefined,
+      undefined,
+      context,
+    ),
+    /PROVIDER_OPTIONS/,
+  );
+  await registry.dispose();
+});
+
 test("same capability is merged once; only loaded provider options appear", async () => {
   const registry = new CapabilityRegistry();
   assert.equal(registry.tools().length, 0);

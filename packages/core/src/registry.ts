@@ -15,7 +15,13 @@ export interface LoadedModule {
   module: CapabilityModule;
   instance: ModuleInstance;
 }
-const imageCommon = new Set(["prompt", "images", "model", "timeout_seconds"]);
+// Capabilities whose implementations share command/parameter vocabulary float those fields to the
+// top level; every other provider-specific field moves under options.<provider>. Capabilities absent
+// from this map keep the default behaviour: all fields are treated as common and float up by name.
+const COMMON_FIELDS: Record<string, readonly string[]> = {
+  gen_image: ["prompt", "images", "model", "timeout_seconds"],
+  search_web: ["search_query", "open"],
+};
 const strings = (values: string[]) => Type.Unsafe<string>({ type: "string", enum: [...new Set(values)] });
 const object = (x: unknown): x is Record<string, unknown> =>
   !!x && typeof x === "object" && !Array.isArray(x);
@@ -95,7 +101,8 @@ export class CapabilityRegistry {
       const specific: Record<string, TSchema> = {};
       const required: string[] = schema.required ?? [];
       for (const [key, field] of Object.entries(schema.properties as Record<string, TSchema>)) {
-        if (capability === "gen_image" && !imageCommon.has(key))
+        const common = COMMON_FIELDS[capability];
+        if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : Type.Optional(field);
         else if (!properties[key]) properties[key] = required.includes(key) ? field : Type.Optional(field);
       }
@@ -138,7 +145,7 @@ export class CapabilityRegistry {
       name: capability,
       label: capability,
       description:
-        `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback. Provider-specific image parameters belong in options.<provider>.\n` +
+        `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback.${COMMON_FIELDS[capability] ? ` Shared fields stay at the top level; provider-specific parameters belong in options.<provider>.` : ""}\n` +
         entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool!.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool!.promptGuidelines ?? []))],

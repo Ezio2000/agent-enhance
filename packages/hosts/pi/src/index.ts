@@ -91,8 +91,24 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
         footerLabels.length ? footerLabels.map((l) => `${l.id}:${l.value}`).join(" ") : undefined,
       );
   };
+  /** Tools whose manifest excludes them for the active model's input modalities stay unregistered. */
+  const excludedCapabilities = (ctx: ExtensionContext): Set<string> => {
+    const input = modelInfo(ctx.model)?.input;
+    if (!input?.length) return new Set();
+    return new Set(
+      registry
+        .list()
+        .filter(
+          (e) =>
+            e.instance.tool &&
+            e.module.manifest.modelInputExcludes?.some((modality) => input.includes(modality)),
+        )
+        .map((e) => e.module.manifest.capability),
+    );
+  };
   const refresh = (ctx: ExtensionContext) => {
-    const tools = registry.tools();
+    const excluded = excludedCapabilities(ctx);
+    const tools = registry.tools().filter((tool) => !excluded.has(tool.name));
     const active = new Set(pi.getActiveTools());
     for (const tool of tools) {
       const collision = pi.getAllTools().find((t) => t.name === tool.name);
@@ -125,6 +141,11 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     });
     try {
       synchronize(ctx);
+      if (manifest.modelInputExcludes?.length)
+        report(
+          ctx,
+          `${id}: registered only while the active model lacks ${manifest.modelInputExcludes.join("/")} input.`,
+        );
     } catch (error) {
       await registry.unload(id);
       throw error;
@@ -352,7 +373,9 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
       await registry.lifecycle("provider_change");
     previousProvider = current;
     statusLine({ ...ctx, model: currentModel });
-    // Never reactivate tools here: user-disabled tools remain disabled.
+    // Availability rules derived from the new model (e.g. view_image for text-only models)
+    // re-synchronize registration; user-disabled tools still stay disabled inside refresh.
+    synchronize({ ...ctx, model: currentModel });
   });
   pi.on("before_provider_request", (event, ctx) => {
     if (disposed) return;

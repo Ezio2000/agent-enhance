@@ -6,6 +6,8 @@ const channels: Record<string, string> = {
   "xai/imagine": "xai",
   "opencode/go": "opencode-go",
   "minimax/token-plan": "minimax-cn",
+  "zai/coding-plan": "zai",
+  "zai/coding-plan-cn": "zai-coding-cn",
 };
 export class PiCredentialResolver implements CredentialResolver {
   constructor(private readonly registry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth">) {}
@@ -46,7 +48,9 @@ export class PiCredentialResolver implements CredentialResolver {
         if (typeof value === "string") headers.set(key, value);
       const secret = auth?.apiKey ?? headers.get("authorization")?.replace(/^Bearer\s+/i, "");
       if (!secret) return { status: "missing", guidance };
-      const kind = ["opencode-go", "minimax-cn", "minimax"].includes(provider) ? "api_key" : "oauth";
+      const kind = ["opencode-go", "minimax-cn", "minimax", "zai", "zai-coding-cn"].includes(provider)
+        ? "api_key"
+        : "oauth";
       if (kind === "oauth" && secret.split(".").length !== 3)
         return {
           status: "login_required",

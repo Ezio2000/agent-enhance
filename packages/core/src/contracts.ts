@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { CredentialResolver } from "./auth.ts";
 
-export type ProviderId = "openai" | "xai" | "opencode" | "minimax";
+export type ProviderId = "openai" | "xai" | "opencode" | "minimax" | "zai";
 export interface ModelInfo {
   id: string;
   provider: string;
@@ -60,6 +60,8 @@ export interface ModuleManifest {
   version: string;
   auth?: AuthRequirement;
   platforms?: string[];
+  /** Tool is only exposed while the active host model lacks every listed input modality (e.g. ["image"]). */
+  modelInputExcludes?: readonly string[];
   requires?: ("approval" | "task-settled" | "request-interception")[];
 }
 export interface ModuleServices {

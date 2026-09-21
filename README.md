@@ -10,7 +10,7 @@
 - `packages/hosts/pi`：Pi 工具、命令、登录态解析、UI 与生命周期桥接。
 - `dist/core.mjs`：可脱离 Pi 导入的自包含基座。未来宿主只需实现契约；**当前没有声称支持 Claude Code**。
 
-供应商 ID 为 `openai`、`xai`、`opencode`、`minimax`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
+供应商 ID 为 `openai`、`xai`、`opencode`、`minimax`、`zai`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
 
 ## 安装与迁移
 
@@ -48,18 +48,19 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 ## 能力与工具
 
-| 工具／能力 ID  | 供应商               | 说明                                             |
-| -------------- | -------------------- | ------------------------------------------------ |
-| `gen_image`    | openai、xai、minimax | 图片生成／编辑；只注册一个工具（minimax 仅生成） |
-| `gen_video`    | xai                  | 视频生成                                         |
-| `gen_voice`    | minimax              | 语音合成（TTS），卡片上报真实字符用量            |
-| `view_pdf`     | opencode             | Muse Spark 查看本地 PDF                          |
-| `view_video`   | opencode             | Muse Spark 查看本地视频；不支持音频              |
-| `search_web`   | openai               | 搜索、浏览、图片查询、天气／金融等               |
-| `use_computer` | openai               | macOS 原生 Computer Use                          |
-| `fast`         | openai               | 请求增强，不注册工具                             |
-| `verbosity`    | openai               | 请求增强，不注册工具                             |
-| `image_detail` | openai               | 请求增强，不注册工具                             |
+| 工具／能力 ID  | 供应商               | 说明                                                                                                                                                     |
+| -------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gen_image`    | openai、xai、minimax | 图片生成／编辑；只注册一个工具（minimax 仅生成）                                                                                                         |
+| `gen_video`    | xai                  | 视频生成                                                                                                                                                 |
+| `gen_voice`    | minimax              | 语音合成（TTS），卡片上报真实字符用量                                                                                                                    |
+| `view_pdf`     | opencode             | Muse Spark 查看本地 PDF                                                                                                                                  |
+| `view_video`   | opencode             | Muse Spark 查看本地视频；不支持音频                                                                                                                      |
+| `search_web`   | openai、zai          | 搜索、浏览、图片查询、天气／金融等；zai 走 GLM Coding Plan 工具 API（search_query/open 公共命令，openai 独有命令与 zai 独有参数分列 options.<provider>） |
+| `use_computer` | openai               | macOS 原生 Computer Use                                                                                                                                  |
+| `view_image`   | zai                  | GLM 视觉看图／看视频（OCR、UI 转代码、报错诊断、图表理解等 8 类任务）；仅在当前模型不能直接读图时注册，消耗 Coding Plan 额度                             |
+| `fast`         | openai               | 请求增强，不注册工具                                                                                                                                     |
+| `verbosity`    | openai               | 请求增强，不注册工具                                                                                                                                     |
+| `image_detail` | openai               | 请求增强，不注册工具                                                                                                                                     |
 
 工具名使用下划线，不带供应商。两个图片模块同时加载时仍只有一个 `gen_image`；卸载某供应商后，其参数会从 Schema 消失。最后一个实现卸载后，工具从活动工具集移除。宿主的工具排除规则仍然有效。
 
@@ -118,14 +119,17 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 基座只认识 `CredentialResolver` 与 `(provider, channel, acceptedKinds)`。Pi 实现委托 `modelRegistry.getProviderAuth()` 获取／刷新认证，不自行扫描或复制认证文件。
 
-| 能力渠道             | Pi 认证来源  | 接受类型                       |
-| -------------------- | ------------ | ------------------------------ |
-| openai / codex       | openai-codex | 订阅 OAuth                     |
-| xai / imagine        | xai          | OAuth                          |
-| opencode / go        | opencode-go  | API Key                        |
-| minimax / token-plan | minimax-cn   | Token Plan API Key（`sk-cp-`） |
+| 能力渠道             | Pi 认证来源             | 接受类型                       |
+| -------------------- | ----------------------- | ------------------------------ |
+| openai / codex       | openai-codex            | 订阅 OAuth                     |
+| xai / imagine        | xai                     | OAuth                          |
+| opencode / go        | opencode-go             | API Key                        |
+| minimax / token-plan | minimax-cn              | Token Plan API Key（`sk-cp-`） |
+| zai / coding-plan    | zai（或 zai-coding-cn） | GLM Coding Plan API Key        |
 
 使用 Pi 原生 `/login` 配置对应渠道。平台 OpenAI API Key 不能替代 Codex OAuth。将来其他 Agent 自行实现获取方式与登录引导；现有 `StaticCredentialResolver` 可用于显式配置的独立宿主和测试。凭据只发送至相应供应商的固定受限地址，日志脱敏，拒绝认证请求重定向。
+
+zai 渠道面向 GLM Coding Plan 订阅：search_web/zai 与 view_image/zai 直连订阅自带的工具 API（`/api/coding/paas/v4` 下的 `web_search`、`reader` 与多模态 `chat/completions`），与模型调用共享套餐额度，按官方 MCP 同口径计费（搜索／阅读按次，视觉按 token）。仅限个人编码场景交互式使用；密钥严禁共享或转售。view_image 的任务提示词来自官方 `@z_ai/mcp-server`（Apache-2.0），原样内置并保留署名。
 
 Muse contributor 模型涉及上游数据使用政策，勿上传机密。Computer Use 使用外部官方运行时，其本地登录／系统权限检查与本项目的云 API 凭据接口分开。
 
