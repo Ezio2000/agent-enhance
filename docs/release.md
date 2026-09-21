@@ -15,9 +15,9 @@
 
 ## Local replacement
 
-Back up Pi settings first. Keep the source directories and old artifacts. Register only the new local repository or the updated remote package; remove old grok-enhance and muse-enhance entries and any duplicate old Codex extension entry. Do not remove unrelated extensions. Restart Pi or use its native `/reload` in existing sessions.
+Back up Pi settings first. Keep the source directories and old artifacts. Register only one Agent Enhance package source and remove duplicate package entries. Do not remove unrelated extensions. Restart Pi or use its native `/reload` in existing sessions.
 
-Run `/pi-enhance migrate` to import unset request preferences. Use explicit install/load commands for the capabilities to retain, and save defaults for ambiguous tools such as `gen_image`. Neither migration nor installation copies API keys or OAuth credentials.
+Use explicit install/load commands for the capabilities to retain, and save defaults for ambiguous tools such as `gen_image`. Installation does not copy API keys or OAuth credentials.
 
 The optional `npm run setup -- --all` development helper runs those same commands through a real Pi SDK session, installing and saving all 10 modules, preserving preexisting control preferences. It does not invoke cloud models.
 

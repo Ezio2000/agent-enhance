@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  getAgentDir,
   resizeImage,
   type ExtensionAPI,
   type ExtensionContext,
@@ -18,15 +17,6 @@ import { piHistory } from "./history.ts";
 
 const command = "pi-enhance";
 const support = new Set(["approval", "task-settled", "request-interception"]);
-const oldNames = new Set([
-  "codex_image",
-  "codex_web",
-  "codex_computer",
-  "grok_image",
-  "grok_video",
-  "muse_pdf",
-  "muse_video",
-]);
 export function modelInfo(model: ExtensionContext["model"]): ModelInfo | undefined {
   if (!model) return;
   return {
@@ -107,8 +97,6 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   };
   const synchronize = refresh;
   const load = async (id: string, ctx: ExtensionContext) => {
-    if (pi.getAllTools().some((t) => oldNames.has(t.name)))
-      throw new Error("Remove legacy enhance extensions before loading capabilities.");
     const manifest = manager.find(id);
     const unsupported = manifest.requires?.filter((r) => !support.has(r));
     if (unsupported?.length) throw new Error(`Host lacks: ${unsupported.join(", ")}`);
@@ -154,7 +142,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     ].join("\n");
   };
   const usage =
-    "/pi-enhance <provider> <capability> install|load [--save]|unload [--save]|uninstall|status; /pi-enhance openai fast on; /pi-enhance defaults gen_image openai; /pi-enhance status|catalog|migrate";
+    "/pi-enhance <provider> <capability> install|load [--save]|unload [--save]|uninstall|status; /pi-enhance openai fast on; /pi-enhance defaults gen_image openai; /pi-enhance status|catalog";
   const run = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     if (disposed) return;
     await ctx.waitForIdle();
@@ -179,26 +167,6 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     }
     if (words[0] === "catalog" && words.length === 1) {
       report(ctx, options.catalog.modules.map((e) => `${e.id} (${e.kind}, ${e.version})`).join("\n"));
-      return;
-    }
-    if (words[0] === "migrate" && words.length === 1) {
-      const legacyPath = join(getAgentDir(), "openai-codex-enhance.json");
-      if (!existsSync(legacyPath)) {
-        report(ctx, "No legacy request preferences found. No credentials or old artifacts are moved.");
-        return;
-      }
-      const legacy = JSON.parse(readFileSync(legacyPath, "utf8"));
-      if (legacy.version !== 1 || !legacy.values) throw new Error("Invalid legacy preferences.");
-      const migrated: Record<string, string> = {};
-      for (const [key, values] of Object.entries({
-        fast: ["off", "on"],
-        verbosity: ["off", "low", "medium", "high"],
-        "image-detail": ["off", "original"],
-      })) {
-        if (values.includes(legacy.values[key])) migrated[key.replaceAll("-", "_")] = legacy.values[key];
-      }
-      saveConfig((c) => ({ ...c, controls: { ...migrated, ...c.controls } }));
-      report(ctx, "Imported unset request preferences; legacy file, credentials and artifacts retained.");
       return;
     }
     if (words[0] === "defaults" && words.length === 3) {
@@ -312,7 +280,6 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
       const candidates = [
         "status",
         "catalog",
-        "migrate",
         ...options.catalog.modules.flatMap((e) =>
           [
             "",
@@ -352,15 +319,6 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   pi.on("session_start", async (_event, ctx) => {
     disposed = false;
     previousProvider = ctx.model?.provider;
-    const old = pi.getAllTools().filter((t) => oldNames.has(t.name));
-    if (old.length) {
-      report(
-        ctx,
-        "Legacy enhance extensions are still installed. Remove them before loading pi-enhance capabilities.",
-        true,
-      );
-      return;
-    }
     config = store.load();
     Object.assign(registry.defaults, config.defaults);
     for (const id of config.autoload) {

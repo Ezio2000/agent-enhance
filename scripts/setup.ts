@@ -46,7 +46,6 @@ try {
       console.log(last.content);
     }
   }
-  await session.prompt("/pi-enhance migrate");
   const store = new ConfigStore(enhanceHome(), "pi");
   if (!store.load().defaults.gen_image) await session.prompt("/pi-enhance defaults gen_image openai");
   for (const entry of catalog.modules)
