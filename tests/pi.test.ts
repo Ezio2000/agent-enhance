@@ -16,6 +16,7 @@ async function harness(home: string) {
     commands = new Map<string, any>();
   const messages: string[] = [];
   const statusCalls: Array<[string, string | undefined]> = [];
+  let nextChoice: string | undefined;
   const pi = {
     registerTool(tool: any) {
       tools.set(tool.name, tool);
@@ -47,7 +48,7 @@ async function harness(home: string) {
       setStatus(id: string, value?: string) {
         statusCalls.push([id, value]);
       },
-      select: async () => undefined,
+      select: async () => nextChoice,
       notify(message: string) {
         messages.push(message);
       },
@@ -84,6 +85,9 @@ async function harness(home: string) {
     },
     messages,
     statuses: () => statusCalls,
+    chooseOnce: (value: string | undefined) => {
+      nextChoice = value;
+    },
   };
 }
 test("Pi commands install/load two providers but expose only one image tool; unload/reload updates schema", async () => {
@@ -158,7 +162,7 @@ test("Pi preferences accept explicit values headlessly and do not silently load/
     });
     assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
     await h.command("openai fast off");
-    assert.equal(h.statuses().at(-1)?.[1], undefined);
+    assert.equal(h.statuses().at(-1)?.[1], "fast:off");
     assert.match(await h.command("openai fast"), /Explicit action/);
     assert.match(await h.command("openai fast nonsense"), /Choose/);
     assert.match(await h.command("defaults gen_image openai"), /Saved default/);
@@ -168,6 +172,24 @@ test("Pi preferences accept explicit values headlessly and do not silently load/
         .getArgumentCompletions("openai fast ")
         .some((i: any) => i.value === "openai fast on"),
     );
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+test("Pi control panel applies one selection and returns instead of reopening", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-pi-"));
+  try {
+    const h = await harness(home);
+    (h.ctx as any).mode = "tui";
+    await h.emit("session_start");
+    await h.command("openai fast install");
+    await h.command("openai fast load");
+    h.chooseOnce("on");
+    await h.command("openai fast");
+    h.chooseOnce(undefined);
+    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
+    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
     await h.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });

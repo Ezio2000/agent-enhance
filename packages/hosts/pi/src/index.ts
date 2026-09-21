@@ -79,15 +79,10 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
           value = config.controls[control.id] ?? "off";
         return [control.id, control.formatValue ? control.formatValue(value, model!) : value];
       });
-    if (!labels.length) {
-      if (ctx.hasUI) ctx.ui.setStatus(command, undefined);
-      return;
-    }
-    const active = labels.filter(([, value]) => value !== "off");
     if (ctx.hasUI)
       ctx.ui.setStatus(
         command,
-        active.length ? active.map(([id, value]) => `${id}:${value}`).join(" ") : undefined,
+        labels.length ? labels.map(([id, value]) => `${id}:${value}`).join(" ") : undefined,
       );
   };
   const refresh = (ctx: ExtensionContext) => {
@@ -211,16 +206,13 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
         if (action) await run(`${provider} ${capability} ${action}`, ctx);
         return;
       }
-      // A persistent panel: changing a value returns to the same selector until Esc.
+      // One selection applies immediately and closes the panel; Esc cancels without changing anything.
       const control = registry.get(id)?.instance.control;
       if (control) {
-        while (!disposed) {
-          const choice = await ctx.ui.select(`${id}: ${config.controls[control.id] ?? "off"}`, [
-            ...control.choices,
-          ]);
-          if (!choice) break;
-          await run(`${provider} ${capability} ${choice}`, ctx);
-        }
+        const choice = await ctx.ui.select(`${id}: ${config.controls[control.id] ?? "off"}`, [
+          ...control.choices,
+        ]);
+        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
       } else {
         const choice = await ctx.ui.select(
           id,

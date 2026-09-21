@@ -111,7 +111,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 最后两项也要求事先安装／加载对应模块。`fast` 设置 `service_tier=priority`，可能增加额度消耗；`verbosity` 控制回答详细程度；`image_detail on` 对应 `original`，不关闭宿主图片缩放。`off` 表示不覆盖原请求。仅作用于支持的 OpenAI Codex 主模型请求，不影响独立工具。
 
-`/pi-enhance` 打开选择面板；`/pi-enhance openai fast` 打开持续设置选择器，Enter 保存并继续，Esc 退出。提供命令参数补全及标准 Pi 状态栏，不替换整个 Footer。非交互模式须提供显式操作或值。
+`/pi-enhance` 打开选择面板；`/pi-enhance openai fast` 打开设置选择器，选中即保存并返回，Esc 取消不改值。状态栏仅在当前主模型为受支持的 OpenAI Codex Responses 模型时显示各控制当前值，切到其他模型即隐藏。提供命令参数补全及标准 Pi 状态栏，不替换整个 Footer。非交互模式须提供显式操作或值。
 
 ## 认证
 
