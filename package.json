@@ -33,6 +33,7 @@
     "check": "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test",
     "smoke": "tsx scripts/smoke.ts",
     "setup": "tsx scripts/setup.ts",
+    "verify:distribution": "tsx scripts/verify-distribution.ts",
     "format": "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
     "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
   },

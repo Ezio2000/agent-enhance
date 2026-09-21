@@ -7,7 +7,7 @@
 3. Commit source and `dist/modules/*.mjs` together.
 4. Set the immutable module revision with `MODULE_REVISION=<that-commit> npm run build`.
 5. Commit the catalog / Pi bundle update. The referenced revision must contain byte-identical module files.
-6. Test installation with the local module directory absent so the HTTPS integrity-pinned download path is exercised.
+6. Run `npm run verify:distribution -- --download`: it downloads both image backends without a local source and tests remote install/load from the minimal tarball in a fresh Pi process.
 7. Run `npm pack --dry-run` and confirm the Pi tarball excludes `dist/modules`.
 8. Merge the tested commits into the existing repository's main branch, without force pushing.
 
