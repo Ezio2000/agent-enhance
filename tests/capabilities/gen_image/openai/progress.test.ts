@@ -82,7 +82,7 @@ test("missing quota headers degrade silently with no quota line", async () => {
 
 test("ticker emits periodic progress updates and is cleaned up", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "enhance-progress-"));
-  t.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 });
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
   try {
     const updates: string[] = [];
     let release!: () => void;
@@ -112,6 +112,43 @@ test("ticker emits periodic progress updates and is cleaned up", async (t) => {
     assert.match(updates[2]!, /⏱ 2s/);
     t.mock.timers.tick(5000);
     assert.equal(updates.length, 3, "settled execution must clear its ticker");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("progress updates back off so long generations stop redrawing finished images", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "enhance-progress-"));
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+  try {
+    const updates: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const client = {
+      images: async () => {
+        await gate;
+        return { data: okImage, quota: undefined };
+      },
+    } as unknown as ImageClient;
+    const tool = imageTool({ client: () => client, artifacts: new ImageArtifactStore(root) });
+    const execution = tool.execute(
+      "call",
+      { prompt: "long generation" },
+      undefined,
+      (update) => updates.push(String(update.content[0]?.text)),
+      ctx(root),
+    );
+    for (const delay of [1000, 1000, 2000, 3000]) t.mock.timers.tick(delay);
+    const beforeIdle = updates.length;
+    // A fixed one-second cadence would keep redrawing the transcript here.
+    t.mock.timers.tick(3000);
+    assert.equal(updates.length, beforeIdle, "no extra update within the backed-off interval");
+    t.mock.timers.tick(2000);
+    assert.equal(updates.length, beforeIdle + 1, "the next update still arrives");
+    release();
+    await execution;
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -207,6 +207,30 @@ function annotateError(error, suffix) {
   }
 }
 
+// packages/core/src/tickers.ts
+var TICK_DELAYS_MS = [1e3, 1e3, 2e3, 3e3, 5e3, 8e3, 12e3, 18e3, 25e3];
+function createProgressTicker(tick) {
+  let index = 0;
+  let timer;
+  let disposed = false;
+  const schedule = () => {
+    const delay2 = TICK_DELAYS_MS[Math.min(index, TICK_DELAYS_MS.length - 1)];
+    index += 1;
+    timer = setTimeout(() => {
+      if (disposed) return;
+      tick();
+      schedule();
+    }, delay2);
+  };
+  schedule();
+  return {
+    dispose() {
+      disposed = true;
+      if (timer !== void 0) clearTimeout(timer);
+    }
+  };
+}
+
 // packages/capabilities/gen_image/xai/src/artifacts.ts
 import { mkdir as mkdir2, mkdtemp as mkdtemp2, readFile, writeFile as writeFile2, rm as rm2 } from "node:fs/promises";
 import { join as join2, resolve } from "node:path";
@@ -8961,7 +8985,7 @@ function videoTool(deps) {
         details: { status: "in_progress", mode, elapsedSeconds: elapsed() }
       });
       progress();
-      const ticker = setInterval(progress, 1e3);
+      const ticker = createProgressTicker(progress);
       let result;
       try {
         result = await deps.client(ctx).videos(request, {
@@ -8975,7 +8999,7 @@ function videoTool(deps) {
 Prompt: "${promptSnippetText(request.prompt || "(no prompt)")}" \xB7 elapsed ${formatElapsed(elapsed())}`
         );
       } finally {
-        clearInterval(ticker);
+        ticker.dispose();
       }
       const video = await deps.artifacts.saveVideo(ctx.sessionId, result.bytes, signal);
       return {

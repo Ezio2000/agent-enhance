@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { Value } from "typebox/value";
 import type { ExecutionContext, ToolDefinition } from "../../../../core/src/contracts.ts";
 import { annotateError } from "../../../../core/src/errors.ts";
+import { createProgressTicker } from "../../../../core/src/tickers.ts";
 import { ImageArtifactStore, MAX_IMAGE_BYTES, MAX_TOTAL_INPUT_BYTES, resolveImage } from "./artifacts.ts";
 import { ImageClient } from "./client.ts";
 import {
@@ -115,7 +116,7 @@ export function imageTool(deps: ImageDependencies): ToolDefinition<typeof ImageS
       });
       onUpdate?.(progressUpdate());
       // 1s ticker keeps the timer moving; quota appears once response headers arrive.
-      const ticker = setInterval(() => onUpdate?.(progressUpdate()), 1000);
+      const ticker = createProgressTicker(() => onUpdate?.(progressUpdate()));
       let result: Awaited<ReturnType<ImageClient["images"]>>;
       try {
         result = await deps.client(ctx).images(request, {
@@ -145,7 +146,7 @@ export function imageTool(deps: ImageDependencies): ToolDefinition<typeof ImageS
           .join(" · ");
         throw annotateError(error, `\nPrompt: "${promptSnippetText(request.prompt)}" · ${context}`);
       } finally {
-        clearInterval(ticker);
+        ticker.dispose();
       }
       signal?.throwIfAborted();
       const images = await deps.artifacts.saveImages(ctx.sessionId, result.data.data, signal);

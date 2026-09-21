@@ -8822,6 +8822,30 @@ function annotateError(error, suffix) {
   }
 }
 
+// packages/core/src/tickers.ts
+var TICK_DELAYS_MS = [1e3, 1e3, 2e3, 3e3, 5e3, 8e3, 12e3, 18e3, 25e3];
+function createProgressTicker(tick) {
+  let index = 0;
+  let timer;
+  let disposed = false;
+  const schedule = () => {
+    const delay = TICK_DELAYS_MS[Math.min(index, TICK_DELAYS_MS.length - 1)];
+    index += 1;
+    timer = setTimeout(() => {
+      if (disposed) return;
+      tick();
+      schedule();
+    }, delay);
+  };
+  schedule();
+  return {
+    dispose() {
+      disposed = true;
+      if (timer !== void 0) clearTimeout(timer);
+    }
+  };
+}
+
 // packages/capabilities/gen_image/openai/src/warnings.ts
 function imageWarnings(request, response, actual = []) {
   const warnings = [...response.warnings ?? []];
@@ -9117,7 +9141,7 @@ function imageTool(deps) {
         details: { status: "in_progress", elapsedSeconds: elapsedSeconds(), ...quota ? { quota } : {} }
       });
       onUpdate?.(progressUpdate());
-      const ticker = setInterval(() => onUpdate?.(progressUpdate()), 1e3);
+      const ticker = createProgressTicker(() => onUpdate?.(progressUpdate()));
       let result;
       try {
         result = await deps.client(ctx).images(request, {
@@ -9146,7 +9170,7 @@ function imageTool(deps) {
         throw annotateError(error, `
 Prompt: "${promptSnippetText(request.prompt)}" \xB7 ${context}`);
       } finally {
-        clearInterval(ticker);
+        ticker.dispose();
       }
       signal?.throwIfAborted();
       const images = await deps.artifacts.saveImages(ctx.sessionId, result.data.data, signal);
