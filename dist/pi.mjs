@@ -416,10 +416,10 @@ var PiCredentialResolver = class {
         AbortSignal.timeout(15e3)
       ]);
       const resolved = await new Promise(
-        (resolve, reject) => {
+        (resolve2, reject) => {
           const abort = () => reject(signal.reason);
           signal.addEventListener("abort", abort, { once: true });
-          this.registry.getProviderAuth(provider).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+          this.registry.getProviderAuth(provider).then(resolve2, reject).finally(() => signal.removeEventListener("abort", abort));
         }
       );
       context.signal?.throwIfAborted();
@@ -473,6 +473,140 @@ function piHistory(entries) {
   });
 }
 
+// packages/hosts/pi/src/footer.ts
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+var sanitize = (text) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+var formatTokens = (count) => {
+  if (count < 1e3) return count.toString();
+  if (count < 1e4) return `${(count / 1e3).toFixed(1)}k`;
+  if (count < 1e6) return `${Math.round(count / 1e3)}k`;
+  if (count < 1e7) return `${(count / 1e6).toFixed(1)}M`;
+  return `${Math.round(count / 1e6)}M`;
+};
+var formatCwd = (cwd, home) => {
+  if (!home) return cwd;
+  const relativePath = relative(resolve(home), resolve(cwd));
+  const inside = relativePath === "" || relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
+  if (!inside) return cwd;
+  return relativePath === "" ? "~" : `~${sep}${relativePath}`;
+};
+function installEnhanceFooter(ctx, statusKey, getLabels) {
+  if (ctx.mode !== "tui" || !ctx.hasUI) return;
+  ctx.ui.setFooter((tui, theme, footerData) => {
+    const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+    return {
+      dispose: unsubscribe,
+      invalidate() {
+      },
+      render(width) {
+        let pwd = formatCwd(ctx.sessionManager.getCwd(), process.env.HOME ?? process.env.USERPROFILE);
+        const branch = footerData.getGitBranch();
+        if (branch) pwd = `${pwd} (${branch})`;
+        const sessionName = ctx.sessionManager.getSessionName();
+        if (sessionName) pwd = `${pwd} \u2022 ${sessionName}`;
+        const labels = getLabels().filter((label) => label.value.length > 0);
+        const labelsPlain = labels.map((label) => `${label.id}:${label.value}`).join(" ");
+        const minGap = 2;
+        const pwdWidth = visibleWidth(pwd);
+        let labelsText;
+        if (labelsPlain && pwdWidth + minGap + visibleWidth(labelsPlain) <= width) {
+          labelsText = labelsPlain;
+        } else if (labelsPlain) {
+          const available = width - pwdWidth - minGap;
+          if (available >= 8) labelsText = truncateToWidth(labelsPlain, available, "\u2026");
+        }
+        let firstLine = theme.fg("dim", truncateToWidth(pwd, width, theme.fg("dim", "...")));
+        if (labelsText) {
+          const styled = labels.map((label) => theme.fg(label.active ? "accent" : "dim", `${label.id}:${label.value}`)).join(" ");
+          if (labelsText === labelsPlain) {
+            const padding = " ".repeat(width - pwdWidth - visibleWidth(labelsPlain));
+            firstLine = theme.fg("dim", pwd) + padding + styled;
+          } else {
+            firstLine = theme.fg("dim", pwd) + " ".repeat(minGap) + theme.fg("dim", labelsText);
+          }
+        }
+        let input = 0, output = 0, cacheRead = 0, cacheWrite = 0, cost = 0;
+        let latestCacheHitRate;
+        const add = (usage) => {
+          input += usage.input;
+          output += usage.output;
+          cacheRead += usage.cacheRead;
+          cacheWrite += usage.cacheWrite;
+          cost += usage.cost?.total ?? 0;
+        };
+        for (const entry of ctx.sessionManager.getEntries()) {
+          if (entry.type === "usage" && entry.usage) add(entry.usage);
+          else if (entry.type === "message" && entry.message?.role === "assistant" && entry.message.usage) {
+            add(entry.message.usage);
+            const promptTokens = entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+            latestCacheHitRate = promptTokens > 0 ? entry.message.usage.cacheRead / promptTokens * 100 : void 0;
+          } else if (entry.type === "message" && entry.message?.role === "toolResult" && entry.message.usage)
+            add(entry.message.usage);
+          else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage)
+            add(entry.usage);
+        }
+        const statsParts = [];
+        if (input) statsParts.push(`\u2191${formatTokens(input)}`);
+        if (output) statsParts.push(`\u2193${formatTokens(output)}`);
+        if (cacheRead) statsParts.push(`R${formatTokens(cacheRead)}`);
+        if (cacheWrite) statsParts.push(`W${formatTokens(cacheWrite)}`);
+        if ((cacheRead > 0 || cacheWrite > 0) && latestCacheHitRate !== void 0)
+          statsParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+        const usingSubscription = ctx.model?.provider === "kimi-coding";
+        if (cost || usingSubscription)
+          statsParts.push(`$${cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+        const contextUsage = ctx.getContextUsage();
+        const contextWindow = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+        const percent = contextUsage?.percent ?? 0;
+        const contextDisplay = contextUsage?.percent == null ? `?/${formatTokens(contextWindow)}` : `${percent.toFixed(1)}%/${formatTokens(contextWindow)}`;
+        statsParts.push(
+          percent > 90 ? theme.fg("error", contextDisplay) : percent > 70 ? theme.fg("warning", contextDisplay) : contextDisplay
+        );
+        if (process.env.PI_EXPERIMENTAL === "1")
+          statsParts.push(`${theme.fg("dim", "\u2022")} ${theme.fg("warning", "xp")}`);
+        let statsLeft = statsParts.join(" ");
+        let statsLeftWidth = visibleWidth(statsLeft);
+        if (statsLeftWidth > width) {
+          statsLeft = truncateToWidth(statsLeft, width, "...");
+          statsLeftWidth = visibleWidth(statsLeft);
+        }
+        const modelName = ctx.model?.id || "no-model";
+        let rightSide = modelName;
+        if (ctx.model?.reasoning) {
+          const thinkingLevel = ctx.thinkingLevel || "off";
+          rightSide = thinkingLevel === "off" ? `${modelName} \u2022 thinking off` : `${modelName} \u2022 ${thinkingLevel}`;
+        }
+        if (footerData.getAvailableProviderCount() > 1 && ctx.model) {
+          const withProvider = `(${ctx.model.provider}) ${rightSide}`;
+          if (statsLeftWidth + 2 + visibleWidth(withProvider) <= width) rightSide = withProvider;
+        }
+        const rightWidth = visibleWidth(rightSide);
+        const lines = [];
+        if (statsLeftWidth + 2 + rightWidth <= width) {
+          const padding = " ".repeat(width - statsLeftWidth - rightWidth);
+          lines.push(theme.fg("dim", statsLeft + padding + rightSide));
+        } else {
+          const availableForRight = width - statsLeftWidth - 2;
+          if (availableForRight > 0) {
+            const truncated = truncateToWidth(rightSide, availableForRight, "");
+            lines.push(
+              theme.fg(
+                "dim",
+                statsLeft + " ".repeat(Math.max(0, width - statsLeftWidth - visibleWidth(truncated))) + truncated
+              )
+            );
+          } else lines.push(theme.fg("dim", statsLeft));
+        }
+        const otherStatuses = [...footerData.getExtensionStatuses()].filter(([key]) => key !== statusKey).sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => sanitize(text));
+        if (otherStatuses.length)
+          lines.push(truncateToWidth(otherStatuses.join(" "), width, theme.fg("dim", "...")));
+        return [firstLine, ...lines];
+      }
+    };
+  });
+}
+
 // packages/hosts/pi/src/index.ts
 var command = "pi-enhance";
 var support = /* @__PURE__ */ new Set(["approval", "task-settled", "request-interception"]);
@@ -507,6 +641,7 @@ function createPiEnhance(pi, options) {
   let disposed = false;
   let registered = /* @__PURE__ */ new Set();
   const knownNames = /* @__PURE__ */ new Set();
+  let footerLabels = [];
   const report = (ctx, text, error = false) => {
     if (ctx.hasUI) ctx.ui.notify(text, error ? "error" : "info");
     else {
@@ -516,17 +651,21 @@ function createPiEnhance(pi, options) {
   };
   const statusLine = (ctx) => {
     const model = modelInfo(ctx.model);
-    const labels = registry.list().filter((e) => {
+    footerLabels = registry.list().filter((e) => {
       const control = e.instance.control;
       return control && model?.provider === "openai" && model.channel === "codex" && model.api === "codex-responses" && control.supported(model);
     }).map((e) => {
       const control = e.instance.control, value = config.controls[control.id] ?? "off";
-      return [control.id, control.formatValue ? control.formatValue(value, model) : value];
+      return {
+        id: control.id,
+        value: control.formatValue ? control.formatValue(value, model) : value,
+        active: value !== "off"
+      };
     });
     if (ctx.hasUI)
       ctx.ui.setStatus(
         command,
-        labels.length ? labels.map(([id, value]) => `${id}:${value}`).join(" ") : void 0
+        footerLabels.length ? footerLabels.map((l) => `${l.id}:${l.value}`).join(" ") : void 0
       );
   };
   const refresh = (ctx) => {
@@ -761,6 +900,7 @@ function createPiEnhance(pi, options) {
       }
     }
     statusLine(ctx);
+    installEnhanceFooter(ctx, command, () => footerLabels);
   });
   pi.on("model_select", async (event, ctx) => {
     const currentModel = event.model ?? ctx.model;
@@ -797,7 +937,10 @@ function createPiEnhance(pi, options) {
     try {
       await registry.dispose();
     } finally {
-      if (ctx.hasUI) ctx.ui.setStatus(command, void 0);
+      if (ctx.hasUI) {
+        ctx.ui.setStatus(command, void 0);
+        ctx.ui.setFooter(void 0);
+      }
     }
   });
 }
