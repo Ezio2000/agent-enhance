@@ -523,15 +523,10 @@ function createPiEnhance(pi, options) {
       const control = e.instance.control, value = config.controls[control.id] ?? "off";
       return [control.id, control.formatValue ? control.formatValue(value, model) : value];
     });
-    if (!labels.length) {
-      if (ctx.hasUI) ctx.ui.setStatus(command, void 0);
-      return;
-    }
-    const active = labels.filter(([, value]) => value !== "off");
     if (ctx.hasUI)
       ctx.ui.setStatus(
         command,
-        active.length ? active.map(([id, value]) => `${id}:${value}`).join(" ") : void 0
+        labels.length ? labels.map(([id, value]) => `${id}:${value}`).join(" ") : void 0
       );
   };
   const refresh = (ctx) => {
@@ -653,13 +648,10 @@ function createPiEnhance(pi, options) {
       }
       const control = registry.get(id)?.instance.control;
       if (control) {
-        while (!disposed) {
-          const choice = await ctx.ui.select(`${id}: ${config.controls[control.id] ?? "off"}`, [
-            ...control.choices
-          ]);
-          if (!choice) break;
-          await run(`${provider} ${capability} ${choice}`, ctx);
-        }
+        const choice = await ctx.ui.select(`${id}: ${config.controls[control.id] ?? "off"}`, [
+          ...control.choices
+        ]);
+        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
       } else {
         const choice = await ctx.ui.select(
           id,
