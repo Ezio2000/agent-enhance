@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
+# Reproducible release bundles in dist/ are tracked for integrity-pinned downloads.
 # Build output
-dist/
 *.tsbuildinfo
 
 # Test coverage

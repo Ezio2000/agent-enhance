@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "revision": "development",
+  "repository": "Ezio2000/openai-codex-enhance",
+  "modules": [
+    {
+      "apiVersion": 1,
+      "id": "fast/openai",
+      "capability": "fast",
+      "provider": "openai",
+      "kind": "request-control",
+      "version": "0.2.0",
+      "requires": [
+        "request-interception"
+      ],
+      "file": "fast--openai.mjs",
+      "sha256": "525bd079ebb81d3f7ea035081f6365854ed2f99aba7f02463cd5f3c516250b72",
+      "bytes": 2467
+    },
+    {
+      "apiVersion": 1,
+      "id": "gen_image/openai",
+      "capability": "gen_image",
+      "provider": "openai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "openai",
+        "channel": "codex",
+        "acceptedKinds": [
+          "oauth"
+        ]
+      },
+      "file": "gen_image--openai.mjs",
+      "sha256": "2dc04a57d6dee80087ec6fd436bcdb38dbca18558206086432a255dc489051f4",
+      "bytes": 411592
+    },
+    {
+      "apiVersion": 1,
+      "id": "gen_image/xai",
+      "capability": "gen_image",
+      "provider": "xai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "xai",
+        "channel": "imagine",
+        "acceptedKinds": [
+          "oauth"
+        ]
+      },
+      "file": "gen_image--xai.mjs",
+      "sha256": "251c027cfdc4265a5155580e6135ca6e67191001a19022d19b11357a9d861183",
+      "bytes": 391587
+    },
+    {
+      "apiVersion": 1,
+      "id": "gen_video/xai",
+      "capability": "gen_video",
+      "provider": "xai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "xai",
+        "channel": "imagine",
+        "acceptedKinds": [
+          "oauth"
+        ]
+      },
+      "file": "gen_video--xai.mjs",
+      "sha256": "688fe42f66322d4c42ae3ea34af43129bb534d503d3539007eba324a7de4e286",
+      "bytes": 400517
+    },
+    {
+      "apiVersion": 1,
+      "id": "image_detail/openai",
+      "capability": "image_detail",
+      "provider": "openai",
+      "kind": "request-control",
+      "version": "0.2.0",
+      "requires": [
+        "request-interception"
+      ],
+      "file": "image_detail--openai.mjs",
+      "sha256": "cd2a536d75e73b5d174535e0c31226d49ada18fb865924e911b5069fb202ceb2",
+      "bytes": 3137
+    },
+    {
+      "apiVersion": 1,
+      "id": "search_web/openai",
+      "capability": "search_web",
+      "provider": "openai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "openai",
+        "channel": "codex",
+        "acceptedKinds": [
+          "oauth"
+        ]
+      },
+      "file": "search_web--openai.mjs",
+      "sha256": "62e2ed552bd97fce42136e46655db1dd593845e7564167a41d7a4d75c59568b0",
+      "bytes": 402018
+    },
+    {
+      "apiVersion": 1,
+      "id": "use_computer/openai",
+      "capability": "use_computer",
+      "provider": "openai",
+      "kind": "tool",
+      "version": "0.2.0",
+      "platforms": [
+        "darwin"
+      ],
+      "requires": [
+        "approval",
+        "task-settled"
+      ],
+      "file": "use_computer--openai.mjs",
+      "sha256": "6c499955d8d15e5ca1ddb8bb53045404c6b26addddc62499ca44341b9279824c",
+      "bytes": 419105
+    },
+    {
+      "apiVersion": 1,
+      "id": "verbosity/openai",
+      "capability": "verbosity",
+      "provider": "openai",
+      "kind": "request-control",
+      "version": "0.2.0",
+      "requires": [
+        "request-interception"
+      ],
+      "file": "verbosity--openai.mjs",
+      "sha256": "01707f2e41214bf7b995e64e9eb801e928797667dfe8671d70dddd9f77814b53",
+      "bytes": 2306
+    },
+    {
+      "apiVersion": 1,
+      "id": "view_pdf/opencode",
+      "capability": "view_pdf",
+      "provider": "opencode",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "opencode",
+        "channel": "go",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "file": "view_pdf--opencode.mjs",
+      "sha256": "a017f58e2a2eb71a79a81a008ea2e040a994b32188a65bd3d76f959a22602259",
+      "bytes": 385002
+    },
+    {
+      "apiVersion": 1,
+      "id": "view_video/opencode",
+      "capability": "view_video",
+      "provider": "opencode",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "opencode",
+        "channel": "go",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "file": "view_video--opencode.mjs",
+      "sha256": "242f003f4d002396b487d0f5d74825d13a43a4ec8d8ec54dd48792cece625c8c",
+      "bytes": 385315
+    }
+  ]
+}

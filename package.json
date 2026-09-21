@@ -1,27 +1,50 @@
 {
-  "name": "openai-codex-enhance",
-  "version": "0.1.0",
-  "description": "OpenAI Codex web, image, and native macOS Computer Use tools for pi",
+  "name": "pi-enhance",
+  "version": "0.2.0",
+  "description": "Agent Enhance: host-neutral optional capabilities with a Pi adapter",
   "type": "module",
-  "keywords": ["pi-package", "openai-codex", "web-search", "image-generation", "computer-use"],
   "license": "MIT",
-  "files": ["index.ts", "src", "README.md", "docs", "LICENSE"],
-  "pi": { "extensions": ["./index.ts"] },
-  "engines": { "node": ">=22" },
+  "repository": "github:Ezio2000/openai-codex-enhance",
+  "keywords": [
+    "pi-package",
+    "agent-enhance",
+    "capabilities"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist/pi.mjs",
+    "dist/catalog.json",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/pi.mjs"
+    ]
+  },
   "scripts": {
-    "test": "tsx --test test/*/*.test.ts",
+    "build": "tsx scripts/build.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test",
+    "test": "tsx --test tests/*.test.ts tests/ported/*/*/*.test.ts",
+    "check:boundaries": "tsx scripts/check-boundaries.ts",
+    "check": "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test",
     "smoke": "tsx scripts/smoke.ts",
-    "smoke:computer": "tsx scripts/smoke-computer.ts"
+    "setup": "tsx scripts/setup.ts",
+    "format": "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
+    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.86.1",
     "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.9.8",
     "tsx": "^4.20.0",
     "typebox": "1.3.7",
     "typescript": "^5.9.0"
