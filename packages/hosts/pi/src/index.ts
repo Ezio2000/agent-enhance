@@ -64,15 +64,31 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     const model = modelInfo(ctx.model);
     const labels = registry
       .list()
-      .filter((e) => e.instance.control)
-      .map((e) => {
+      .filter((e) => {
+        const control = e.instance.control;
+        return (
+          control &&
+          model?.provider === "openai" &&
+          model.channel === "codex" &&
+          model.api === "codex-responses" &&
+          control.supported(model)
+        );
+      })
+      .map((e): [string, string] => {
         const control = e.instance.control!,
           value = config.controls[control.id] ?? "off";
-        const applicable =
-          model?.provider === "openai" && model.channel === "codex" && control.supported(model);
-        return `${control.id}:${model && control.formatValue ? control.formatValue(value, model) : value}${value !== "off" && !applicable ? "(n/a)" : ""}`;
+        return [control.id, control.formatValue ? control.formatValue(value, model!) : value];
       });
-    if (ctx.hasUI) ctx.ui.setStatus(command, labels.length ? labels.join(" ") : undefined);
+    if (!labels.length) {
+      if (ctx.hasUI) ctx.ui.setStatus(command, undefined);
+      return;
+    }
+    const active = labels.filter(([, value]) => value !== "off");
+    if (ctx.hasUI)
+      ctx.ui.setStatus(
+        command,
+        active.length ? active.map(([id, value]) => `${id}:${value}`).join(" ") : undefined,
+      );
   };
   const refresh = (ctx: ExtensionContext) => {
     const tools = registry.tools();
@@ -331,11 +347,12 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     statusLine(ctx);
   });
   pi.on("model_select", async (event, ctx) => {
-    const current = (event.model ?? ctx.model)?.provider;
+    const currentModel = (event.model ?? ctx.model) as ExtensionContext["model"];
+    const current = currentModel?.provider;
     if (previousProvider !== undefined && current !== previousProvider)
       await registry.lifecycle("provider_change");
     previousProvider = current;
-    statusLine(ctx);
+    statusLine({ ...ctx, model: currentModel });
     // Never reactivate tools here: user-disabled tools remain disabled.
   });
   pi.on("before_provider_request", (event, ctx) => {
