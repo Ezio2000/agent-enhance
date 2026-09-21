@@ -12,7 +12,7 @@ try {
 } catch {
   /* first build */
 }
-const catalog: Catalog = { version: 1, revision, repository: "Ezio2000/openai-codex-enhance", modules: [] };
+const catalog: Catalog = { version: 1, revision, repository: "Ezio2000/agent-enhance", modules: [] };
 for (const capability of (await readdir("packages/capabilities")).sort()) {
   for (const provider of (await readdir(join("packages/capabilities", capability))).sort()) {
     const dir = join("packages/capabilities", capability, provider, "src");

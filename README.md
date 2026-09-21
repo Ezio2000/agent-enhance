@@ -17,10 +17,18 @@
 需要 Node.js >=22、Pi >=0.86.1 的兼容扩展 API。
 
 ```bash
-pi install https://github.com/Ezio2000/openai-codex-enhance
+pi install https://github.com/Ezio2000/agent-enhance
 ```
 
-仓库 URL 暂保留，项目名已改为 Agent Enhance；已有该 URL 安装的用户执行 `pi update https://github.com/Ezio2000/openai-codex-enhance`。移除单独安装的 grok-enhance、muse-enhance，并重启 Pi 或执行 `/reload`。不要同时加载旧扩展；新扩展检测到旧工具会停止自动加载并提示处理。
+GitHub 仓库为 `Ezio2000/agent-enhance`，Pi 集成包名为 `pi-enhance`。后续更新执行 `pi update https://github.com/Ezio2000/agent-enhance`。
+
+若之前从旧仓库 URL 安装，先安装新地址，再移除旧来源（使用 `pi list` 显示的来源字符串）：
+
+```bash
+pi remove https://github.com/Ezio2000/openai-codex-enhance
+```
+
+本地路径安装也需移除旧路径来源。移除单独安装的 grok-enhance、muse-enhance，并重启 Pi 或执行 `/reload`。不要同时加载旧扩展；新扩展检测到旧工具会停止自动加载并提示处理。已安装能力及偏好仍保存在 `~/.agent-enhance`，切换安装来源不移动认证或历史产物。
 
 新安装默认**不加载任何能力**，不会启动桌面进程或调用模型。按需安装：
 

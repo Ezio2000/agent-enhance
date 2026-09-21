@@ -279,7 +279,7 @@ var ModuleManager = class {
     this.bundledDirectory = bundledDirectory;
     this.fetchImpl = fetchImpl;
     this.lockPath = join2(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/openai-codex-enhance")
+    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance")
       throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
     for (const entry of catalog.modules)
       if (!/^[a-z_]+\/[a-z]+$/.test(entry.id) || !/^[a-z_]+--[a-z]+\.mjs$/.test(entry.file) || !/^[a-f0-9]{64}$/.test(entry.sha256) || entry.bytes > 25 * 1024 * 1024)
