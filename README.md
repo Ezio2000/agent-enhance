@@ -28,7 +28,7 @@ GitHub 仓库为 `Ezio2000/agent-enhance`，Pi 集成包名为 `pi-enhance`。�
 pi remove https://github.com/Ezio2000/openai-codex-enhance
 ```
 
-本地路径安装也需移除旧路径来源。移除单独安装的 grok-enhance、muse-enhance，并重启 Pi 或执行 `/reload`。不要同时加载旧扩展；新扩展检测到旧工具会停止自动加载并提示处理。已安装能力及偏好仍保存在 `~/.agent-enhance`，切换安装来源不移动认证或历史产物。
+移除单独安装的 grok-enhance、muse-enhance 等来源，并重启 Pi 或执行 `/reload`。不要同时加载其他 `pi-enhance` 来源；同一工具的冲突会在加载时明确报错。能力及偏好保存在 `~/.agent-enhance`，切换安装来源不移动认证或历史产物。
 
 新安装默认**不加载任何能力**，不会启动桌面进程或调用模型。按需安装：
 
@@ -45,14 +45,6 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 `install` 安装能力模块，不下载云端模型权重，也不自动加载。`load` 仅当前会话生效；`load --save` 保存为 Pi 自动加载偏好。`unload --save` 同时移除自动加载；`uninstall` 移除安装记录，保留历史产物及可能被其他进程使用的内容寻址缓存。
 
 模块是独立、自包含的 ESM 文件。安装从本地仓库构建产物或目录中锁定的 Git commit 下载，校验 SHA-256 与长度后提交；**不会隐式回退到其他模型、供应商或登录态**。发布 tarball 只含适配器与目录，不含全部能力；Git 安装本身会克隆完整仓库，模块仍须显式安装与加载。
-
-旧请求偏好可显式迁移：
-
-```text
-/pi-enhance migrate
-```
-
-仅导入新配置中尚未设置的值，不移动凭据，不删除旧文件，不改写历史会话。不保留旧工具别名。
 
 ## 能力与工具
 

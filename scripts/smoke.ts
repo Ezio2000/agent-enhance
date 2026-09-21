@@ -110,7 +110,6 @@ async function call(name: string, args: Record<string, unknown>, key = name): Pr
 try {
   const names = session.getActiveToolNames();
   console.log("Installed tools:", names.join(", "));
-  if (names.some((n) => /^(codex_|grok_|muse_)/.test(n))) throw new Error("Legacy tool still active");
   if (names.filter((n) => n === "gen_image").length !== 1) throw new Error("Expected one merged image tool");
   await call("search_web", {
     provider: "openai",

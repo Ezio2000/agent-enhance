@@ -3,7 +3,6 @@ import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:f
 import { dirname as dirname2, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  getAgentDir,
   resizeImage
 } from "@earendil-works/pi-coding-agent";
 
@@ -477,15 +476,6 @@ function piHistory(entries) {
 // packages/hosts/pi/src/index.ts
 var command = "pi-enhance";
 var support = /* @__PURE__ */ new Set(["approval", "task-settled", "request-interception"]);
-var oldNames = /* @__PURE__ */ new Set([
-  "codex_image",
-  "codex_web",
-  "codex_computer",
-  "grok_image",
-  "grok_video",
-  "muse_pdf",
-  "muse_video"
-]);
 function modelInfo(model) {
   if (!model) return;
   return {
@@ -555,8 +545,6 @@ function createPiEnhance(pi, options) {
   };
   const synchronize = refresh;
   const load = async (id, ctx) => {
-    if (pi.getAllTools().some((t) => oldNames.has(t.name)))
-      throw new Error("Remove legacy enhance extensions before loading capabilities.");
     const manifest = manager.find(id);
     const unsupported = manifest.requires?.filter((r) => !support.has(r));
     if (unsupported?.length) throw new Error(`Host lacks: ${unsupported.join(", ")}`);
@@ -600,7 +588,7 @@ function createPiEnhance(pi, options) {
       `Home: ${options.home}`
     ].join("\n");
   };
-  const usage = "/pi-enhance <provider> <capability> install|load [--save]|unload [--save]|uninstall|status; /pi-enhance openai fast on; /pi-enhance defaults gen_image openai; /pi-enhance status|catalog|migrate";
+  const usage = "/pi-enhance <provider> <capability> install|load [--save]|unload [--save]|uninstall|status; /pi-enhance openai fast on; /pi-enhance defaults gen_image openai; /pi-enhance status|catalog";
   const run = async (args, ctx) => {
     if (disposed) return;
     await ctx.waitForIdle();
@@ -625,26 +613,6 @@ function createPiEnhance(pi, options) {
     }
     if (words[0] === "catalog" && words.length === 1) {
       report(ctx, options.catalog.modules.map((e) => `${e.id} (${e.kind}, ${e.version})`).join("\n"));
-      return;
-    }
-    if (words[0] === "migrate" && words.length === 1) {
-      const legacyPath = join3(getAgentDir(), "openai-codex-enhance.json");
-      if (!existsSync2(legacyPath)) {
-        report(ctx, "No legacy request preferences found. No credentials or old artifacts are moved.");
-        return;
-      }
-      const legacy = JSON.parse(readFileSync2(legacyPath, "utf8"));
-      if (legacy.version !== 1 || !legacy.values) throw new Error("Invalid legacy preferences.");
-      const migrated = {};
-      for (const [key, values] of Object.entries({
-        fast: ["off", "on"],
-        verbosity: ["off", "low", "medium", "high"],
-        "image-detail": ["off", "original"]
-      })) {
-        if (values.includes(legacy.values[key])) migrated[key.replaceAll("-", "_")] = legacy.values[key];
-      }
-      saveConfig((c) => ({ ...c, controls: { ...migrated, ...c.controls } }));
-      report(ctx, "Imported unset request preferences; legacy file, credentials and artifacts retained.");
       return;
     }
     if (words[0] === "defaults" && words.length === 3) {
@@ -751,7 +719,6 @@ function createPiEnhance(pi, options) {
       const candidates = [
         "status",
         "catalog",
-        "migrate",
         ...options.catalog.modules.flatMap(
           (e) => [
             "",
@@ -781,15 +748,6 @@ function createPiEnhance(pi, options) {
   pi.on("session_start", async (_event, ctx) => {
     disposed = false;
     previousProvider = ctx.model?.provider;
-    const old = pi.getAllTools().filter((t) => oldNames.has(t.name));
-    if (old.length) {
-      report(
-        ctx,
-        "Legacy enhance extensions are still installed. Remove them before loading pi-enhance capabilities.",
-        true
-      );
-      return;
-    }
     config = store.load();
     Object.assign(registry.defaults, config.defaults);
     for (const id of config.autoload) {
