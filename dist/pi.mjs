@@ -114,7 +114,12 @@ var CapabilityRegistry = class {
           ),
           {
             minItems: 1,
-            maxItems: Math.max(...entries.map((e) => e.instance.tool.parameters.properties.images.maxItems))
+            // A provider without reference-image support (e.g. minimax) contributes a floor of 1.
+            maxItems: Math.max(
+              ...entries.map(
+                (e) => e.instance.tool.parameters.properties.images?.maxItems ?? 1
+              )
+            )
           }
         )
       );
@@ -395,7 +400,8 @@ function transformControlledRequest(payload, model, controls, state) {
 var channels = {
   "openai/codex": "openai-codex",
   "xai/imagine": "xai",
-  "opencode/go": "opencode-go"
+  "opencode/go": "opencode-go",
+  "minimax/token-plan": "minimax-cn"
 };
 var PiCredentialResolver = class {
   constructor(registry) {
@@ -429,7 +435,7 @@ var PiCredentialResolver = class {
         if (typeof value === "string") headers.set(key, value);
       const secret = auth?.apiKey ?? headers.get("authorization")?.replace(/^Bearer\s+/i, "");
       if (!secret) return { status: "missing", guidance };
-      const kind = provider === "opencode-go" ? "api_key" : "oauth";
+      const kind = ["opencode-go", "minimax-cn", "minimax"].includes(provider) ? "api_key" : "oauth";
       if (kind === "oauth" && secret.split(".").length !== 3)
         return {
           status: "login_required",

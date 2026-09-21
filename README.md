@@ -10,7 +10,7 @@
 - `packages/hosts/pi`：Pi 工具、命令、登录态解析、UI 与生命周期桥接。
 - `dist/core.mjs`：可脱离 Pi 导入的自包含基座。未来宿主只需实现契约；**当前没有声称支持 Claude Code**。
 
-供应商 ID 为 `openai`、`xai`、`opencode`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
+供应商 ID 为 `openai`、`xai`、`opencode`、`minimax`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
 
 ## 安装与迁移
 
@@ -48,17 +48,18 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 ## 能力与工具
 
-| 工具／能力 ID  | 供应商      | 说明                                |
-| -------------- | ----------- | ----------------------------------- |
-| `gen_image`    | openai、xai | 图片生成／编辑；只注册一个工具      |
-| `gen_video`    | xai         | 视频生成                            |
-| `view_pdf`     | opencode    | Muse Spark 查看本地 PDF             |
-| `view_video`   | opencode    | Muse Spark 查看本地视频；不支持音频 |
-| `search_web`   | openai      | 搜索、浏览、图片查询、天气／金融等  |
-| `use_computer` | openai      | macOS 原生 Computer Use             |
-| `fast`         | openai      | 请求增强，不注册工具                |
-| `verbosity`    | openai      | 请求增强，不注册工具                |
-| `image_detail` | openai      | 请求增强，不注册工具                |
+| 工具／能力 ID  | 供应商               | 说明                                             |
+| -------------- | -------------------- | ------------------------------------------------ |
+| `gen_image`    | openai、xai、minimax | 图片生成／编辑；只注册一个工具（minimax 仅生成） |
+| `gen_video`    | xai                  | 视频生成                                         |
+| `gen_voice`    | minimax              | 语音合成（TTS），卡片上报真实字符用量            |
+| `view_pdf`     | opencode             | Muse Spark 查看本地 PDF                          |
+| `view_video`   | opencode             | Muse Spark 查看本地视频；不支持音频              |
+| `search_web`   | openai               | 搜索、浏览、图片查询、天气／金融等               |
+| `use_computer` | openai               | macOS 原生 Computer Use                          |
+| `fast`         | openai               | 请求增强，不注册工具                             |
+| `verbosity`    | openai               | 请求增强，不注册工具                             |
+| `image_detail` | openai               | 请求增强，不注册工具                             |
 
 工具名使用下划线，不带供应商。两个图片模块同时加载时仍只有一个 `gen_image`；卸载某供应商后，其参数会从 Schema 消失。最后一个实现卸载后，工具从活动工具集移除。宿主的工具排除规则仍然有效。
 
@@ -117,11 +118,12 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 基座只认识 `CredentialResolver` 与 `(provider, channel, acceptedKinds)`。Pi 实现委托 `modelRegistry.getProviderAuth()` 获取／刷新认证，不自行扫描或复制认证文件。
 
-| 能力渠道       | Pi 认证来源  | 接受类型   |
-| -------------- | ------------ | ---------- |
-| openai / codex | openai-codex | 订阅 OAuth |
-| xai / imagine  | xai          | OAuth      |
-| opencode / go  | opencode-go  | API Key    |
+| 能力渠道             | Pi 认证来源  | 接受类型                       |
+| -------------------- | ------------ | ------------------------------ |
+| openai / codex       | openai-codex | 订阅 OAuth                     |
+| xai / imagine        | xai          | OAuth                          |
+| opencode / go        | opencode-go  | API Key                        |
+| minimax / token-plan | minimax-cn   | Token Plan API Key（`sk-cp-`） |
 
 使用 Pi 原生 `/login` 配置对应渠道。平台 OpenAI API Key 不能替代 Codex OAuth。将来其他 Agent 自行实现获取方式与登录引导；现有 `StaticCredentialResolver` 可用于显式配置的独立宿主和测试。凭据只发送至相应供应商的固定受限地址，日志脱敏，拒绝认证请求重定向。
 

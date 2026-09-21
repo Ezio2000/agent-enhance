@@ -5,6 +5,7 @@ const channels: Record<string, string> = {
   "openai/codex": "openai-codex",
   "xai/imagine": "xai",
   "opencode/go": "opencode-go",
+  "minimax/token-plan": "minimax-cn",
 };
 export class PiCredentialResolver implements CredentialResolver {
   constructor(private readonly registry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth">) {}
@@ -45,7 +46,7 @@ export class PiCredentialResolver implements CredentialResolver {
         if (typeof value === "string") headers.set(key, value);
       const secret = auth?.apiKey ?? headers.get("authorization")?.replace(/^Bearer\s+/i, "");
       if (!secret) return { status: "missing", guidance };
-      const kind = provider === "opencode-go" ? "api_key" : "oauth";
+      const kind = ["opencode-go", "minimax-cn", "minimax"].includes(provider) ? "api_key" : "oauth";
       if (kind === "oauth" && secret.split(".").length !== 3)
         return {
           status: "login_required",

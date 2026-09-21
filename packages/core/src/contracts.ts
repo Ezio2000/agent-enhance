@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { CredentialResolver } from "./auth.ts";
 
-export type ProviderId = "openai" | "xai" | "opencode";
+export type ProviderId = "openai" | "xai" | "opencode" | "minimax";
 export interface ModelInfo {
   id: string;
   provider: string;

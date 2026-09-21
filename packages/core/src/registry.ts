@@ -116,7 +116,14 @@ export class CapabilityRegistry {
           ),
           {
             minItems: 1,
-            maxItems: Math.max(...entries.map((e) => e.instance.tool!.parameters.properties.images.maxItems)),
+            // A provider without reference-image support (e.g. minimax) contributes a floor of 1.
+            maxItems: Math.max(
+              ...entries.map(
+                (e) =>
+                  (e.instance.tool!.parameters.properties.images as { maxItems?: number } | undefined)
+                    ?.maxItems ?? 1,
+              ),
+            ),
           },
         ),
       );

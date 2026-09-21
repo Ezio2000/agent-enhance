@@ -19,6 +19,24 @@
     },
     {
       "apiVersion": 1,
+      "id": "gen_image/minimax",
+      "capability": "gen_image",
+      "provider": "minimax",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "minimax",
+        "channel": "token-plan",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "file": "gen_image--minimax.mjs",
+      "sha256": "cb65fb8b5e11d448a7073e200d2dc4d2164e31b663dc6800e7c7198a49d428b9",
+      "bytes": 398058
+    },
+    {
+      "apiVersion": 1,
       "id": "gen_image/openai",
       "capability": "gen_image",
       "provider": "openai",
@@ -70,6 +88,24 @@
       "file": "gen_video--xai.mjs",
       "sha256": "97e56ff3877c6db23a0669636ee4af3868e8da73b4eeab099a0be82b3fa8f850",
       "bytes": 401572
+    },
+    {
+      "apiVersion": 1,
+      "id": "gen_voice/minimax",
+      "capability": "gen_voice",
+      "provider": "minimax",
+      "kind": "tool",
+      "version": "0.2.0",
+      "auth": {
+        "provider": "minimax",
+        "channel": "token-plan",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "file": "gen_voice--minimax.mjs",
+      "sha256": "5d127c8058250d2207ab9231effe066eac03dde21617c5f92e14f5bc191f87a9",
+      "bytes": 396170
     },
     {
       "apiVersion": 1,
