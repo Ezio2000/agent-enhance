@@ -146,6 +146,30 @@ function annotateError(error, suffix) {
   }
 }
 
+// packages/core/src/tickers.ts
+var TICK_DELAYS_MS = [1e3, 1e3, 2e3, 3e3, 5e3, 8e3, 12e3, 18e3, 25e3];
+function createProgressTicker(tick) {
+  let index = 0;
+  let timer;
+  let disposed = false;
+  const schedule = () => {
+    const delay = TICK_DELAYS_MS[Math.min(index, TICK_DELAYS_MS.length - 1)];
+    index += 1;
+    timer = setTimeout(() => {
+      if (disposed) return;
+      tick();
+      schedule();
+    }, delay);
+  };
+  schedule();
+  return {
+    dispose() {
+      disposed = true;
+      if (timer !== void 0) clearTimeout(timer);
+    }
+  };
+}
+
 // packages/core/src/modules.ts
 import { createHash, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -8789,6 +8813,7 @@ export {
   ModuleManager,
   StaticCredentialResolver,
   annotateError,
+  createProgressTicker,
   emptyConfig,
   enhanceHome,
   readJson,

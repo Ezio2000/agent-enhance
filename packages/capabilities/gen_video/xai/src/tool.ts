@@ -1,5 +1,6 @@
 import type { ExecutionContext, ToolDefinition } from "../../../../core/src/contracts.ts";
 import { annotateError } from "../../../../core/src/errors.ts";
+import { createProgressTicker } from "../../../../core/src/tickers.ts";
 import { resolveImage } from "../../../gen_image/xai/src/artifacts.ts";
 import { formatElapsed, promptSnippetText } from "../../../gen_image/xai/src/tool.ts";
 import { VideoArtifactStore } from "./artifacts.ts";
@@ -113,7 +114,7 @@ export function videoTool(
           details: { status: "in_progress", mode, elapsedSeconds: elapsed() },
         });
       progress();
-      const ticker = setInterval(progress, 1000);
+      const ticker = createProgressTicker(progress);
       let result: Awaited<ReturnType<VideoClient["videos"]>>;
       try {
         result = await deps.client(ctx).videos(request, {
@@ -126,7 +127,7 @@ export function videoTool(
           `\nPrompt: "${promptSnippetText(request.prompt || "(no prompt)")}" · elapsed ${formatElapsed(elapsed())}`,
         );
       } finally {
-        clearInterval(ticker);
+        ticker.dispose();
       }
       const video = await deps.artifacts.saveVideo(ctx.sessionId, result.bytes, signal);
       return {

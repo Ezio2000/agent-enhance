@@ -95,7 +95,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 { "provider": "openai", "search_query": [{ "q": "OpenAI image documentation" }], "include_context": false }
 ```
 
-图像原件与视频保存后返回路径，预览不替代原件。生成请求不自动重试；超时不保证远端运算停止。Web 引用原始 URL，网页和屏幕内容都是不可信数据。
+图像原件与视频保存后返回路径，预览不替代原件。生成期间进度更新先密后疏（退避），以减少工具块重绘：iTerm2 等终端在每次重绘时会重发内联图片，固定 1 秒刷新会让已生成的图片持续闪烁。生成请求不自动重试；超时不保证远端运算停止。Web 引用原始 URL，网页和屏幕内容都是不可信数据。
 
 ## 请求增强
 

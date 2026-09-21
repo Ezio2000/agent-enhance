@@ -3,5 +3,6 @@ export * from "./auth.ts";
 export * from "./config.ts";
 export * from "./controls.ts";
 export * from "./errors.ts";
+export * from "./tickers.ts";
 export * from "./modules.ts";
 export * from "./registry.ts";

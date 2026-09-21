@@ -271,6 +271,30 @@ function annotateError(error, suffix) {
   }
 }
 
+// packages/core/src/tickers.ts
+var TICK_DELAYS_MS = [1e3, 1e3, 2e3, 3e3, 5e3, 8e3, 12e3, 18e3, 25e3];
+function createProgressTicker(tick) {
+  let index = 0;
+  let timer;
+  let disposed = false;
+  const schedule = () => {
+    const delay = TICK_DELAYS_MS[Math.min(index, TICK_DELAYS_MS.length - 1)];
+    index += 1;
+    timer = setTimeout(() => {
+      if (disposed) return;
+      tick();
+      schedule();
+    }, delay);
+  };
+  schedule();
+  return {
+    dispose() {
+      disposed = true;
+      if (timer !== void 0) clearTimeout(timer);
+    }
+  };
+}
+
 // node_modules/typebox/build/system/memory/memory.mjs
 var memory_exports = {};
 __export(memory_exports, {
@@ -8749,7 +8773,7 @@ function imageTool(deps) {
         details: { status: "in_progress", elapsedSeconds: elapsed() }
       });
       progress();
-      const ticker = setInterval(progress, 1e3);
+      const ticker = createProgressTicker(progress);
       let result;
       try {
         result = await deps.client(ctx).images(request, {
@@ -8763,7 +8787,7 @@ function imageTool(deps) {
 Prompt: "${promptSnippetText(request.prompt)}" \xB7 elapsed ${formatElapsed(elapsed())}`
         );
       } finally {
-        clearInterval(ticker);
+        ticker.dispose();
       }
       const image = await deps.artifacts.saveImage(ctx.sessionId, result.data.data[0].b64_json, signal);
       const content = [

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "5bb9e404cc95afbb0f59356b013386ef1de49536",
+  "revision": "c93967cc79713574b943024ef08f33c7d3821443",
   "repository": "Ezio2000/agent-enhance",
   "modules": [
     {
@@ -32,8 +32,8 @@
         ]
       },
       "file": "gen_image--openai.mjs",
-      "sha256": "7943a832e1d7743b66e608c9c3298d7f82f35d86b2ea423a13d5f25c74d05af6",
-      "bytes": 412048
+      "sha256": "43e7f5351cd10afc833d66131bfcd4b6b4839bc755c06d9595c56d0ae7e9e067",
+      "bytes": 412601
     },
     {
       "apiVersion": 1,
@@ -50,8 +50,8 @@
         ]
       },
       "file": "gen_image--xai.mjs",
-      "sha256": "45aa33adc55542aeb8ef631407a8d872304afe342f1b1a76ccea61dc49e537bc",
-      "bytes": 392087
+      "sha256": "4334d084be45b5edb7716d429237d2ca50b83c4924b440fbcb891519001f866b",
+      "bytes": 392640
     },
     {
       "apiVersion": 1,
@@ -68,8 +68,8 @@
         ]
       },
       "file": "gen_video--xai.mjs",
-      "sha256": "8406751b16e87b13f87e96a0e51aa45e55d44fbfaec0a1cb32e0118830e92cca",
-      "bytes": 401017
+      "sha256": "97e56ff3877c6db23a0669636ee4af3868e8da73b4eeab099a0be82b3fa8f850",
+      "bytes": 401572
     },
     {
       "apiVersion": 1,

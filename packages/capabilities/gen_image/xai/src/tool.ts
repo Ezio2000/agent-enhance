@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { ExecutionContext, ToolDefinition } from "../../../../core/src/contracts.ts";
 import { annotateError } from "../../../../core/src/errors.ts";
+import { createProgressTicker } from "../../../../core/src/tickers.ts";
 import { ImageArtifactStore, resolveImage } from "./artifacts.ts";
 import { ImageClient } from "./client.ts";
 import { ImageSchema, type ImageArgs } from "./schema.ts";
@@ -74,7 +75,7 @@ export function imageTool(
           details: { status: "in_progress", elapsedSeconds: elapsed() },
         });
       progress();
-      const ticker = setInterval(progress, 1000);
+      const ticker = createProgressTicker(progress);
       let result: Awaited<ReturnType<ImageClient["images"]>>;
       try {
         result = await deps.client(ctx).images(request, {
@@ -87,7 +88,7 @@ export function imageTool(
           `\nPrompt: "${promptSnippetText(request.prompt)}" · elapsed ${formatElapsed(elapsed())}`,
         );
       } finally {
-        clearInterval(ticker);
+        ticker.dispose();
       }
       const image = await deps.artifacts.saveImage(ctx.sessionId, result.data.data[0]!.b64_json, signal);
       const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] =
