@@ -96,7 +96,7 @@ function updateJson(path, fallback, update) {
   }
 }
 function validate(config) {
-  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string"))
+  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string") || config.subagents !== void 0 && typeof config.subagents !== "boolean")
     throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
   return config;
 }

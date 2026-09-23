@@ -1,6 +1,6 @@
 // packages/hosts/pi/src/index.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname2, join as join3 } from "node:path";
+import { dirname as dirname2, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resizeImage } from "@earendil-works/pi-coding-agent";
 
@@ -257,7 +257,7 @@ function updateJson(path, fallback, update) {
   }
 }
 function validate(config) {
-  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string"))
+  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string") || config.subagents !== void 0 && typeof config.subagents !== "boolean")
     throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
   return config;
 }
@@ -687,8 +687,9 @@ var groups = [
   { label: "\u684C\u9762\u64CD\u4F5C / Computer use", capabilities: ["use_computer"] },
   { label: "\u8BF7\u6C42\u589E\u5F3A / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] }
 ];
-var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
+var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
 var errorText = (error) => error instanceof Error ? error.message : String(error);
+var entryCapability = (id) => id.split("/")[0];
 function registerManagement(pi, options) {
   const { manager, registry, config, save, load, refresh, report } = options;
   const setAutoload = (id, enabled) => save((c) => ({
@@ -727,7 +728,8 @@ function registerManagement(pi, options) {
       lines.push(
         `Defaults: ${JSON.stringify(config().defaults)}`,
         `Controls: ${JSON.stringify(config().controls)}`,
-        `Home: ${manager.home}`
+        `Home: ${manager.home}`,
+        options.subagents.status()
       );
     return lines.join("\n");
   };
@@ -740,6 +742,7 @@ function registerManagement(pi, options) {
   };
   const remove = async (id, ctx, persist, uninstall) => {
     registry.assertIdle(id);
+    options.subagents.assertModuleIdle(entryCapability(id));
     const wasAutoload = config().autoload.includes(id);
     const previous = registry.get(id);
     const active = pi.getActiveTools();
@@ -805,7 +808,10 @@ Enable installs only this module; no model calls. Saved control values are retai
       "status",
       "catalog",
       "updates",
-      "update --installed"
+      "update --installed",
+      "subagents status",
+      "subagents enable",
+      "subagents disable"
     ]);
     if (!selected) return;
     const group = available.find((g) => g.label === selected);
@@ -826,6 +832,40 @@ Enable installs only this module; no model calls. Saved control values are retai
       if (ctx.mode !== "tui") report(ctx, usage);
       else await panel(ctx);
       return;
+    }
+    if (words[0] === "subagents") {
+      const action2 = words[1];
+      if (action2 === "status" && words.length === 2) {
+        report(ctx, options.subagents.status());
+        return;
+      }
+      if ((action2 === "enable" || action2 === "disable") && words.length === 2) {
+        const enabled = action2 === "enable";
+        const previous = options.subagents.isEnabled();
+        try {
+          options.subagents.setEnabled(enabled);
+          refresh(ctx);
+          save((c) => ({ ...c, subagents: enabled }));
+        } catch (error) {
+          options.subagents.setEnabled(previous);
+          refresh(ctx);
+          throw error;
+        }
+        if (!enabled) options.subagents.cancelAll();
+        report(
+          ctx,
+          `Subagents ${enabled ? "enabled" : "disabled"}. ${enabled ? "No models are called until call_subagents runs." : "Running batches were cancelled."}`
+        );
+        return;
+      }
+      if (action2 === "cancel" && words.length === 3) {
+        report(
+          ctx,
+          options.subagents.cancel(words[2]) ? `Cancelled batch ${words[2]}.` : `No active batch ${words[2]}.`
+        );
+        return;
+      }
+      throw new Error(usage);
     }
     if (words[0] === "status" && words.length === 1) {
       report(ctx, await status(ctx));
@@ -949,6 +989,9 @@ Enable installs only this module; no model calls. Saved control values are retai
         "catalog",
         "updates",
         "update --installed",
+        "subagents enable",
+        "subagents disable",
+        "subagents status",
         ...manager.catalog.modules.flatMap(
           (e) => [
             "",
@@ -989,6 +1032,499 @@ Enable installs only this module; no model calls. Saved control values are retai
   });
 }
 
+// packages/hosts/pi/src/subagents/index.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { Type as Type2 } from "typebox";
+import { Text } from "@earendil-works/pi-tui";
+
+// packages/hosts/pi/src/subagents/runner.ts
+import { join as join3 } from "node:path";
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
+  ModelRuntime,
+  SessionManager,
+  SettingsManager
+} from "@earendil-works/pi-coding-agent";
+async function runSubagent(task, index, model, thinkingLevel, registry, parentRegistry, signal) {
+  const cwd = task.cwd ?? process.cwd();
+  const agentDir = getAgentDir();
+  const settingsManager = SettingsManager.inMemory({ retry: { enabled: true } });
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager,
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true
+  });
+  await resourceLoader.reload();
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join3(agentDir, "auth.json"),
+    modelsPath: join3(agentDir, "models.json"),
+    allowModelNetwork: false
+  });
+  for (const providerId of parentRegistry.getRegisteredProviderIds()) {
+    const native = parentRegistry.getRegisteredNativeProvider(providerId);
+    const config = parentRegistry.getRegisteredProviderConfig(providerId);
+    if (native) modelRuntime.registerNativeProvider(native);
+    else if (config) modelRuntime.registerProvider(providerId, config);
+  }
+  const requestedModel = modelRuntime.getModel(model.provider, model.id);
+  if (!requestedModel)
+    throw new Error(`Model ${model.provider}/${model.id} cannot be reconstructed in an isolated Pi session.`);
+  const enhanced = new Map(registry.tools().map((tool) => [tool.name, tool]));
+  const customTools = (task.tools ?? []).filter((name) => enhanced.has(name)).map((name) => {
+    const tool = enhanced.get(name);
+    return {
+      ...tool,
+      execute: (id, args, toolSignal, update, ctx) => {
+        const context = {
+          cwd: ctx.cwd,
+          sessionId: ctx.sessionManager.getSessionId(),
+          host: "pi",
+          credentials: new PiCredentialResolver(ctx.modelRegistry),
+          signal: toolSignal,
+          model: ctx.model ? {
+            id: ctx.model.id,
+            provider: ctx.model.provider === "openai-codex" ? "openai" : ctx.model.provider,
+            channel: ctx.model.provider === "openai-codex" ? "codex" : void 0,
+            api: ctx.model.api === "openai-codex-responses" ? "codex-responses" : ctx.model.api,
+            input: ctx.model.input
+          } : void 0,
+          history: piHistory(ctx.sessionManager.buildContextEntries())
+        };
+        return tool.execute(id, args, toolSignal, update, context);
+      }
+    };
+  });
+  const { session } = await createAgentSession({
+    cwd,
+    agentDir,
+    model: requestedModel,
+    thinkingLevel,
+    modelRuntime,
+    resourceLoader,
+    settingsManager,
+    sessionManager: SessionManager.inMemory(cwd),
+    tools: task.tools ?? [],
+    customTools,
+    excludeTools: ["call_subagents", "list_subagent_models"]
+  });
+  let turns = 0;
+  let limit;
+  const usage2 = { input: 0, output: 0, cost: 0 };
+  let timer;
+  const abort = (reason) => {
+    if (limit) return;
+    limit = reason;
+    void session.abort();
+  };
+  const onAbort = () => abort("cancelled");
+  const unsubscribe = session.subscribe((event) => {
+    if (event.type === "turn_start" && task.max_turns && turns >= task.max_turns) abort("max_turns");
+    if (event.type === "turn_end") turns++;
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      usage2.input += event.message.usage?.input ?? 0;
+      usage2.output += event.message.usage?.output ?? 0;
+      usage2.cost += event.message.usage?.cost?.total ?? 0;
+    }
+  });
+  try {
+    await session.bindExtensions({ mode: "print" });
+    const actual = new Set(session.getActiveToolNames());
+    for (const name of task.tools ?? [])
+      if (!actual.has(name)) throw new Error(`Tool ${name} is unavailable in the child Pi session.`);
+    if (signal.aborted) abort("cancelled");
+    else signal.addEventListener("abort", onAbort, { once: true });
+    if (task.timeout_seconds) timer = setTimeout(() => abort("timeout"), task.timeout_seconds * 1e3);
+    if (!limit) await session.prompt(task.context, { expandPromptTemplates: false });
+    const last = [...session.messages].reverse().find((message) => message.role === "assistant");
+    const text = session.getLastAssistantText() || last?.errorMessage || "(no output)";
+    return {
+      index,
+      model: `${model.provider}/${model.id}`,
+      status: limit ?? (last?.stopReason === "error" || last?.stopReason === "aborted" ? "failed" : "completed"),
+      text,
+      turns,
+      usage: usage2
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+    unsubscribe();
+    session.dispose();
+  }
+}
+
+// packages/hosts/pi/src/subagents/index.ts
+var TaskSchema = Type2.Object(
+  {
+    context: Type2.String({
+      minLength: 1,
+      maxLength: 1e5,
+      description: "Complete task and context for this independent Pi agent. The parent transcript is not copied."
+    }),
+    tools: Type2.Optional(
+      Type2.Array(Type2.String(), {
+        maxItems: 32,
+        description: "Exact Pi tool names. Omit or use [] for no tools. Only currently active parent tools may be requested."
+      })
+    ),
+    model: Type2.Optional(
+      Type2.String({
+        description: "Exact provider/model-id from list_subagent_models. Defaults to the current Pi model."
+      })
+    ),
+    thinking_level: Type2.Optional(
+      Type2.Union(
+        ["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((x) => Type2.Literal(x))
+      )
+    ),
+    cwd: Type2.Optional(
+      Type2.String({
+        description: "Child working directory; defaults to the parent cwd. Not a filesystem sandbox."
+      })
+    ),
+    timeout_seconds: Type2.Optional(
+      Type2.Integer({
+        minimum: 1,
+        maximum: 2147483,
+        description: "Optional wall-clock limit. Omitted means no agent-enhance time limit."
+      })
+    ),
+    max_turns: Type2.Optional(
+      Type2.Integer({
+        minimum: 1,
+        maximum: 1e6,
+        description: "Optional Pi agent-turn limit. Omitted means no agent-enhance turn limit."
+      })
+    )
+  },
+  { additionalProperties: false }
+);
+var CallSchema = Type2.Object(
+  { tasks: Type2.Array(TaskSchema, { minItems: 1, maxItems: 8 }) },
+  { additionalProperties: false }
+);
+var ModelsSchema = Type2.Object(
+  {
+    query: Type2.Optional(Type2.String({ description: "Filter by provider, ID or name" })),
+    input: Type2.Optional(Type2.Union([Type2.Literal("text"), Type2.Literal("image")])),
+    reasoning: Type2.Optional(Type2.Boolean()),
+    offset: Type2.Optional(Type2.Integer({ minimum: 0 }))
+  },
+  { additionalProperties: false }
+);
+var EFFECTFUL = /* @__PURE__ */ new Set([
+  "edit",
+  "write",
+  "bash",
+  "powershell",
+  "gen_image",
+  "gen_video",
+  "gen_voice",
+  "use_computer"
+]);
+var BUILTIN = /* @__PURE__ */ new Set(["read", "grep", "find", "ls", "edit", "write", "bash", "powershell"]);
+var LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+function thinkingLevels(model) {
+  if (!model.reasoning) return ["off"];
+  return LEVELS.filter((level) => {
+    const mapped = model.thinkingLevelMap?.[level];
+    return mapped !== null && (level !== "xhigh" && level !== "max" || mapped !== void 0);
+  });
+}
+var PAGE_SIZE = 30;
+var MAX_RUNNING = 4;
+var MAX_QUEUED = 32;
+var OUTPUT_CHARS = 12e3;
+var Subagents = class {
+  constructor(pi, registry) {
+    this.pi = pi;
+    this.registry = registry;
+    pi.registerMessageRenderer(
+      "pi-enhance:subagents",
+      (message, { expanded }, theme) => new Text(
+        theme.fg("accent", "Subagents") + "\n" + (expanded ? message.content : message.content.slice(0, 2500)),
+        0,
+        0
+      )
+    );
+  }
+  batches = /* @__PURE__ */ new Map();
+  activeRunners = 0;
+  waiters = [];
+  owner;
+  enabled = false;
+  closed = false;
+  setEnabled(enabled) {
+    this.enabled = enabled;
+  }
+  isEnabled() {
+    return this.enabled;
+  }
+  startSession(sessionId) {
+    if (this.owner && this.owner !== sessionId) this.cancelAll();
+    this.owner = sessionId;
+    this.closed = false;
+  }
+  cancelAll() {
+    for (const batch of this.batches.values()) batch.controller.abort();
+    this.batches.clear();
+  }
+  shutdown() {
+    this.closed = true;
+    this.cancelAll();
+    this.owner = void 0;
+  }
+  cancel(id) {
+    const batch = this.batches.get(id);
+    if (!batch) return false;
+    batch.controller.abort();
+    this.batches.delete(id);
+    return true;
+  }
+  status() {
+    return `Subagents: ${this.enabled ? "enabled" : "disabled"}; running: ${this.activeRunners}; active batches: ${[...this.batches.keys()].join(", ") || "none"}. Background results return to the originating session.`;
+  }
+  assertModuleIdle(capability) {
+    if ([...this.batches.values()].some(
+      (batch) => batch.tasks.some(({ task }) => task.tools?.includes(capability))
+    ))
+      throw new Error(`Subagents are using ${capability}; cancel or wait for the batch before unloading.`);
+  }
+  releaseSlot() {
+    const next = this.waiters.shift();
+    if (next)
+      next();
+    else this.activeRunners--;
+  }
+  async slot(signal) {
+    if (signal.aborted) throw new Error("Batch cancelled.");
+    if (this.activeRunners < MAX_RUNNING) this.activeRunners++;
+    else {
+      await new Promise((resolve2, reject) => {
+        const wake = () => {
+          signal.removeEventListener("abort", cancel);
+          resolve2();
+        };
+        const cancel = () => {
+          const index = this.waiters.indexOf(wake);
+          if (index >= 0) this.waiters.splice(index, 1);
+          reject(new Error("Batch cancelled."));
+        };
+        this.waiters.push(wake);
+        signal.addEventListener("abort", cancel, { once: true });
+      });
+      if (signal.aborted) {
+        this.releaseSlot();
+        throw new Error("Batch cancelled.");
+      }
+    }
+    return () => this.releaseSlot();
+  }
+  tools() {
+    return this.enabled ? [this.modelsTool(), this.callTool()] : [];
+  }
+  choices(ctx) {
+    const available = ctx.modelRegistry.getAvailable();
+    const scoped = ctx.scopedModels?.length ? new Set(ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`)) : void 0;
+    return available.filter((model) => !scoped || scoped.has(`${model.provider}/${model.id}`));
+  }
+  modelsTool() {
+    return {
+      name: "list_subagent_models",
+      label: "Subagent Models",
+      description: "List models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to inherit the current model.",
+      parameters: ModelsSchema,
+      execute: async (_id, args, _signal, _update, ctx) => {
+        const query = args.query?.toLowerCase() ?? "";
+        const models = this.choices(ctx).filter(
+          (model) => (!query || `${model.provider}/${model.id} ${model.name}`.toLowerCase().includes(query)) && (!args.input || model.input.includes(args.input)) && (args.reasoning === void 0 || model.reasoning === args.reasoning)
+        );
+        const offset = args.offset ?? 0;
+        const page = models.slice(offset, offset + PAGE_SIZE).map((model) => ({
+          model: `${model.provider}/${model.id}`,
+          name: model.name,
+          input: model.input,
+          reasoning: model.reasoning,
+          thinking_levels: thinkingLevels(model),
+          current: ctx.model?.provider === model.provider && ctx.model?.id === model.id
+        }));
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  total: models.length,
+                  offset,
+                  next_offset: offset + PAGE_SIZE < models.length ? offset + PAGE_SIZE : null,
+                  models: page
+                },
+                null,
+                2
+              )
+            }
+          ],
+          details: { total: models.length }
+        };
+      }
+    };
+  }
+  callTool() {
+    return {
+      name: "call_subagents",
+      label: "Call Subagents",
+      description: "Create 1\u20138 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model and thinking inherit the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
+      parameters: CallSchema,
+      renderCall: (args, theme) => new Text(theme.fg("toolTitle", "call_subagents") + ` \xB7 ${args.tasks.length} task(s)`, 0, 0),
+      renderResult: (result, _options, theme) => new Text(theme.fg("muted", result.content.find((c) => c.type === "text")?.text ?? ""), 0, 0),
+      execute: async (_id, args, signal, _update, ctx) => {
+        if (!this.enabled || this.closed) throw new Error("Subagents are disabled or the session has ended.");
+        signal?.throwIfAborted();
+        const models = this.choices(ctx);
+        const active = new Set(this.pi.getActiveTools());
+        const enhanced = new Set(this.registry.tools().map((tool) => tool.name));
+        const approved = /* @__PURE__ */ new Set();
+        const prepared = [];
+        for (const task of args.tasks) {
+          const model = task.model ? models.find((m) => `${m.provider}/${m.id}` === task.model) : ctx.model && models.find((m) => m.provider === ctx.model?.provider && m.id === ctx.model?.id);
+          if (!model)
+            throw new Error(
+              `Model ${task.model ?? "(current)"} is not enabled and available in this Pi session. Use list_subagent_models.`
+            );
+          if (task.thinking_level && !thinkingLevels(model).includes(task.thinking_level))
+            throw new Error(
+              `Thinking level ${task.thinking_level} is unsupported by ${model.provider}/${model.id}.`
+            );
+          const names = task.tools ?? [];
+          if (new Set(names).size !== names.length) throw new Error("Duplicate tool names in one task.");
+          for (const name of names) {
+            if (name === "call_subagents" || name === "list_subagent_models" || !active.has(name))
+              throw new Error(`Tool ${name} is not active in the parent Pi session.`);
+            if (!BUILTIN.has(name) && !enhanced.has(name))
+              throw new Error(`Tool ${name} cannot be safely reconstructed in a child session.`);
+            if (EFFECTFUL.has(name)) approved.add(name);
+          }
+          prepared.push({ task, model, thinking: task.thinking_level ?? ctx.thinkingLevel ?? "off" });
+        }
+        if (approved.size) {
+          if (!ctx.hasUI)
+            throw new Error(
+              `Subagent write/effectful tools are blocked without interactive user approval: ${[...approved].join(", ")}.`
+            );
+          const ok = await ctx.ui.confirm(
+            "Allow subagent side effects?",
+            `These child agents may use ${[...approved].join(", ")}. Bash/PowerShell can bypass file restrictions; generation saves artifacts and can consume quota. Approve this batch only?`
+          );
+          if (!ok) throw new Error("Subagent write/effectful tools were not approved.");
+        }
+        signal?.throwIfAborted();
+        if ([...this.batches.values()].reduce(
+          (count, batch2) => count + batch2.tasks.length - batch2.results.filter(Boolean).length,
+          0
+        ) + prepared.length > MAX_QUEUED)
+          throw new Error("Subagent queue is full; wait for existing batches to finish.");
+        const owner = ctx.sessionManager.getSessionId();
+        if (this.owner !== owner) throw new Error("Session changed while preparing subagents.");
+        const batch = {
+          id: randomUUID3(),
+          owner,
+          anchor: ctx.sessionManager.getLeafId(),
+          sessionManager: ctx.sessionManager,
+          controller: new AbortController(),
+          tasks: prepared,
+          modelRegistry: ctx.modelRegistry,
+          results: []
+        };
+        this.batches.set(batch.id, batch);
+        void this.run(batch).catch((error) => {
+          this.batches.delete(batch.id);
+          if (!this.closed && this.owner === owner && !batch.controller.signal.aborted)
+            this.publish(
+              batch,
+              `Batch ${batch.id} failed: ${error instanceof Error ? error.message : String(error)}`
+            );
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Started ${prepared.length} subagent task(s); batch ${batch.id}. Continue other work. A completion message will be delivered to this session.`
+            }
+          ],
+          details: { batchId: batch.id, tasks: prepared.length }
+        };
+      }
+    };
+  }
+  async run(batch) {
+    let next = 0;
+    const workers = Array.from({ length: Math.min(MAX_RUNNING, batch.tasks.length) }, async () => {
+      while (next < batch.tasks.length && !batch.controller.signal.aborted) {
+        const index = next++;
+        const { task, model, thinking } = batch.tasks[index];
+        let release;
+        try {
+          release = await this.slot(batch.controller.signal);
+          batch.results[index] = await runSubagent(
+            task,
+            index,
+            model,
+            thinking,
+            this.registry,
+            batch.modelRegistry,
+            batch.controller.signal
+          );
+        } catch (error) {
+          batch.results[index] = {
+            index,
+            model: `${model.provider}/${model.id}`,
+            status: batch.controller.signal.aborted ? "cancelled" : "failed",
+            text: error instanceof Error ? error.message : String(error),
+            turns: 0,
+            usage: { input: 0, output: 0, cost: 0 }
+          };
+        } finally {
+          release?.();
+        }
+      }
+    });
+    await Promise.all(workers);
+    this.batches.delete(batch.id);
+    if (this.closed || batch.controller.signal.aborted || this.owner !== batch.owner || !this.onBranch(batch))
+      return;
+    const lines = batch.results.map(
+      (result) => `### Task ${result.index + 1} \xB7 ${result.model} \xB7 ${result.status}
+${result.text.slice(0, OUTPUT_CHARS)}${result.text.length > OUTPUT_CHARS ? "\n[Output truncated]" : ""}
+Turns: ${result.turns}; tokens: ${result.usage.input} in / ${result.usage.output} out; cost: $${result.usage.cost.toFixed(4)}`
+    );
+    this.publish(batch, `Batch ${batch.id} completed.
+
+${lines.join("\n\n---\n\n")}`);
+  }
+  onBranch(batch) {
+    return batch.sessionManager.getSessionId() === batch.owner && (!batch.anchor || batch.sessionManager.getBranch().some((entry) => entry.id === batch.anchor));
+  }
+  publish(batch, content) {
+    if (this.closed || !this.onBranch(batch)) return;
+    this.pi.sendMessage(
+      {
+        customType: "pi-enhance:subagents",
+        content,
+        display: true,
+        details: { batchId: batch.id, results: batch.results }
+      },
+      { triggerTurn: true, deliverAs: "followUp" }
+    );
+  }
+};
+
 // packages/hosts/pi/src/index.ts
 var command = "pi-enhance";
 var releaseGuidance = "When changing agent-enhance/pi-enhance for installation in Pi, follow the repository's docs/release.md: run checks, commit and push to https://github.com/Ezio2000/agent-enhance, then install or update Pi from that Git remote. Never persistently install the local working tree. If pushing is not authorized or fails, ask or stop rather than substituting a local installation.";
@@ -1020,6 +1556,8 @@ function createPiEnhance(pi, options) {
   let config = store.load();
   const registry = new CapabilityRegistry(config.defaults);
   const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
+  const subagents = new Subagents(pi, registry);
+  subagents.setEnabled(config.subagents === true);
   let previousProvider;
   let disposed = false;
   let operations = new AbortController();
@@ -1063,16 +1601,22 @@ function createPiEnhance(pi, options) {
   };
   const refresh = (ctx) => {
     const excluded = excludedCapabilities(ctx);
-    const tools = registry.tools().filter((tool) => !excluded.has(tool.name));
+    const hostTools = subagents.tools();
+    const tools = [...registry.tools().filter((tool) => !excluded.has(tool.name)), ...hostTools];
     const active = new Set(pi.getActiveTools());
     for (const tool of tools) {
       const collision = pi.getAllTools().find((t) => t.name === tool.name);
       if (collision && !knownNames.has(tool.name))
         throw new Error(`Tool collision: ${tool.name}; disable the conflicting extension first.`);
-      pi.registerTool({
-        ...tool,
-        execute: (id, args, signal, update, piContext) => tool.execute(id, args, signal, update, executionContext(piContext))
-      });
+      const hostTool = hostTools.find((candidate) => candidate.name === tool.name);
+      if (hostTool) pi.registerTool(hostTool);
+      else {
+        const capabilityTool = tool;
+        pi.registerTool({
+          ...capabilityTool,
+          execute: (id, args, signal, update, piContext) => capabilityTool.execute(id, args, signal, update, executionContext(piContext))
+        });
+      }
       if (!registered.has(tool.name)) active.add(tool.name);
     }
     const available = new Set(tools.map((t) => t.name));
@@ -1086,7 +1630,7 @@ function createPiEnhance(pi, options) {
   const activate = async (module, ctx) => {
     const manifest = module.manifest, id = manifest.id;
     registry.load(module, {
-      artifactRoot: join3(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
+      artifactRoot: join4(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
       preview: (bytes, mime) => resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 })
     });
     try {
@@ -1124,13 +1668,16 @@ function createPiEnhance(pi, options) {
     restore: activate,
     refresh,
     report,
-    signal: () => operations.signal
+    signal: () => operations.signal,
+    subagents
   });
   pi.on("session_start", async (_event, ctx) => {
     disposed = false;
     if (operations.signal.aborted) operations = new AbortController();
     previousProvider = ctx.model?.provider;
     config = store.load();
+    subagents.setEnabled(config.subagents === true);
+    subagents.startSession(ctx.sessionManager.getSessionId());
     Object.assign(registry.defaults, config.defaults);
     for (const id of config.autoload) {
       try {
@@ -1172,10 +1719,12 @@ function createPiEnhance(pi, options) {
     await registry.lifecycle("task_settled", () => ctx.isIdle());
   });
   pi.on("session_tree", async () => {
+    subagents.cancelAll();
     await registry.lifecycle("session_tree");
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     disposed = true;
+    subagents.shutdown();
     operations.abort();
     try {
       await registry.dispose();
@@ -1189,9 +1738,9 @@ function createPiEnhance(pi, options) {
 }
 function piEnhance(pi) {
   const here = dirname2(fileURLToPath(import.meta.url));
-  const dist = existsSync2(join3(here, "catalog.json")) ? here : join3(here, "../../../../dist");
-  const catalog = JSON.parse(readFileSync2(join3(dist, "catalog.json"), "utf8"));
-  createPiEnhance(pi, { home: enhanceHome(), catalog, moduleDirectory: join3(dist, "modules") });
+  const dist = existsSync2(join4(here, "catalog.json")) ? here : join4(here, "../../../../dist");
+  const catalog = JSON.parse(readFileSync2(join4(dist, "catalog.json"), "utf8"));
+  createPiEnhance(pi, { home: enhanceHome(), catalog, moduleDirectory: join4(dist, "modules") });
 }
 export {
   createPiEnhance,
