@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
 import { Subagents } from "../packages/hosts/pi/src/subagents/index.ts";
+import type { runSubagent } from "../packages/hosts/pi/src/subagents/runner.ts";
 
 const model = { provider: "test", id: "text", name: "Test Text", input: ["text"], reasoning: false };
 const imageModel = {
@@ -13,16 +14,27 @@ const imageModel = {
   reasoning: true,
   thinkingLevelMap: { high: null, low: "low" },
 };
-function harness(options: { ui?: boolean; active?: string[] } = {}) {
+function harness(options: { ui?: boolean; active?: string[]; runner?: typeof runSubagent } = {}) {
   const messages: any[] = [];
   const tools = new Map<string, any>();
-  let active = options.active ?? ["read", "search_web", "write", "call_subagents", "list_subagent_models"];
+  let renderer: any;
+  let active = options.active ?? [
+    "read",
+    "search_web",
+    "write",
+    "call_subagents",
+    "view_subagent_models",
+    "view_subagents",
+    "cancel_subagents",
+  ];
   const pi = {
-    registerMessageRenderer() {},
+    registerMessageRenderer(_name: string, fn: any) {
+      renderer = fn;
+    },
     getActiveTools: () => active,
     sendMessage: (message: any, settings: any) => messages.push({ message, settings }),
   } as unknown as ExtensionAPI;
-  const subagents = new Subagents(pi, new CapabilityRegistry());
+  const subagents = new Subagents(pi, new CapabilityRegistry(), options.runner);
   subagents.setEnabled(true);
   subagents.startSession("one");
   for (const tool of subagents.tools()) tools.set(tool.name, tool);
@@ -45,6 +57,18 @@ function harness(options: { ui?: boolean; active?: string[] } = {}) {
     tools,
     ctx,
     messages,
+    render: (message: any, expanded = false) =>
+      renderer(
+        message,
+        { expanded, outputPad: 0 },
+        {
+          fg: (_color: string, text: string) => text,
+          bg: (_color: string, text: string) => text,
+          bold: (text: string) => text,
+        },
+      )
+        .render(100)
+        .join("\n"),
     setActive: (names: string[]) => {
       active = names;
     },
@@ -53,7 +77,7 @@ function harness(options: { ui?: boolean; active?: string[] } = {}) {
 
 test("model discovery respects current Pi scope and reports input and thinking metadata", async () => {
   const h = harness();
-  const list = h.tools.get("list_subagent_models");
+  const list = h.tools.get("view_subagent_models");
   const result = await list.execute("1", {}, undefined, undefined, h.ctx);
   const data = JSON.parse(result.content[0].text);
   assert.equal(data.total, 1);
@@ -100,7 +124,7 @@ test("saved default is used unless task.model overrides it; stale defaults fail 
   const h = harness();
   const call = h.tools.get("call_subagents");
   h.subagents.setDefaultModel("test/image");
-  const list = await h.tools.get("list_subagent_models").execute("m", {}, undefined, undefined, h.ctx);
+  const list = await h.tools.get("view_subagent_models").execute("m", {}, undefined, undefined, h.ctx);
   assert.equal(JSON.parse(list.content[0].text).default_model, "test/image");
   await assert.rejects(
     call.execute("1", { tasks: [{ context: "1=1?" }] }, undefined, undefined, h.ctx),
@@ -123,8 +147,23 @@ test("omitting tools grants none and returns immediately; cancellation suppresse
   const result = await call.execute("1", { tasks: [{ context: "1=1?" }] }, undefined, undefined, h.ctx);
   const batchId = result.details.batchId;
   assert.match(result.content[0].text, /Started 1 subagent/);
-  assert.ok(h.subagents.cancel(batchId));
+  const view = h.tools.get("view_subagents");
+  const one = JSON.parse(
+    (await view.execute("v", { id: result.details.taskIds[0] }, undefined, undefined, h.ctx)).content[0].text,
+  );
+  assert.ok(["queued", "running"].includes(one.task.status));
+  assert.equal(one.batchId, batchId);
+  const batch = JSON.parse(
+    (await view.execute("v", { batchId }, undefined, undefined, h.ctx)).content[0].text,
+  );
+  assert.equal(batch.tasks[0].id, result.details.taskIds[0]);
+  const cancel = h.tools.get("cancel_subagents");
+  await cancel.execute("c", { batchId }, undefined, undefined, h.ctx);
   await new Promise((resolve) => setTimeout(resolve, 30));
+  const after = JSON.parse(
+    (await view.execute("v", { id: result.details.taskIds[0] }, undefined, undefined, h.ctx)).content[0].text,
+  );
+  assert.ok(["cancelling", "cancelled"].includes(after.task.status));
   assert.equal(h.messages.length, 0);
   h.subagents.shutdown();
 });

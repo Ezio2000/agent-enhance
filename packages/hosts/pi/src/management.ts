@@ -281,7 +281,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
         report(
           ctx,
           options.subagents.cancel(words[2]!)
-            ? `Cancelled batch ${words[2]}.`
+            ? `Cancellation requested for batch ${words[2]}. Running tasks may still be stopping.`
             : `No active batch ${words[2]}.`,
         );
         return;

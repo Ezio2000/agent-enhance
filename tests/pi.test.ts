@@ -130,7 +130,9 @@ test("host-only subagents stay off by default, enable explicitly and persist wit
     assert.ok(!h.active().includes("call_subagents"));
     assert.match(await h.command("subagents enable"), /enabled/);
     assert.ok(h.active().includes("call_subagents"));
-    assert.ok(h.active().includes("list_subagent_models"));
+    assert.ok(h.active().includes("view_subagent_models"));
+    assert.ok(h.active().includes("view_subagents"));
+    assert.ok(h.active().includes("cancel_subagents"));
     assert.equal(new ConfigStore(home, "pi").load().subagents, true);
     assert.match(await h.command("subagents status"), /enabled/);
     assert.match(await h.command("subagents disable"), /disabled/);

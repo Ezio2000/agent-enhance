@@ -23,7 +23,7 @@ const completed = new Promise<string>((resolve) => {
 });
 const pi = {
   registerMessageRenderer() {},
-  getActiveTools: () => ["call_subagents", "list_subagent_models"],
+  getActiveTools: () => ["call_subagents", "view_subagent_models", "view_subagents", "cancel_subagents"],
   sendMessage(message: { content: string }) {
     finish(message.content);
   },

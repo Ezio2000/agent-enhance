@@ -25,6 +25,13 @@ export interface SubagentTask {
   timeout_seconds?: number;
   max_turns?: number;
 }
+export interface SubagentProgress {
+  phase: "starting" | "thinking" | "tool";
+  tool?: string;
+  turns: number;
+  usage: { input: number; output: number; cost: number };
+  recent: Array<{ source: "assistant" | "tool"; tool?: string; text: string }>;
+}
 export interface SubagentOutcome {
   index: number;
   model: string;
@@ -42,6 +49,7 @@ export async function runSubagent(
   registry: CapabilityRegistry,
   parentRegistry: ExtensionContext["modelRegistry"],
   signal: AbortSignal,
+  onProgress?: (progress: SubagentProgress) => void,
 ): Promise<SubagentOutcome> {
   const cwd = task.cwd ?? process.cwd();
   const agentDir = getAgentDir();
@@ -113,11 +121,39 @@ export async function runSubagent(
     sessionManager: SessionManager.inMemory(cwd),
     tools: task.tools ?? [],
     customTools,
-    excludeTools: ["call_subagents", "list_subagent_models"],
+    excludeTools: ["call_subagents", "view_subagent_models", "view_subagents", "cancel_subagents"],
   });
   let turns = 0;
   let limit: "cancelled" | "timeout" | "max_turns" | undefined;
   const usage = { input: 0, output: 0, cost: 0 };
+  let phase: SubagentProgress["phase"] = "starting";
+  let tool: string | undefined;
+  const recent: SubagentProgress["recent"] = [];
+  const report = () =>
+    onProgress?.({ phase, tool, turns, usage: { ...usage }, recent: recent.map((entry) => ({ ...entry })) });
+  const updateRecent = (source: "assistant" | "tool", text: string, name?: string, append = false) => {
+    if (!text) return;
+    const previous = recent.at(-1);
+    if (append && previous?.source === source && previous.tool === name)
+      previous.text = (previous.text + text).slice(-500);
+    else {
+      recent.push({ source, tool: name, text: text.slice(-500) });
+      if (recent.length > 3) recent.shift();
+    }
+    report();
+  };
+  const toolText = (result: unknown): string => {
+    if (!result || typeof result !== "object" || !("content" in result) || !Array.isArray(result.content))
+      return "";
+    return result.content
+      .filter(
+        (item): item is { type: "text"; text: string } =>
+          item?.type === "text" && typeof item.text === "string",
+      )
+      .map((item) => item.text.slice(-500))
+      .join("\n")
+      .slice(-500);
+  };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const abort = (reason: typeof limit) => {
     if (limit) return;
@@ -126,15 +162,42 @@ export async function runSubagent(
   };
   const onAbort = () => abort("cancelled");
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "turn_start" && task.max_turns && turns >= task.max_turns) abort("max_turns");
-    if (event.type === "turn_end") turns++;
+    if (event.type === "turn_start") {
+      if (task.max_turns && turns >= task.max_turns) abort("max_turns");
+      else {
+        phase = "thinking";
+        tool = undefined;
+        report();
+      }
+    }
+    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta")
+      updateRecent("assistant", event.assistantMessageEvent.delta, undefined, true);
+    if (event.type === "tool_execution_start") {
+      phase = "tool";
+      tool = event.toolName;
+      report();
+    }
+    if (event.type === "tool_execution_update")
+      updateRecent("tool", toolText(event.partialResult), event.toolName);
+    if (event.type === "tool_execution_end") {
+      updateRecent("tool", toolText(event.result), event.toolName);
+      phase = "thinking";
+      tool = undefined;
+      report();
+    }
+    if (event.type === "turn_end") {
+      turns++;
+      report();
+    }
     if (event.type === "message_end" && event.message.role === "assistant") {
       usage.input += event.message.usage?.input ?? 0;
       usage.output += event.message.usage?.output ?? 0;
       usage.cost += event.message.usage?.cost?.total ?? 0;
+      report();
     }
   });
   try {
+    report();
     await session.bindExtensions({ mode: "print" });
     const actual = new Set(session.getActiveToolNames());
     for (const name of task.tools ?? [])

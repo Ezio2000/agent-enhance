@@ -102,7 +102,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 ### Pi 子代理
 
-`call_subagents` 是 Pi 宿主专属的编排功能，不是供应商能力模块。代码随轻量 Pi 适配器分发，**默认关闭**，不自动启动子会话或调用模型。显式启用后，主模型可通过只读工具 `list_subagent_models` 查询当前 Pi 可用、符合 scoped-models 限制的模型及其文字／图片／推理元数据；不另设预设 agent 或 `view_subagents`。
+`call_subagents` 是 Pi 宿主专属的编排功能，不是供应商能力模块。代码随轻量 Pi 适配器分发，**默认关闭**，不自动启动子会话或调用模型。显式启用后，主模型可通过只读工具 `view_subagent_models` 查询当前 Pi 可用、符合 scoped-models 限制的模型及其文字／图片／推理元数据；不另设预设 agent。
 
 ```text
 /pi-enhance subagents enable
@@ -127,7 +127,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 `context` 是完整的子任务提示词，父会话历史不自动复制。`tools` 可省略或传 `[]`（零工具）；指定时只能使用当前父 Pi 会话活跃的内置工具或已加载的 pi-enhance 工具。子任务的 `model` 优先于已保存的子代理默认模型；两者都没有时继承当前 Pi 模型。默认值保存在 `~/.agent-enhance/hosts/pi.json`，跨会话保留；如果保存的模型后来不可用或不在当前 scoped models 中，明确报错而不静默换模型。显式指定也必须使用 Pi 当前可用且位于当前 scoped models 中的精确 `provider/id`。`thinking_level`、`cwd`、`timeout_seconds`、`max_turns` 均可选，后两项不填时本功能不施加额外上限，用户取消及 Pi／供应商限制仍生效。查询目录不调用收费模型，目录可用不保证实际额度。
 
-每个子任务由独立的 **Pi SDK AgentSession** 执行，工具在子会话中显式装配，不手写模型／工具循环。批次立即返回 ID，最多 8 个任务，宿主跨批次最多同时运行 4 个并限制排队数量；完成后在原会话展示结果并触发后续模型回合（可能额外消耗额度），不持续推送进度。`/pi-enhance subagents cancel <batch-id>`、会话关闭／切换分支和禁用会取消任务。Pi 原生写入／命令工具（`edit`、`write`、`bash`、`powershell`）及 pi-enhance 生成／桌面工具（`gen_image`、`gen_video`、`gen_voice`、`use_computer`）默认拦截；仅在交互模式得到用户针对本批次的明确批准后才允许。未知的第三方扩展工具不会被假装成可继承工具。工具白名单不是 OS 沙箱，尤其 `bash` 可以写入任意允许的文件。
+每个子任务由独立的 **Pi SDK AgentSession** 执行，工具在子会话中显式装配，不手写模型／工具循环。`call_subagents` 仅支持非阻塞：立即返回批次 ID 及每个任务 ID，最多 8 个任务，宿主跨批次最多同时运行 4 个并限制排队数量。`view_subagents()` 列出当前会话批次，`view_subagents({"batchId":"..."})` 查询批次内任务，`view_subagents({"id":"..."})` 查询单个任务及其结果；进度包含排队／运行／取消中／终态、阶段、当前工具、已完成回合、token／费用、耗时和最近最多 3 条可见输出（每条最多 500 字符，助手正文或工具文本，不包含推理）。完成的批次只在当前会话内保留最近 24 个。`cancel_subagents({"batchId":"..."})` 可取消当前会话的活跃批次；排队任务立即取消，运行中先显示 `cancelling`；模型／工具响应 abort 并真正退出后才显示 `cancelled`。TUI 派发卡片原位刷新各任务状态、耗时、最近可见输出及已结算 token／费用（模型尚在生成中的 token 无精确用量；用量在每条助手消息结束时更新），完成卡片展示批次总耗时及展开后的单任务耗时和用量。全部完成后在原会话展示结果并触发后续模型回合（可能额外消耗额度），不会持续向主模型推送进度消息；单纯主模型回合结束或中断不取消批次。`/new`、退出／切换会话、切换分支、禁用或 `/pi-enhance subagents cancel <batch-id>` 会取消任务；旧会话进度不继承到新会话。手动取消只请求中止并抑制该批次的完成通知，不自动触发主模型继续；单任务异常标记 `failed`，不阻塞其它任务，整批结束后连同错误结果一起通知主模型。Pi 原生写入／命令工具（`edit`、`write`、`bash`、`powershell`）及 pi-enhance 生成／桌面工具（`gen_image`、`gen_video`、`gen_voice`、`use_computer`）默认拦截；仅在交互模式得到用户针对本批次的明确批准后才允许。未知的第三方扩展工具不会被假装成可继承工具。工具白名单不是 OS 沙箱，尤其 `bash` 可以写入任意允许的文件。
 
 ### 图片参数
 
