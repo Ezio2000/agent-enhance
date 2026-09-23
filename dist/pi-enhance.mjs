@@ -913,7 +913,7 @@ Enable installs only this module; no model calls. Saved control values are retai
       if (action2 === "cancel" && words.length === 3) {
         report(
           ctx,
-          options.subagents.cancel(words[2]) ? `Cancelled batch ${words[2]}.` : `No active batch ${words[2]}.`
+          options.subagents.cancel(words[2]) ? `Cancellation requested for batch ${words[2]}. Running tasks may still be stopping.` : `No active batch ${words[2]}.`
         );
         return;
       }
@@ -1089,7 +1089,7 @@ Enable installs only this module; no model calls. Saved control values are retai
 // packages/hosts/pi/src/subagents/index.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { Type as Type2 } from "typebox";
-import { Text } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 
 // packages/hosts/pi/src/subagents/runner.ts
 import { join as join3 } from "node:path";
@@ -1101,7 +1101,7 @@ import {
   SessionManager,
   SettingsManager
 } from "@earendil-works/pi-coding-agent";
-async function runSubagent(task, index, model, thinkingLevel, registry, parentRegistry, signal) {
+async function runSubagent(task, index, model, thinkingLevel, registry, parentRegistry, signal, onProgress) {
   const cwd = task.cwd ?? process.cwd();
   const agentDir = getAgentDir();
   const settingsManager = SettingsManager.inMemory({ retry: { enabled: true } });
@@ -1130,11 +1130,11 @@ async function runSubagent(task, index, model, thinkingLevel, registry, parentRe
   const requestedModel = modelRuntime.getModel(model.provider, model.id);
   if (!requestedModel)
     throw new Error(`Model ${model.provider}/${model.id} cannot be reconstructed in an isolated Pi session.`);
-  const enhanced = new Map(registry.tools().map((tool) => [tool.name, tool]));
+  const enhanced = new Map(registry.tools().map((tool2) => [tool2.name, tool2]));
   const customTools = (task.tools ?? []).filter((name) => enhanced.has(name)).map((name) => {
-    const tool = enhanced.get(name);
+    const tool2 = enhanced.get(name);
     return {
-      ...tool,
+      ...tool2,
       execute: (id, args, toolSignal, update, ctx) => {
         const context = {
           cwd: ctx.cwd,
@@ -1151,7 +1151,7 @@ async function runSubagent(task, index, model, thinkingLevel, registry, parentRe
           } : void 0,
           history: piHistory(ctx.sessionManager.buildContextEntries())
         };
-        return tool.execute(id, args, toolSignal, update, context);
+        return tool2.execute(id, args, toolSignal, update, context);
       }
     };
   });
@@ -1166,11 +1166,33 @@ async function runSubagent(task, index, model, thinkingLevel, registry, parentRe
     sessionManager: SessionManager.inMemory(cwd),
     tools: task.tools ?? [],
     customTools,
-    excludeTools: ["call_subagents", "list_subagent_models"]
+    excludeTools: ["call_subagents", "view_subagent_models", "view_subagents", "cancel_subagents"]
   });
   let turns = 0;
   let limit;
   const usage2 = { input: 0, output: 0, cost: 0 };
+  let phase = "starting";
+  let tool;
+  const recent = [];
+  const report = () => onProgress?.({ phase, tool, turns, usage: { ...usage2 }, recent: recent.map((entry) => ({ ...entry })) });
+  const updateRecent = (source, text, name, append = false) => {
+    if (!text) return;
+    const previous = recent.at(-1);
+    if (append && previous?.source === source && previous.tool === name)
+      previous.text = (previous.text + text).slice(-500);
+    else {
+      recent.push({ source, tool: name, text: text.slice(-500) });
+      if (recent.length > 3) recent.shift();
+    }
+    report();
+  };
+  const toolText = (result) => {
+    if (!result || typeof result !== "object" || !("content" in result) || !Array.isArray(result.content))
+      return "";
+    return result.content.filter(
+      (item) => item?.type === "text" && typeof item.text === "string"
+    ).map((item) => item.text.slice(-500)).join("\n").slice(-500);
+  };
   let timer;
   const abort = (reason) => {
     if (limit) return;
@@ -1179,15 +1201,42 @@ async function runSubagent(task, index, model, thinkingLevel, registry, parentRe
   };
   const onAbort = () => abort("cancelled");
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "turn_start" && task.max_turns && turns >= task.max_turns) abort("max_turns");
-    if (event.type === "turn_end") turns++;
+    if (event.type === "turn_start") {
+      if (task.max_turns && turns >= task.max_turns) abort("max_turns");
+      else {
+        phase = "thinking";
+        tool = void 0;
+        report();
+      }
+    }
+    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta")
+      updateRecent("assistant", event.assistantMessageEvent.delta, void 0, true);
+    if (event.type === "tool_execution_start") {
+      phase = "tool";
+      tool = event.toolName;
+      report();
+    }
+    if (event.type === "tool_execution_update")
+      updateRecent("tool", toolText(event.partialResult), event.toolName);
+    if (event.type === "tool_execution_end") {
+      updateRecent("tool", toolText(event.result), event.toolName);
+      phase = "thinking";
+      tool = void 0;
+      report();
+    }
+    if (event.type === "turn_end") {
+      turns++;
+      report();
+    }
     if (event.type === "message_end" && event.message.role === "assistant") {
       usage2.input += event.message.usage?.input ?? 0;
       usage2.output += event.message.usage?.output ?? 0;
       usage2.cost += event.message.usage?.cost?.total ?? 0;
+      report();
     }
   });
   try {
+    report();
     await session.bindExtensions({ mode: "print" });
     const actual = new Set(session.getActiveToolNames());
     for (const name of task.tools ?? [])
@@ -1230,7 +1279,7 @@ var TaskSchema = Type2.Object(
     ),
     model: Type2.Optional(
       Type2.String({
-        description: "Exact provider/model-id from list_subagent_models. Overrides the saved subagent default; otherwise inherits the current Pi model."
+        description: "Exact provider/model-id from view_subagent_models. Overrides the saved subagent default; otherwise inherits the current Pi model."
       })
     ),
     thinking_level: Type2.Optional(
@@ -1273,6 +1322,18 @@ var ModelsSchema = Type2.Object(
   },
   { additionalProperties: false }
 );
+var ViewSchema = Type2.Object(
+  {
+    batchId: Type2.Optional(Type2.String({ description: "Batch ID returned by call_subagents" })),
+    id: Type2.Optional(Type2.String({ description: "Task ID returned by call_subagents or view_subagents" }))
+  },
+  { additionalProperties: false }
+);
+var CancelSchema = Type2.Object(
+  { batchId: Type2.String({ minLength: 1, description: "Batch ID to cancel" }) },
+  { additionalProperties: false }
+);
+var HOST_TOOLS = /* @__PURE__ */ new Set(["call_subagents", "view_subagent_models", "view_subagents", "cancel_subagents"]);
 var EFFECTFUL = /* @__PURE__ */ new Set([
   "edit",
   "write",
@@ -1296,20 +1357,61 @@ var PAGE_SIZE = 30;
 var MAX_RUNNING = 4;
 var MAX_QUEUED = 32;
 var OUTPUT_CHARS = 12e3;
+var PREVIEW_CHARS = 400;
+var HISTORY_LIMIT = 24;
 var Subagents = class {
-  constructor(pi, registry) {
+  constructor(pi, registry, runner = runSubagent) {
     this.pi = pi;
     this.registry = registry;
-    pi.registerMessageRenderer(
-      "pi-enhance:subagents",
-      (message, { expanded }, theme) => new Text(
-        theme.fg("accent", "Subagents") + "\n" + (expanded ? message.content : message.content.slice(0, 2500)),
-        0,
-        0
-      )
-    );
+    this.runner = runner;
+    pi.registerMessageRenderer("pi-enhance:subagents", (message, { expanded, outputPad }, theme) => {
+      const details = message.details;
+      const results = details?.results ?? [];
+      const good = results.filter((r) => r.status === "completed").length;
+      const lines = [
+        theme.fg("accent", theme.bold("SUBAGENTS")) + theme.fg("muted", `  ${details?.batchId ?? "batch"}`)
+      ];
+      lines.push(
+        theme.fg(
+          results.length && good === results.length ? "success" : "warning",
+          results.length ? `${good}/${results.length} completed` : "Batch error"
+        ) + theme.fg(
+          "muted",
+          ` \xB7 ${results.length ? "final results" : "details"}${details?.elapsedMs !== void 0 ? ` \xB7 ${(details.elapsedMs / 1e3).toFixed(1)}s` : ""}`
+        )
+      );
+      for (const result of results) {
+        const color = result.status === "completed" ? "success" : "warning";
+        lines.push(
+          theme.fg(
+            color,
+            `${result.status === "completed" ? "\u2713" : "!"} Task ${result.index + 1} \xB7 ${result.status}`
+          ) + theme.fg("muted", ` \xB7 ${result.model} \xB7 ${result.turns} turns`)
+        );
+        if (expanded) {
+          lines.push(
+            theme.fg(
+              "muted",
+              `  id ${details?.taskIds?.[result.index] ?? "\u2014"} \xB7 ${details?.taskElapsedMs?.[result.index] === void 0 ? "\u2014" : `${(details.taskElapsedMs[result.index] / 1e3).toFixed(1)}s`} \xB7 ${result.usage.input} in / ${result.usage.output} out \xB7 $${result.usage.cost.toFixed(4)}`
+            )
+          );
+          lines.push(result.text.slice(0, OUTPUT_CHARS));
+        } else lines.push(theme.fg("dim", result.text.replace(/\s+/g, " ").slice(0, 160)));
+      }
+      if (!results.length)
+        lines.push(
+          typeof message.content === "string" ? message.content.slice(0, expanded ? 2500 : 300) : "(no results)"
+        );
+      const box = new Box(outputPad, 1, (text) => theme.bg("customMessageBg", text));
+      box.addChild(new Text(lines.join("\n"), 0, 0));
+      return box;
+    });
   }
   batches = /* @__PURE__ */ new Map();
+  history = /* @__PURE__ */ new Map();
+  renderWatchers = /* @__PURE__ */ new Map();
+  pendingRenders = /* @__PURE__ */ new Map();
+  renderTimer;
   activeRunners = 0;
   waiters = [];
   owner;
@@ -1336,6 +1438,11 @@ var Subagents = class {
   cancelAll() {
     for (const batch of this.batches.values()) batch.controller.abort();
     this.batches.clear();
+    this.history.clear();
+    this.renderWatchers.clear();
+    for (const timer of this.pendingRenders.values()) clearTimeout(timer);
+    this.pendingRenders.clear();
+    this.stopRenderTimer();
   }
   shutdown() {
     this.closed = true;
@@ -1346,8 +1453,49 @@ var Subagents = class {
     const batch = this.batches.get(id);
     if (!batch) return false;
     batch.controller.abort();
-    this.batches.delete(id);
+    for (const state of batch.states) {
+      if (state.status === "queued") {
+        state.status = "cancelled";
+        state.finishedAt = Date.now();
+      } else if (state.status === "running") state.status = "cancelling";
+    }
+    this.notifyRender(batch.id);
     return true;
+  }
+  stopRenderTimer() {
+    if (this.renderTimer) clearInterval(this.renderTimer);
+    this.renderTimer = void 0;
+  }
+  notifyRender(id) {
+    const pending = this.pendingRenders.get(id);
+    if (pending) clearTimeout(pending);
+    this.pendingRenders.delete(id);
+    for (const invalidate of this.renderWatchers.get(id) ?? []) invalidate();
+  }
+  scheduleRender(id) {
+    if (!this.renderWatchers.has(id) || this.pendingRenders.has(id)) return;
+    const timer = setTimeout(() => this.notifyRender(id), 200);
+    timer.unref();
+    this.pendingRenders.set(id, timer);
+  }
+  watchRender(id, invalidate) {
+    let watchers = this.renderWatchers.get(id);
+    if (!watchers) {
+      watchers = /* @__PURE__ */ new Set();
+      this.renderWatchers.set(id, watchers);
+    }
+    watchers.add(invalidate);
+    if (!this.renderTimer) {
+      this.renderTimer = setInterval(() => {
+        for (const batchId of this.renderWatchers.keys()) this.notifyRender(batchId);
+      }, 1e3);
+      this.renderTimer.unref();
+    }
+  }
+  finishRender(id) {
+    this.notifyRender(id);
+    this.renderWatchers.delete(id);
+    if (!this.renderWatchers.size) this.stopRenderTimer();
   }
   status(ctx) {
     const selected = this.defaultModel;
@@ -1391,7 +1539,7 @@ var Subagents = class {
     return () => this.releaseSlot();
   }
   tools() {
-    return this.enabled ? [this.modelsTool(), this.callTool()] : [];
+    return this.enabled ? [this.modelsTool(), this.callTool(), this.viewTool(), this.cancelTool()] : [];
   }
   availableModels(ctx) {
     const available = ctx.modelRegistry.getAvailable();
@@ -1400,9 +1548,9 @@ var Subagents = class {
   }
   modelsTool() {
     return {
-      name: "list_subagent_models",
+      name: "view_subagent_models",
       label: "Subagent Models",
-      description: "List models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to use the saved subagent default or current Pi model.",
+      description: "View models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to use the saved subagent default or current Pi model.",
       parameters: ModelsSchema,
       execute: async (_id, args, _signal, _update, ctx) => {
         const query = args.query?.toLowerCase() ?? "";
@@ -1451,8 +1599,90 @@ var Subagents = class {
       ],
       description: "Create 1\u20138 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model priority: explicit task.model, saved subagent default, current Pi model. Thinking inherits the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
       parameters: CallSchema,
-      renderCall: (args, theme) => new Text(theme.fg("toolTitle", "call_subagents") + ` \xB7 ${args.tasks.length} task(s)`, 0, 0),
-      renderResult: (result, _options, theme) => new Text(theme.fg("muted", result.content.find((c) => c.type === "text")?.text ?? ""), 0, 0),
+      renderCall: (args, theme) => new Text(
+        [
+          theme.fg("toolTitle", theme.bold("SUBAGENTS")) + theme.fg("muted", ` \xB7 launching ${args.tasks.length} task(s)`),
+          ...args.tasks.map(
+            (task, index) => theme.fg("accent", `  ${index + 1}. `) + theme.fg("dim", task.context.replace(/\s+/g, " ").slice(0, 100)) + (task.model ? theme.fg("muted", ` \xB7 ${task.model}`) : "")
+          )
+        ].join("\n"),
+        0,
+        0
+      ),
+      renderResult: (result, { expanded }, theme, context) => {
+        const details = result.details;
+        if (!details?.batchId)
+          return new Text(
+            theme.fg("warning", result.content.find((c) => c.type === "text")?.text ?? "Failed to start"),
+            0,
+            0
+          );
+        const batch = this.batches.get(details.batchId) ?? this.history.get(details.batchId);
+        if (!batch)
+          return new Text(
+            theme.fg("muted", `Subagents \xB7 batch ${details.batchId} \xB7 no longer in this session`),
+            0,
+            0
+          );
+        if (this.batches.has(batch.id) && !context.state.subagentWatcher) {
+          context.state.subagentWatcher = () => context.invalidate();
+          this.watchRender(batch.id, context.state.subagentWatcher);
+        }
+        const now = Date.now();
+        const elapsed = ((batch.finishedAt ?? now) - batch.createdAt) / 1e3;
+        const completed = batch.states.filter((state) => state.status === "completed").length;
+        const usage2 = batch.states.reduce(
+          (total, state, index) => {
+            const value = batch.results[index]?.usage ?? state.progress?.usage;
+            total.input += value?.input ?? 0;
+            total.output += value?.output ?? 0;
+            total.cost += value?.cost ?? 0;
+            return total;
+          },
+          { input: 0, output: 0, cost: 0 }
+        );
+        const lines = [
+          theme.fg("accent", theme.bold("SUBAGENTS")) + theme.fg("muted", ` \xB7 ${batch.id}`),
+          theme.fg(
+            batch.finishedAt ? "success" : "warning",
+            `${completed}/${batch.states.length} completed`
+          ) + theme.fg(
+            "muted",
+            ` \xB7 ${elapsed.toFixed(1)}s \xB7 ${usage2.input} in / ${usage2.output} out \xB7 $${usage2.cost.toFixed(4)} settled`
+          )
+        ];
+        for (let index = 0; index < batch.states.length; index++) {
+          const state = batch.states[index];
+          const latest = state.progress?.recent.at(-1);
+          const seconds = state.startedAt ? ((state.finishedAt ?? now) - state.startedAt) / 1e3 : 0;
+          lines.push(
+            theme.fg(
+              state.status === "completed" ? "success" : state.status === "failed" || state.status === "cancelled" ? "error" : "accent",
+              `  ${index + 1}. ${state.status}`
+            ) + theme.fg(
+              "muted",
+              ` \xB7 ${seconds.toFixed(1)}s${state.progress?.tool ? ` \xB7 ${state.progress.tool}` : ""}`
+            )
+          );
+          if (expanded) {
+            lines.push(
+              theme.fg(
+                "dim",
+                `     ${state.id} \xB7 ${batch.results[index]?.usage.input ?? state.progress?.usage.input ?? 0} in / ${batch.results[index]?.usage.output ?? state.progress?.usage.output ?? 0} out`
+              )
+            );
+            if (latest?.text)
+              lines.push(
+                theme.fg(
+                  "dim",
+                  `     ${latest.source}${latest.tool ? `/${latest.tool}` : ""}: ${latest.text.replace(/\s+/g, " ").slice(-180)}`
+                )
+              );
+          } else if (latest?.text)
+            lines.push(theme.fg("dim", `     ${latest.text.replace(/\s+/g, " ").slice(-100)}`));
+        }
+        return new Text(lines.join("\n"), 0, 0);
+      },
       execute: async (_id, args, signal, _update, ctx) => {
         if (!this.enabled || this.closed) throw new Error("Subagents are disabled or the session has ended.");
         signal?.throwIfAborted();
@@ -1466,7 +1696,7 @@ var Subagents = class {
           const model = requestedModel ? models.find((m) => `${m.provider}/${m.id}` === requestedModel) : ctx.model && models.find((m) => m.provider === ctx.model?.provider && m.id === ctx.model?.id);
           if (!model)
             throw new Error(
-              `Model ${requestedModel ?? "(current)"} is not enabled and available in this Pi session. Use list_subagent_models or change /pi-enhance subagents model.`
+              `Model ${requestedModel ?? "(current)"} is not enabled and available in this Pi session. Use view_subagent_models or change /pi-enhance subagents model.`
             );
           if (task.thinking_level && !thinkingLevels(model).includes(task.thinking_level))
             throw new Error(
@@ -1475,7 +1705,7 @@ var Subagents = class {
           const names = task.tools ?? [];
           if (new Set(names).size !== names.length) throw new Error("Duplicate tool names in one task.");
           for (const name of names) {
-            if (name === "call_subagents" || name === "list_subagent_models" || !active.has(name))
+            if (HOST_TOOLS.has(name) || !active.has(name))
               throw new Error(`Tool ${name} is not active in the parent Pi session.`);
             if (!BUILTIN.has(name) && !enhanced.has(name))
               throw new Error(`Tool ${name} cannot be safely reconstructed in a child session.`);
@@ -1504,6 +1734,8 @@ var Subagents = class {
         if (this.owner !== owner) throw new Error("Session changed while preparing subagents.");
         const batch = {
           id: randomUUID3(),
+          createdAt: Date.now(),
+          states: prepared.map(() => ({ id: randomUUID3(), status: "queued" })),
           owner,
           anchor: ctx.sessionManager.getLeafId(),
           sessionManager: ctx.sessionManager,
@@ -1514,6 +1746,7 @@ var Subagents = class {
         };
         this.batches.set(batch.id, batch);
         void this.run(batch).catch((error) => {
+          this.finishRender(batch.id);
           this.batches.delete(batch.id);
           if (!this.closed && this.owner === owner && !batch.controller.signal.aborted)
             this.publish(
@@ -1525,10 +1758,104 @@ var Subagents = class {
           content: [
             {
               type: "text",
-              text: `Started ${prepared.length} subagent task(s); batch ${batch.id}. Continue other work. A completion message will be delivered to this session.`
+              text: `Started ${prepared.length} subagent task(s); batch ${batch.id}; task IDs: ${batch.states.map((state) => state.id).join(", ")}. Continue other work. Use view_subagents to check progress or cancel_subagents to cancel. A completion message will be delivered to this session.`
             }
           ],
-          details: { batchId: batch.id, tasks: prepared.length }
+          details: {
+            batchId: batch.id,
+            taskIds: batch.states.map((state) => state.id),
+            tasks: prepared.length
+          }
+        };
+      }
+    };
+  }
+  taskView(batch, index, full = false) {
+    const state = batch.states[index];
+    const result = batch.results[index];
+    const now = Date.now();
+    return {
+      id: state.id,
+      index: index + 1,
+      status: state.status,
+      phase: state.status === "running" || state.status === "cancelling" ? state.progress?.phase ?? "starting" : void 0,
+      current_tool: state.status === "running" || state.status === "cancelling" ? state.progress?.tool : void 0,
+      recent_output: state.progress?.recent?.filter((entry) => entry.text) ?? [],
+      model: `${batch.tasks[index].model.provider}/${batch.tasks[index].model.id}`,
+      context_preview: batch.tasks[index].task.context.replace(/\s+/g, " ").slice(0, 160),
+      started_at: state.startedAt ? new Date(state.startedAt).toISOString() : null,
+      elapsed_ms: state.startedAt ? (state.finishedAt ?? now) - state.startedAt : 0,
+      turns: result?.turns ?? state.progress?.turns ?? 0,
+      usage: result?.usage ?? state.progress?.usage ?? { input: 0, output: 0, cost: 0 },
+      result: result ? result.text.slice(0, full ? OUTPUT_CHARS : PREVIEW_CHARS) : void 0,
+      truncated: result ? result.text.length > (full ? OUTPUT_CHARS : PREVIEW_CHARS) : void 0
+    };
+  }
+  batchView(batch, full = false) {
+    return {
+      batchId: batch.id,
+      created_at: new Date(batch.createdAt).toISOString(),
+      finished_at: batch.finishedAt ? new Date(batch.finishedAt).toISOString() : null,
+      total: batch.states.length,
+      counts: Object.fromEntries(
+        ["queued", "running", "cancelling", "completed", "failed", "cancelled", "timeout", "max_turns"].map(
+          (status) => [status, batch.states.filter((state) => state.status === status).length]
+        )
+      ),
+      tasks: full ? batch.states.map((_, index) => this.taskView(batch, index)) : void 0
+    };
+  }
+  viewTool() {
+    return {
+      name: "view_subagents",
+      label: "View Subagents",
+      description: "Read-only current-session progress. With no arguments, list batches; with batchId, show task progress; with id, show one task and its final result. Recent visible assistant text and tool output are bounded to three snippets of 500 characters; reasoning is never included. Completed batches are retained for this session (latest 24).",
+      parameters: ViewSchema,
+      execute: async (_id, args, _signal, _update, ctx) => {
+        const batches = [...this.batches.values(), ...this.history.values()].filter(
+          (batch) => batch.owner === ctx.sessionManager.getSessionId() && this.onBranch(batch)
+        );
+        let data;
+        if (args.id) {
+          const batch = batches.find((item) => item.states.some((state) => state.id === args.id));
+          if (!batch || args.batchId && batch.id !== args.batchId)
+            throw new Error("Subagent task not found in this session/branch.");
+          data = {
+            batchId: batch.id,
+            task: this.taskView(
+              batch,
+              batch.states.findIndex((state) => state.id === args.id),
+              true
+            )
+          };
+        } else if (args.batchId) {
+          const batch = batches.find((item) => item.id === args.batchId);
+          if (!batch) throw new Error("Subagent batch not found in this session/branch.");
+          data = this.batchView(batch, true);
+        } else data = { batches: batches.map((batch) => this.batchView(batch)) };
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], details: data };
+      }
+    };
+  }
+  cancelTool() {
+    return {
+      name: "cancel_subagents",
+      label: "Cancel Subagents",
+      description: "Request cancellation of an active batch by batchId. Running tasks show cancelling until their model/tool acknowledges abort and settles; queued tasks are cancelled immediately. No automatic retry.",
+      parameters: CancelSchema,
+      execute: async (_id, args, _signal, _update, ctx) => {
+        const batch = this.batches.get(args.batchId);
+        if (!batch || batch.owner !== ctx.sessionManager.getSessionId() || !this.onBranch(batch))
+          throw new Error("Active subagent batch not found in this session/branch.");
+        this.cancel(args.batchId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Cancellation requested for batch ${args.batchId}. Use view_subagents to inspect final state.`
+            }
+          ],
+          details: { batchId: args.batchId, cancelled: true }
         };
       }
     };
@@ -1542,23 +1869,37 @@ var Subagents = class {
         let release;
         try {
           release = await this.slot(batch.controller.signal);
-          batch.results[index] = await runSubagent(
+          const state = batch.states[index];
+          if (batch.controller.signal.aborted) throw new Error("Batch cancelled.");
+          state.status = "running";
+          state.startedAt = Date.now();
+          batch.results[index] = await this.runner(
             task,
             index,
             model,
             thinking,
             this.registry,
             batch.modelRegistry,
-            batch.controller.signal
+            batch.controller.signal,
+            (progress) => {
+              state.progress = progress;
+              this.scheduleRender(batch.id);
+            }
           );
+          state.status = batch.controller.signal.aborted ? "cancelled" : batch.results[index].status;
+          if (batch.controller.signal.aborted) batch.results[index].status = "cancelled";
+          state.finishedAt = Date.now();
         } catch (error) {
+          const state = batch.states[index];
+          state.status = batch.controller.signal.aborted ? "cancelled" : "failed";
+          state.finishedAt = Date.now();
           batch.results[index] = {
             index,
             model: `${model.provider}/${model.id}`,
-            status: batch.controller.signal.aborted ? "cancelled" : "failed",
+            status: state.status,
             text: error instanceof Error ? error.message : String(error),
-            turns: 0,
-            usage: { input: 0, output: 0, cost: 0 }
+            turns: state.progress?.turns ?? 0,
+            usage: state.progress?.usage ?? { input: 0, output: 0, cost: 0 }
           };
         } finally {
           release?.();
@@ -1566,9 +1907,29 @@ var Subagents = class {
       }
     });
     await Promise.all(workers);
-    this.batches.delete(batch.id);
-    if (this.closed || batch.controller.signal.aborted || this.owner !== batch.owner || !this.onBranch(batch))
-      return;
+    for (let index = 0; index < batch.states.length; index++) {
+      const state = batch.states[index];
+      if (state.status === "queued") {
+        state.status = "cancelled";
+        state.finishedAt = Date.now();
+      }
+      if (!batch.results[index])
+        batch.results[index] = {
+          index,
+          model: `${batch.tasks[index].model.provider}/${batch.tasks[index].model.id}`,
+          status: "cancelled",
+          text: "Cancelled before starting.",
+          turns: 0,
+          usage: { input: 0, output: 0, cost: 0 }
+        };
+    }
+    batch.finishedAt = Date.now();
+    this.finishRender(batch.id);
+    const stillTracked = this.batches.delete(batch.id);
+    if (!stillTracked || this.closed || this.owner !== batch.owner || !this.onBranch(batch)) return;
+    this.history.set(batch.id, batch);
+    if (this.history.size > HISTORY_LIMIT) this.history.delete(this.history.keys().next().value);
+    if (batch.controller.signal.aborted) return;
     const lines = batch.results.map(
       (result) => `### Task ${result.index + 1} \xB7 ${result.model} \xB7 ${result.status}
 ${result.text.slice(0, OUTPUT_CHARS)}${result.text.length > OUTPUT_CHARS ? "\n[Output truncated]" : ""}
@@ -1588,7 +1949,15 @@ ${lines.join("\n\n---\n\n")}`);
         customType: "pi-enhance:subagents",
         content,
         display: true,
-        details: { batchId: batch.id, results: batch.results }
+        details: {
+          batchId: batch.id,
+          results: batch.results,
+          taskIds: batch.states.map((state) => state.id),
+          elapsedMs: (batch.finishedAt ?? Date.now()) - batch.createdAt,
+          taskElapsedMs: batch.states.map(
+            (state) => state.startedAt ? (state.finishedAt ?? Date.now()) - state.startedAt : 0
+          )
+        }
       },
       { triggerTurn: true, deliverAs: "followUp" }
     );
