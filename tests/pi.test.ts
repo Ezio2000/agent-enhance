@@ -101,6 +101,26 @@ async function harness(home: string) {
     },
   };
 }
+test("Pi adds scoped remote-release guidance to the system prompt without replacing other sections", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-prompt-"));
+  try {
+    const h = await harness(home);
+    const event = { systemPromptOptions: { sections: { existing: "keep me" } as Record<string, string> } };
+    await h.emit("before_agent_start", event);
+    assert.equal(event.systemPromptOptions.sections.existing, "keep me");
+    const guidance = event.systemPromptOptions.sections.pi_enhance_release;
+    assert.ok(guidance);
+    assert.match(guidance, /agent-enhance\/pi-enhance/);
+    assert.match(guidance, /docs\/release\.md/);
+    assert.match(guidance, /https:\/\/github\.com\/Ezio2000\/agent-enhance/);
+    assert.match(guidance, /Never persistently install the local working tree/);
+    await h.emit("before_agent_start", event);
+    assert.equal(event.systemPromptOptions.sections.pi_enhance_release, guidance);
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
 test("Pi commands install/load two providers but expose only one image tool; unload/reload updates schema", async () => {
   const home = await mkdtemp(join(tmpdir(), "enhance-pi-"));
   try {

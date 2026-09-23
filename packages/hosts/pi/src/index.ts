@@ -13,6 +13,8 @@ import { installEnhanceFooter, type FooterLabel } from "./footer.ts";
 import { registerManagement } from "./management.ts";
 
 const command = "pi-enhance";
+const releaseGuidance =
+  "When changing agent-enhance/pi-enhance for installation in Pi, follow the repository's docs/release.md: run checks, commit and push to https://github.com/Ezio2000/agent-enhance, then install or update Pi from that Git remote. Never persistently install the local working tree. If pushing is not authorized or fails, ask or stop rather than substituting a local installation.";
 const support = new Set(["approval", "task-settled", "request-interception"]);
 export function modelInfo(model: ExtensionContext["model"]): ModelInfo | undefined {
   if (!model) return;
@@ -209,7 +211,8 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     );
     if (payload !== event.payload) return payload;
   });
-  pi.on("before_agent_start", () => {
+  pi.on("before_agent_start", (event) => {
+    event.systemPromptOptions.sections.pi_enhance_release = releaseGuidance;
     const notices = registry.list().flatMap((e) => e.instance.notice?.() ?? []);
     if (notices.length)
       return { message: { customType: "pi-enhance:recovery", content: notices.join("\n"), display: false } };
