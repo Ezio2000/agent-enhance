@@ -51,6 +51,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
   const subagents = new Subagents(pi, registry);
   subagents.setEnabled(config.subagents === true);
+  subagents.setDefaultModel(config.subagentModel);
   let previousProvider: string | undefined;
   let disposed = false;
   let operations = new AbortController();
@@ -168,6 +169,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   };
   const saveConfig = (update: Parameters<ConfigStore["update"]>[0]) => {
     config = store.update(update);
+    subagents.setDefaultModel(config.subagentModel);
     for (const key of Object.keys(registry.defaults)) delete registry.defaults[key];
     Object.assign(registry.defaults, config.defaults);
   };
@@ -189,6 +191,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     previousProvider = ctx.model?.provider;
     config = store.load();
     subagents.setEnabled(config.subagents === true);
+    subagents.setDefaultModel(config.subagentModel);
     subagents.startSession(ctx.sessionManager.getSessionId());
     Object.assign(registry.defaults, config.defaults);
     for (const id of config.autoload) {

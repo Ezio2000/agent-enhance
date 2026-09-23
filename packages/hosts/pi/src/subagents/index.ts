@@ -22,7 +22,8 @@ const TaskSchema = Type.Object(
     ),
     model: Type.Optional(
       Type.String({
-        description: "Exact provider/model-id from list_subagent_models. Defaults to the current Pi model.",
+        description:
+          "Exact provider/model-id from list_subagent_models. Overrides the saved subagent default; otherwise inherits the current Pi model.",
       }),
     ),
     thinking_level: Type.Optional(
@@ -116,6 +117,7 @@ export class Subagents {
   private readonly waiters: Array<() => void> = [];
   private owner: string | undefined;
   private enabled = false;
+  private defaultModel: string | undefined;
   private closed = false;
   constructor(
     private readonly pi: ExtensionAPI,
@@ -139,6 +141,12 @@ export class Subagents {
   isEnabled(): boolean {
     return this.enabled;
   }
+  setDefaultModel(model: string | undefined): void {
+    this.defaultModel = model;
+  }
+  getDefaultModel(): string | undefined {
+    return this.defaultModel;
+  }
   startSession(sessionId: string): void {
     if (this.owner && this.owner !== sessionId) this.cancelAll();
     this.owner = sessionId;
@@ -160,8 +168,15 @@ export class Subagents {
     this.batches.delete(id);
     return true;
   }
-  status(): string {
-    return `Subagents: ${this.enabled ? "enabled" : "disabled"}; running: ${this.activeRunners}; active batches: ${[...this.batches.keys()].join(", ") || "none"}. Background results return to the originating session.`;
+  status(ctx?: ExtensionContext): string {
+    const selected = this.defaultModel;
+    const availability =
+      selected && ctx
+        ? this.availableModels(ctx).some((model) => `${model.provider}/${model.id}` === selected)
+          ? "available"
+          : "unavailable in this Pi session"
+        : undefined;
+    return `Subagents: ${this.enabled ? "enabled" : "disabled"}; default model: ${selected ?? "inherit current Pi model"}${availability ? ` (${availability})` : ""}; running: ${this.activeRunners}; active batches: ${[...this.batches.keys()].join(", ") || "none"}. Background results return to the originating session.`;
   }
   assertModuleIdle(capability: string): void {
     if (
@@ -204,7 +219,7 @@ export class Subagents {
   tools(): ToolDefinition<any, any>[] {
     return this.enabled ? [this.modelsTool(), this.callTool()] : [];
   }
-  private choices(ctx: ExtensionContext): ModelChoice[] {
+  availableModels(ctx: ExtensionContext): ModelChoice[] {
     const available = ctx.modelRegistry.getAvailable();
     const scoped = ctx.scopedModels?.length
       ? new Set(ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`))
@@ -216,11 +231,11 @@ export class Subagents {
       name: "list_subagent_models",
       label: "Subagent Models",
       description:
-        "List models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to inherit the current model.",
+        "List models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to use the saved subagent default or current Pi model.",
       parameters: ModelsSchema,
       execute: async (_id, args, _signal, _update, ctx) => {
         const query = args.query?.toLowerCase() ?? "";
-        const models = this.choices(ctx).filter(
+        const models = this.availableModels(ctx).filter(
           (model) =>
             (!query || `${model.provider}/${model.id} ${model.name}`.toLowerCase().includes(query)) &&
             (!args.input || model.input.includes(args.input)) &&
@@ -234,6 +249,7 @@ export class Subagents {
           reasoning: model.reasoning,
           thinking_levels: thinkingLevels(model),
           current: ctx.model?.provider === model.provider && ctx.model?.id === model.id,
+          default: this.defaultModel === `${model.provider}/${model.id}`,
         }));
         return {
           content: [
@@ -242,6 +258,7 @@ export class Subagents {
               text: JSON.stringify(
                 {
                   total: models.length,
+                  default_model: this.defaultModel ?? null,
                   offset,
                   next_offset: offset + PAGE_SIZE < models.length ? offset + PAGE_SIZE : null,
                   models: page,
@@ -261,7 +278,7 @@ export class Subagents {
       name: "call_subagents",
       label: "Call Subagents",
       description:
-        "Create 1–8 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model and thinking inherit the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
+        "Create 1–8 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model priority: explicit task.model, saved subagent default, current Pi model. Thinking inherits the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
       parameters: CallSchema,
       renderCall: (args, theme) =>
         new Text(theme.fg("toolTitle", "call_subagents") + ` · ${args.tasks.length} task(s)`, 0, 0),
@@ -270,18 +287,19 @@ export class Subagents {
       execute: async (_id, args, signal, _update, ctx) => {
         if (!this.enabled || this.closed) throw new Error("Subagents are disabled or the session has ended.");
         signal?.throwIfAborted();
-        const models = this.choices(ctx);
+        const models = this.availableModels(ctx);
         const active = new Set(this.pi.getActiveTools());
         const enhanced = new Set(this.registry.tools().map((tool) => tool.name));
         const approved = new Set<string>();
         const prepared: PreparedTask[] = [];
         for (const task of args.tasks as SubagentTask[]) {
-          const model = task.model
-            ? models.find((m) => `${m.provider}/${m.id}` === task.model)
+          const requestedModel = task.model ?? this.defaultModel;
+          const model = requestedModel
+            ? models.find((m) => `${m.provider}/${m.id}` === requestedModel)
             : ctx.model && models.find((m) => m.provider === ctx.model?.provider && m.id === ctx.model?.id);
           if (!model)
             throw new Error(
-              `Model ${task.model ?? "(current)"} is not enabled and available in this Pi session. Use list_subagent_models.`,
+              `Model ${requestedModel ?? "(current)"} is not enabled and available in this Pi session. Use list_subagent_models or change /pi-enhance subagents model.`,
             );
           if (task.thinking_level && !thinkingLevels(model).includes(task.thinking_level))
             throw new Error(

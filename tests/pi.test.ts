@@ -69,7 +69,26 @@ async function harness(home: string) {
       input: ["text", "image"],
     },
     sessionManager: { getSessionId: () => "test", buildContextEntries: () => [] },
-    modelRegistry: { getProviderAuth: async () => undefined },
+    scopedModels: [],
+    modelRegistry: {
+      getProviderAuth: async () => undefined,
+      getAvailable: () => [
+        {
+          provider: "openai-codex",
+          id: "gpt-6-astra",
+          name: "Astra",
+          input: ["text", "image"],
+          reasoning: true,
+        },
+        {
+          provider: "minimax-cn",
+          id: "MiniMax-M2.7",
+          name: "MiniMax M2.7",
+          input: ["text"],
+          reasoning: true,
+        },
+      ],
+    },
     waitForIdle: async () => {},
     isIdle: () => true,
   } as unknown as ExtensionCommandContext;
@@ -118,6 +137,44 @@ test("host-only subagents stay off by default, enable explicitly and persist wit
     assert.ok(!h.active().includes("call_subagents"));
     assert.equal(new ConfigStore(home, "pi").load().subagents, false);
     await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("subagent default model picker, explicit selection, scope validation, persistence and inherit", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-subagent-model-"));
+  try {
+    const h = await harness(home);
+    await h.emit("session_start");
+    assert.match(await h.command("subagents model"), /outside TUI/);
+    assert.match(await h.command("subagents model unknown/nope"), /not enabled and available/);
+    assert.equal(new ConfigStore(home, "pi").load().subagentModel, undefined);
+    assert.match(await h.command("subagents model minimax-cn/MiniMax-M2.7"), /Saved subagent default model/);
+    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "minimax-cn/MiniMax-M2.7");
+    assert.match(await h.command("subagents status"), /MiniMax-M2\.7 \(available\)/);
+    (h.ctx as any).scopedModels = [{ model: { provider: "openai-codex", id: "gpt-6-astra" } }];
+    assert.match(await h.command("subagents status"), /unavailable in this Pi session/);
+    assert.match(await h.command("subagents model minimax-cn/MiniMax-M2.7"), /not enabled and available/);
+    (h.ctx as any).scopedModels = [];
+    (h.ctx as any).mode = "tui";
+    h.choose((items) => items.find((value) => value.startsWith("openai-codex/gpt-6-astra")));
+    assert.match(await h.command("subagents model"), /openai-codex\/gpt-6-astra/);
+    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "openai-codex/gpt-6-astra");
+    const reopened = await harness(home);
+    await reopened.emit("session_start");
+    assert.match(await reopened.command("subagents status"), /default model: openai-codex\/gpt-6-astra/);
+    await reopened.emit("session_shutdown");
+    h.chooseOnce(undefined);
+    assert.equal(await h.command("subagents model"), "");
+    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "openai-codex/gpt-6-astra");
+    assert.match(await h.command("subagents model inherit"), /inherit current Pi model/);
+    assert.equal(new ConfigStore(home, "pi").load().subagentModel, undefined);
+    await h.emit("session_shutdown");
+    const restored = await harness(home);
+    await restored.emit("session_start");
+    assert.match(await restored.command("subagents status"), /inherit current Pi model/);
+    await restored.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

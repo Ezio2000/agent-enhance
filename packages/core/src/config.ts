@@ -24,6 +24,8 @@ export interface HostConfig {
   controls: Record<string, string>;
   /** Pi-only host feature; omitted in older configs. */
   subagents?: boolean;
+  /** Exact provider/model-id for Pi subagents; absent means inherit the active model. */
+  subagentModel?: string;
 }
 export const emptyConfig = (): HostConfig => ({ version: 1, autoload: [], defaults: {}, controls: {} });
 export function readJson<T>(path: string, fallback: () => T): T {
@@ -77,7 +79,9 @@ function validate(config: HostConfig): HostConfig {
     Array.isArray(config.controls) ||
     Object.values(config.defaults).some((x) => typeof x !== "string") ||
     Object.values(config.controls).some((x) => typeof x !== "string") ||
-    (config.subagents !== undefined && typeof config.subagents !== "boolean")
+    (config.subagents !== undefined && typeof config.subagents !== "boolean") ||
+    (config.subagentModel !== undefined &&
+      (typeof config.subagentModel !== "string" || !/^[^\s/]+\/\S+$/.test(config.subagentModel)))
   )
     throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
   return config;

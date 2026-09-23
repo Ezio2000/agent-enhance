@@ -32,7 +32,7 @@ const groups = [
   { label: "请求增强 / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] },
 ];
 const usage =
-  "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
+  "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|model [<provider/id>|inherit]|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const entryCapability = (id: string) => id.split("/")[0]!;
 
@@ -87,7 +87,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
         `Defaults: ${JSON.stringify(config().defaults)}`,
         `Controls: ${JSON.stringify(config().controls)}`,
         `Home: ${manager.home}`,
-        options.subagents.status(),
+        options.subagents.status(ctx),
       );
     return lines.join("\n");
   };
@@ -173,6 +173,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       "updates",
       "update --installed",
       "subagents status",
+      "subagents model",
       "subagents enable",
       "subagents disable",
     ]);
@@ -199,7 +200,43 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
     if (words[0] === "subagents") {
       const action = words[1];
       if (action === "status" && words.length === 2) {
-        report(ctx, options.subagents.status());
+        report(ctx, options.subagents.status(ctx));
+        return;
+      }
+      if (action === "model" && words.length <= 3) {
+        const models = options.subagents.availableModels(ctx);
+        let selected = words[2];
+        if (!selected) {
+          if (ctx.mode !== "tui")
+            throw new Error("Use /pi-enhance subagents model <provider/id>|inherit outside TUI.");
+          const inherit = "inherit current Pi model";
+          const labels = models.map(
+            (model) =>
+              `${model.provider}/${model.id} · ${model.name} · ${model.input.join("/")} · ${model.reasoning ? "thinking" : "no thinking"}`,
+          );
+          const choice = await ctx.ui.select(`Subagent default model: ${config().subagentModel ?? inherit}`, [
+            inherit,
+            ...labels,
+          ]);
+          if (!choice) return;
+          if (choice === inherit) selected = "inherit";
+          else {
+            const model = models[labels.indexOf(choice)];
+            if (!model) throw new Error("Invalid model selection; no preference was changed.");
+            selected = `${model.provider}/${model.id}`;
+          }
+        }
+        if (selected !== "inherit" && !models.some((model) => `${model.provider}/${model.id}` === selected))
+          throw new Error(`Model ${selected} is not enabled and available in this Pi session.`);
+        save((c) => {
+          if (selected !== "inherit") return { ...c, subagentModel: selected };
+          const { subagentModel: _previous, ...rest } = c;
+          return rest;
+        });
+        report(
+          ctx,
+          `Saved subagent default model: ${selected === "inherit" ? "inherit current Pi model" : selected}. No model calls.`,
+        );
         return;
       }
       if ((action === "enable" || action === "disable") && words.length === 2) {
@@ -365,6 +402,8 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
         "subagents enable",
         "subagents disable",
         "subagents status",
+        "subagents model",
+        "subagents model inherit",
         ...manager.catalog.modules.flatMap((e) =>
           [
             "",

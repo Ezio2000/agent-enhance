@@ -14,7 +14,7 @@ import {
 
 if (!process.argv.includes("--live")) {
   console.log(
-    "Run: npx tsx scripts/smoke-subagent-host.ts --live (uses MiniMax child and one parent follow-up)",
+    "Run: npx tsx scripts/smoke-subagent-host.ts --live (uses MiniMax child and GLM parent follow-up)",
   );
   process.exit(0);
 }
@@ -43,7 +43,7 @@ try {
             if (!tool) throw new Error("call_subagents not active");
             const result = await tool.execute(
               "probe",
-              { tasks: [{ context: "只回答 1=1 是否成立，一句话。", model: "minimax-cn/MiniMax-M2.7" }] },
+              { tasks: [{ context: "只回答 1=1 是否成立，一句话。" }] },
               undefined,
               undefined,
               ctx,
@@ -56,8 +56,8 @@ try {
   });
   await loader.reload();
   const runtime = await ModelRuntime.create({ allowModelNetwork: false });
-  const model = runtime.getModel("minimax-cn", "MiniMax-M2.7");
-  if (!model) throw new Error("MiniMax model unavailable");
+  const model = runtime.getModel("zai", "glm-5.3-flash");
+  if (!model) throw new Error("GLM parent model unavailable");
   session = (
     await createAgentSession({
       cwd: home,
@@ -72,6 +72,7 @@ try {
   ).session;
   await session.bindExtensions({ mode: "print" });
   await session.prompt("/pi-enhance subagents enable");
+  await session.prompt("/pi-enhance subagents model minimax-cn/MiniMax-M2.7");
   await session.prompt("/probe-subagents");
   const start = Date.now();
   while (Date.now() - start < 120_000) {

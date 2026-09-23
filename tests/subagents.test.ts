@@ -96,6 +96,27 @@ test("subagents reject unscoped models, unavailable tools, and write requests wi
   h.subagents.shutdown();
 });
 
+test("saved default is used unless task.model overrides it; stale defaults fail instead of falling back", async () => {
+  const h = harness();
+  const call = h.tools.get("call_subagents");
+  h.subagents.setDefaultModel("test/image");
+  const list = await h.tools.get("list_subagent_models").execute("m", {}, undefined, undefined, h.ctx);
+  assert.equal(JSON.parse(list.content[0].text).default_model, "test/image");
+  await assert.rejects(
+    call.execute("1", { tasks: [{ context: "1=1?" }] }, undefined, undefined, h.ctx),
+    /test\/image is not enabled/,
+  );
+  const explicit = await call.execute(
+    "2",
+    { tasks: [{ context: "1=1?", model: "test/text" }] },
+    undefined,
+    undefined,
+    h.ctx,
+  );
+  assert.ok(h.subagents.cancel(explicit.details.batchId));
+  h.subagents.shutdown();
+});
+
 test("omitting tools grants none and returns immediately; cancellation suppresses late completion", async () => {
   const h = harness();
   const call = h.tools.get("call_subagents");
