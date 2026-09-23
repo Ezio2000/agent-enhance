@@ -20,7 +20,17 @@
 pi install https://github.com/Ezio2000/agent-enhance
 ```
 
-GitHub 仓库为 `Ezio2000/agent-enhance`，Pi 集成包名为 `pi-enhance`。后续更新执行 `pi update https://github.com/Ezio2000/agent-enhance`。
+GitHub 仓库为 `Ezio2000/agent-enhance`，Pi 集成包名为 `pi-enhance`。**日常安装与更新只使用 Git 远端**，不把开发工作树注册为持久 Pi 包来源。后续更新执行 `pi update https://github.com/Ezio2000/agent-enhance`。开发者先按 [发布流程](docs/release.md) 提交并推送源码、构建模块及锁定目录，再从远端更新；未推送的本地构建不会出现在 Git 安装中。
+
+如果先前把本地工作树装进 Pi，先安装远端来源，再移除本地来源（路径按 `pi list` 确认；只保留一个 `pi-enhance`）：
+
+```bash
+pi install https://github.com/Ezio2000/agent-enhance
+pi remove /absolute/path/to/agent-enhance
+pi list
+```
+
+切换后在 Pi 中执行 `/reload`，按下方“模块更新”流程更新已安装能力，再 `/reload` 载入新模块。`~/.agent-enhance` 中的偏好、认证和历史产物不会因切换包来源而删除。
 
 若之前从旧仓库 URL 安装，先安装新地址，再移除旧来源（使用 `pi list` 显示的来源字符串）：
 
@@ -137,7 +147,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 /pi-enhance openai image_detail on
 ```
 
-最后两项也要求事先安装／加载对应模块。`fast` 设置 `service_tier=priority`，可能增加额度消耗；`verbosity` 控制回答详细程度；`image_detail on` 对应 `original`，不关闭宿主图片缩放。`off` 表示不覆盖原请求。仅作用于支持的 OpenAI Codex 主模型请求，不影响独立工具。
+最后两项也要求事先安装／加载对应模块。`fast` 设置 `service_tier=priority`，可能增加额度消耗；`verbosity` 控制回答详细程度；`image_detail on` 对应 `original`，不关闭宿主图片缩放。`off` 表示不覆盖原请求。仅作用于支持的 OpenAI Codex 主模型请求（包括 GPT-6 Astra、Sol、Luna），不影响独立工具。
 
 `/pi-enhance` 打开按功能分组的管理面板；`/pi-enhance openai fast manage` 管理安装／禁用／更新，`/pi-enhance openai fast` 打开设置选择器，选中即保存并返回，Esc 取消不改值。控制状态以自定义 Footer 呈现：标签显示在项目地址右侧（启用的值高亮），仅在当前主模型为受支持的 OpenAI Codex Responses 模型时出现，切到其他模型即隐藏；其余扩展状态仍在统计行下方。提供命令参数补全，不替换编辑器。非交互模式须提供显式操作或值。
 

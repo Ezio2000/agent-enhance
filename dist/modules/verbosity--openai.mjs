@@ -17,6 +17,8 @@ function isRecord(value) {
 // packages/transports/openai/src/model-support.ts
 var SUPPORT = Object.freeze({
   "gpt-6-astra": { verbosity: true, originalImages: true, priority: true },
+  "gpt-6-sol": { verbosity: true, originalImages: true, priority: true },
+  "gpt-6-luna": { verbosity: true, originalImages: true, priority: true },
   "gpt-5.6-sol": { verbosity: true, originalImages: true, priority: true },
   "gpt-5.6-terra": { verbosity: true, originalImages: true, priority: true },
   "gpt-5.6-luna": { verbosity: true, originalImages: true, priority: true },

@@ -19,6 +19,7 @@ import { annotateError } from "../packages/core/src/errors.ts";
 import { fastControl } from "../packages/capabilities/fast/openai/src/control.ts";
 import { verbosityControl } from "../packages/capabilities/verbosity/openai/src/control.ts";
 import { imageDetailControl } from "../packages/capabilities/image_detail/openai/src/control.ts";
+import { supportsModelOption } from "../packages/transports/openai/src/model-support.ts";
 const context: ExecutionContext = {
   cwd: process.cwd(),
   sessionId: "test",
@@ -276,6 +277,33 @@ test("request controls remain API/model scoped and preserve payloads when off", 
   assert.equal(output.text.verbosity, "high");
   assert.equal(output.input[0].content[0].detail, "original");
   assert.equal(input.input[0]!.content[0]!.detail, "auto");
+});
+test("GPT-6 Sol and Luna support Codex request controls; unknown models remain excluded", () => {
+  const controls = [fastControl, verbosityControl, imageDetailControl];
+  for (const id of ["gpt-6-sol", "gpt-6-luna"]) {
+    for (const option of ["verbosity", "originalImages", "priority"] as const)
+      assert.equal(supportsModelOption(id, option), true);
+    const model = {
+      provider: "openai",
+      channel: "codex",
+      api: "codex-responses",
+      id,
+      input: ["text", "image"],
+    };
+    const payload = {
+      model: id,
+      input: [{ role: "user", content: [{ type: "input_image", detail: "auto" }] }],
+    };
+    const result = transformControlledRequest(payload, model, controls, {
+      fast: "on",
+      verbosity: "high",
+      image_detail: "original",
+    }) as any;
+    assert.equal(result.service_tier, "priority");
+    assert.equal(result.text.verbosity, "high");
+    assert.equal(result.input[0].content[0].detail, "original");
+  }
+  assert.equal(supportsModelOption("gpt-6-unknown", "priority"), false);
 });
 test("credentials are resolved each time and never cross channels or accepted kinds", async () => {
   const resolver = new StaticCredentialResolver({

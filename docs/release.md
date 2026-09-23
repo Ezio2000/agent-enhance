@@ -7,16 +7,16 @@
 3. Commit source and `dist/modules/*.mjs` together.
 4. Set the immutable module revision with `MODULE_REVISION=<that-commit> npm run build`.
 5. Commit the catalog / Pi bundle update. The referenced revision must contain byte-identical module files.
-6. Run `npm run verify:distribution -- --download`: it unpacks the actual npm tarball and runs a fresh Pi SDK process with an empty isolated home. Only the two explicitly enabled image modules are downloaded from the pinned public HTTPS source. It checks zero-capability startup, selective enable/disable, schema merging, idempotence and uninstall retention without model calls or user credentials. The default `npm run verify:distribution` performs the same checks using a mocked HTTPS transport with local build fixtures, and makes no network calls.
-7. Run `npm pack --dry-run --ignore-scripts` and confirm the Pi tarball excludes `dist/modules`, capability source code and standalone `dist/core.mjs`.
-8. Merge the tested commits into the existing repository's main branch, without force pushing.
-9. If npm distribution is desired, confirm package ownership/name availability and the release version, then explicitly publish the verified package. Publishing is a separate maintainer action, not part of build/check. Only after publishing advertise `pi install npm:pi-enhance`; Git/local installation remains supported.
+6. After confirming the remote branch has not moved, push both commits to the Git remote without force pushing. `npm run verify:distribution -- --download` then fetches modules from the pinned **public** commit and runs a fresh Pi SDK process with an empty isolated home. Only the two explicitly enabled image modules are downloaded; no model calls or user credentials are used. The default `npm run verify:distribution` uses mocked HTTPS and local fixtures instead.
+7. Run `npm pack --dry-run --ignore-scripts` and confirm the Pi tarball excludes `dist/modules`, capability source code and standalone `dist/core.mjs`. Check CI on the pushed commits; if remote verification fails, fix and publish a new commit rather than rewriting history.
+8. For the normal Pi installation, use only the Git remote source: `pi install https://github.com/Ezio2000/agent-enhance` (once) or `pi update https://github.com/Ezio2000/agent-enhance`. In an existing Pi session run `/reload`, `/pi-enhance update --installed`, then `/reload` again. The host update does not silently update capability modules.
+9. If npm distribution is desired, confirm package ownership/name availability and the release version, then explicitly publish the verified package. Publishing is a separate maintainer action, not part of build/check. Only after publishing advertise `pi install npm:pi-enhance`. Local package loading remains a development/trial option, not the standard installed source.
 
 `dist/core.mjs` is a standalone base artifact. The root package is the `pi-enhance` host distribution; `packages/core/package.json` documents the host-neutral package boundary. No npm publishing is required for Git/local installation.
 
-## Local replacement
+## Development trials and source migration
 
-Back up Pi settings first. Keep the source directories and old artifacts. Register only one Agent Enhance package source and remove duplicate package entries. Do not remove unrelated extensions. Restart Pi or use its native `/reload` in existing sessions.
+Do not persistently install a local working tree for normal use: uncommitted `dist` changes and the Git release catalog can diverge. Use an explicit `pi -ne -e /absolute/path/to/agent-enhance/dist/pi.mjs` for an isolated trial instead. When switching an existing installation back to the Git remote, back up Pi settings first, install the remote source, remove the local source identified by `pi list`, and verify only one `pi-enhance` remains. Keep the source directories and old artifacts. Do not remove unrelated extensions. Restart Pi or use its native `/reload` in existing sessions.
 
 Use explicit install/load commands for the capabilities to retain, and save defaults for ambiguous tools such as `gen_image`. Installation does not copy API keys or OAuth credentials.
 

@@ -172,6 +172,12 @@ test("Pi preferences accept explicit values headlessly and do not silently load/
       },
     });
     assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
+    for (const id of ["gpt-6-sol", "gpt-6-luna"]) {
+      await h.emit("model_select", {
+        model: { provider: "openai-codex", id, api: "openai-codex-responses", input: ["text", "image"] },
+      });
+      assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
+    }
     await h.command("openai fast off");
     assert.equal(h.statuses().at(-1)?.[1], "fast:off");
     assert.match(await h.command("openai fast"), /Explicit action/);
