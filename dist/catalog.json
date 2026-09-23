@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "f4921b89895acc439cd4e57ba6c49aaed24ad679",
+  "revision": "4fda20620fc0ad976aaf9786ff530c61fc334096",
   "repository": "Ezio2000/agent-enhance",
   "modules": [
     {
@@ -14,8 +14,8 @@
         "request-interception"
       ],
       "file": "fast--openai.mjs",
-      "sha256": "525bd079ebb81d3f7ea035081f6365854ed2f99aba7f02463cd5f3c516250b72",
-      "bytes": 2467
+      "sha256": "0648db6c06f30bc95c58ec576ccf3590ca7f4d43556200f98d51b76fc54d92b7",
+      "bytes": 2700
     },
     {
       "apiVersion": 1,
@@ -118,8 +118,8 @@
         "request-interception"
       ],
       "file": "image_detail--openai.mjs",
-      "sha256": "cd2a536d75e73b5d174535e0c31226d49ada18fb865924e911b5069fb202ceb2",
-      "bytes": 3137
+      "sha256": "eaff0026cdd316d21654ec6b25299c75af522827d993a0ac7d83b483f84079ab",
+      "bytes": 3286
     },
     {
       "apiVersion": 1,
@@ -186,8 +186,8 @@
         "request-interception"
       ],
       "file": "verbosity--openai.mjs",
-      "sha256": "01707f2e41214bf7b995e64e9eb801e928797667dfe8671d70dddd9f77814b53",
-      "bytes": 2306
+      "sha256": "0c837619d48e7ffedd9d213a6ad37250358ea8edec62d0cc0c9c6734ba81adca",
+      "bytes": 2455
     },
     {
       "apiVersion": 1,
