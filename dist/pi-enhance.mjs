@@ -685,6 +685,7 @@ var groups = [
   { label: "\u8054\u7F51\u641C\u7D22 / Search", capabilities: ["search_web"] },
   { label: "\u6587\u4EF6\u7406\u89E3 / File understanding", capabilities: ["view_pdf", "view_video", "view_image"] },
   { label: "\u684C\u9762\u64CD\u4F5C / Computer use", capabilities: ["use_computer"] },
+  { label: "\u5B50\u4EE3\u7406 / Subagents", capabilities: [] },
   { label: "\u8BF7\u6C42\u589E\u5F3A / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] }
 ];
 var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|model [<provider/id>|inherit]|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
@@ -797,27 +798,42 @@ Enable installs only this module; no model calls. Saved control values are retai
     if (action === "set default") await run(`defaults ${entry.capability} ${entry.provider}`, ctx);
     else await run(`${entry.provider} ${entry.capability}${action === "settings" ? "" : ` ${action}`}`, ctx);
   };
+  const subagentsPanel = async (ctx) => {
+    const saved = config().subagentModel;
+    const available = saved && options.subagents.availableModels(ctx).some((model) => `${model.provider}/${model.id}` === saved);
+    const choice = await ctx.ui.select(
+      `\u5B50\u4EE3\u7406 / Subagents \xB7 ${options.subagents.isEnabled() ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528"}
+\u9ED8\u8BA4\u6A21\u578B\uFF1A${saved ?? "\u7EE7\u627F\u5F53\u524D Pi \u6A21\u578B"}${saved && !available ? "\uFF08\u5F53\u524D\u4E0D\u53EF\u7528\uFF09" : ""}`,
+      ["\u9009\u62E9\u9ED8\u8BA4\u6A21\u578B", options.subagents.isEnabled() ? "\u7981\u7528" : "\u542F\u7528", "\u72B6\u6001"]
+    );
+    if (choice === "\u9009\u62E9\u9ED8\u8BA4\u6A21\u578B") await run("subagents model", ctx);
+    else if (choice === "\u542F\u7528") await run("subagents enable", ctx);
+    else if (choice === "\u7981\u7528") await run("subagents disable", ctx);
+    else if (choice === "\u72B6\u6001") await run("subagents status", ctx);
+  };
   const panel = async (ctx) => {
     const known = new Set(groups.flatMap((group2) => group2.capabilities));
     const available = [
       ...groups,
       ...manager.catalog.modules.filter((e) => !known.has(e.capability)).map((e) => ({ label: e.capability, capabilities: [e.capability] }))
-    ].filter((group2) => manager.catalog.modules.some((e) => group2.capabilities.includes(e.capability)));
+    ].filter(
+      (group2) => group2.label === "\u5B50\u4EE3\u7406 / Subagents" || manager.catalog.modules.some((e) => group2.capabilities.includes(e.capability))
+    );
     const selected = await ctx.ui.select("Pi Enhance \xB7 \u6309\u529F\u80FD\u9009\u62E9", [
       ...available.map((g) => g.label),
       "status",
       "catalog",
       "updates",
-      "update --installed",
-      "subagents status",
-      "subagents model",
-      "subagents enable",
-      "subagents disable"
+      "update --installed"
     ]);
     if (!selected) return;
     const group = available.find((g) => g.label === selected);
     if (!group) {
       await run(selected, ctx);
+      return;
+    }
+    if (group.label === "\u5B50\u4EE3\u7406 / Subagents") {
+      await subagentsPanel(ctx);
       return;
     }
     const entries = manager.catalog.modules.filter((e) => group.capabilities.includes(e.capability));
