@@ -123,6 +123,8 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 }
 ```
 
+`/pi-enhance` 主面板将子代理作为单独功能分组；进入后可选择默认模型、启用／禁用或查看状态，Esc 取消不修改。命令行仍可直接使用上面的显式命令。
+
 `context` 是完整的子任务提示词，父会话历史不自动复制。`tools` 可省略或传 `[]`（零工具）；指定时只能使用当前父 Pi 会话活跃的内置工具或已加载的 pi-enhance 工具。子任务的 `model` 优先于已保存的子代理默认模型；两者都没有时继承当前 Pi 模型。默认值保存在 `~/.agent-enhance/hosts/pi.json`，跨会话保留；如果保存的模型后来不可用或不在当前 scoped models 中，明确报错而不静默换模型。显式指定也必须使用 Pi 当前可用且位于当前 scoped models 中的精确 `provider/id`。`thinking_level`、`cwd`、`timeout_seconds`、`max_turns` 均可选，后两项不填时本功能不施加额外上限，用户取消及 Pi／供应商限制仍生效。查询目录不调用收费模型，目录可用不保证实际额度。
 
 每个子任务由独立的 **Pi SDK AgentSession** 执行，工具在子会话中显式装配，不手写模型／工具循环。批次立即返回 ID，最多 8 个任务，宿主跨批次最多同时运行 4 个并限制排队数量；完成后在原会话展示结果并触发后续模型回合（可能额外消耗额度），不持续推送进度。`/pi-enhance subagents cancel <batch-id>`、会话关闭／切换分支和禁用会取消任务。Pi 原生写入／命令工具（`edit`、`write`、`bash`、`powershell`）及 pi-enhance 生成／桌面工具（`gen_image`、`gen_video`、`gen_voice`、`use_computer`）默认拦截；仅在交互模式得到用户针对本批次的明确批准后才允许。未知的第三方扩展工具不会被假装成可继承工具。工具白名单不是 OS 沙箱，尤其 `bash` 可以写入任意允许的文件。

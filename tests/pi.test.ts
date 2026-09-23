@@ -472,6 +472,38 @@ test("feature-first panel shows requirements, performs one action and cancels wi
   }
 });
 
+test("subagents are one feature group in the panel; actions and model picker remain one-shot", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-subagents-panel-"));
+  try {
+    const h = await harness(home);
+    (h.ctx as any).mode = "tui";
+    await h.emit("session_start");
+    h.choose((items) => {
+      assert.equal(items.filter((item) => item.includes("Subagents")).length, 1);
+      assert.ok(!items.some((item) => item.startsWith("subagents ")));
+      return items.find((item) => item.includes("Subagents"));
+    }, undefined);
+    await h.command("");
+    assert.equal(h.dialogs.length, 2);
+    assert.equal(new ConfigStore(home, "pi").load().subagents, undefined);
+    h.choose((items) => items.find((item) => item.includes("Subagents")), "启用");
+    assert.match(await h.command(""), /enabled/);
+    assert.equal(h.dialogs.length, 4);
+    assert.ok(h.active().includes("call_subagents"));
+    h.choose(
+      (items) => items.find((item) => item.includes("Subagents")),
+      "选择默认模型",
+      (items) => items.find((item) => item.startsWith("minimax-cn/MiniMax-M2.7")),
+    );
+    assert.match(await h.command(""), /Saved subagent default model/);
+    assert.equal(h.dialogs.length, 7);
+    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "minimax-cn/MiniMax-M2.7");
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("update commands compare local catalog, preserve preferences and never add uninstalled modules", async () => {
   const home = await mkdtemp(join(tmpdir(), "enhance-update-command-"));
   try {

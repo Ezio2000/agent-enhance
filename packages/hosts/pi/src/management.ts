@@ -29,6 +29,7 @@ const groups = [
   { label: "联网搜索 / Search", capabilities: ["search_web"] },
   { label: "文件理解 / File understanding", capabilities: ["view_pdf", "view_video", "view_image"] },
   { label: "桌面操作 / Computer use", capabilities: ["use_computer"] },
+  { label: "子代理 / Subagents", capabilities: [] },
   { label: "请求增强 / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] },
 ];
 const usage =
@@ -158,6 +159,20 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
     if (action === "set default") await run(`defaults ${entry.capability} ${entry.provider}`, ctx);
     else await run(`${entry.provider} ${entry.capability}${action === "settings" ? "" : ` ${action}`}`, ctx);
   };
+  const subagentsPanel = async (ctx: ExtensionCommandContext) => {
+    const saved = config().subagentModel;
+    const available =
+      saved &&
+      options.subagents.availableModels(ctx).some((model) => `${model.provider}/${model.id}` === saved);
+    const choice = await ctx.ui.select(
+      `子代理 / Subagents · ${options.subagents.isEnabled() ? "已启用" : "未启用"}\n默认模型：${saved ?? "继承当前 Pi 模型"}${saved && !available ? "（当前不可用）" : ""}`,
+      ["选择默认模型", options.subagents.isEnabled() ? "禁用" : "启用", "状态"],
+    );
+    if (choice === "选择默认模型") await run("subagents model", ctx);
+    else if (choice === "启用") await run("subagents enable", ctx);
+    else if (choice === "禁用") await run("subagents disable", ctx);
+    else if (choice === "状态") await run("subagents status", ctx);
+  };
   const panel = async (ctx: ExtensionCommandContext) => {
     const known = new Set(groups.flatMap((group) => group.capabilities));
     const available = [
@@ -165,22 +180,26 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       ...manager.catalog.modules
         .filter((e) => !known.has(e.capability))
         .map((e) => ({ label: e.capability, capabilities: [e.capability] })),
-    ].filter((group) => manager.catalog.modules.some((e) => group.capabilities.includes(e.capability)));
+    ].filter(
+      (group) =>
+        group.label === "子代理 / Subagents" ||
+        manager.catalog.modules.some((e) => group.capabilities.includes(e.capability)),
+    );
     const selected = await ctx.ui.select("Pi Enhance · 按功能选择", [
       ...available.map((g) => g.label),
       "status",
       "catalog",
       "updates",
       "update --installed",
-      "subagents status",
-      "subagents model",
-      "subagents enable",
-      "subagents disable",
     ]);
     if (!selected) return;
     const group = available.find((g) => g.label === selected);
     if (!group) {
       await run(selected, ctx);
+      return;
+    }
+    if (group.label === "子代理 / Subagents") {
+      await subagentsPanel(ctx);
       return;
     }
     const entries = manager.catalog.modules.filter((e) => group.capabilities.includes(e.capability));
