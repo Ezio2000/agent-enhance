@@ -49,7 +49,7 @@ await build({
 });
 await build({
   entryPoints: ["packages/hosts/pi/src/index.ts"],
-  outfile: "dist/pi.mjs",
+  outfile: "dist/pi-enhance.mjs",
   bundle: true,
   platform: "node",
   format: "esm",

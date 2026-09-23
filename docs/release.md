@@ -16,7 +16,7 @@
 
 ## Development trials and source migration
 
-Do not persistently install a local working tree for normal use: uncommitted `dist` changes and the Git release catalog can diverge. Use an explicit `pi -ne -e /absolute/path/to/agent-enhance/dist/pi.mjs` for an isolated trial instead. When switching an existing installation back to the Git remote, back up Pi settings first, install the remote source, remove the local source identified by `pi list`, and verify only one `pi-enhance` remains. Keep the source directories and old artifacts. Do not remove unrelated extensions. Restart Pi or use its native `/reload` in existing sessions.
+Do not persistently install a local working tree for normal use: uncommitted `dist` changes and the Git release catalog can diverge. Use an explicit `pi -ne -e /absolute/path/to/agent-enhance/dist/pi-enhance.mjs` for an isolated trial instead. When switching an existing installation back to the Git remote, back up Pi settings first, install the remote source, remove the local source identified by `pi list`, and verify only one `pi-enhance` remains. Keep the source directories and old artifacts. Do not remove unrelated extensions. Restart Pi or use its native `/reload` in existing sessions.
 
 Use explicit install/load commands for the capabilities to retain, and save defaults for ambiguous tools such as `gen_image`. Installation does not copy API keys or OAuth credentials.
 

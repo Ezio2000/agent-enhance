@@ -45,7 +45,7 @@ const resourceLoader = new DefaultResourceLoader({
   noThemes: true,
   noPromptTemplates: true,
   noContextFiles: true,
-  additionalExtensionPaths: [join(extension, "dist/pi.mjs")],
+  additionalExtensionPaths: [join(extension, "dist/pi-enhance.mjs")],
 });
 await resourceLoader.reload();
 assert.deepEqual(resourceLoader.getExtensions().errors, []);

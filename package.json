@@ -14,7 +14,7 @@
     "node": ">=22"
   },
   "files": [
-    "dist/pi.mjs",
+    "dist/pi-enhance.mjs",
     "dist/catalog.json",
     "README.md",
     "docs",
@@ -22,7 +22,7 @@
   ],
   "pi": {
     "extensions": [
-      "./dist/pi.mjs"
+      "./dist/pi-enhance.mjs"
     ]
   },
   "scripts": {

@@ -16,11 +16,12 @@ try {
   });
   const metadata = JSON.parse(packed.stdout)[0];
   const files: string[] = metadata.files.map((file: { path: string }) => file.path);
-  for (const required of ["dist/pi.mjs", "dist/catalog.json", "package.json"])
+  for (const required of ["dist/pi-enhance.mjs", "dist/catalog.json", "package.json"])
     assert.ok(files.includes(required));
   assert.ok(
     !files.some(
       (file) =>
+        file === "dist/pi.mjs" ||
         file.startsWith("dist/modules/") ||
         file.startsWith("packages/") ||
         file.startsWith("node_modules/") ||

@@ -31,7 +31,7 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
       noThemes: true,
       noPromptTemplates: true,
       noContextFiles: true,
-      additionalExtensionPaths: [join(process.cwd(), "dist/pi.mjs")],
+      additionalExtensionPaths: [join(process.cwd(), "dist/pi-enhance.mjs")],
     });
     await loader.reload();
     assert.deepEqual(loader.getExtensions().errors, []);
