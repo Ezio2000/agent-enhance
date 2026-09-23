@@ -8,6 +8,7 @@ import type { HostConfig } from "../../../core/src/config.ts";
 import type { ModuleManager, CatalogEntry } from "../../../core/src/modules.ts";
 import type { CapabilityRegistry } from "../../../core/src/registry.ts";
 import { PiCredentialResolver } from "./auth.ts";
+import type { Subagents } from "./subagents/index.ts";
 
 interface ManagementOptions {
   manager: ModuleManager;
@@ -19,6 +20,7 @@ interface ManagementOptions {
   refresh(ctx: ExtensionContext): void;
   report(ctx: ExtensionContext, text: string, error?: boolean): void;
   signal(): AbortSignal;
+  subagents: Subagents;
 }
 const groups = [
   { label: "图片生成 / Images", capabilities: ["gen_image"] },
@@ -30,8 +32,9 @@ const groups = [
   { label: "请求增强 / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] },
 ];
 const usage =
-  "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
+  "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const entryCapability = (id: string) => id.split("/")[0]!;
 
 /** Commands/panels are separate from Pi tool registration and lifecycle bridging. */
 export function registerManagement(pi: ExtensionAPI, options: ManagementOptions): void {
@@ -84,6 +87,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
         `Defaults: ${JSON.stringify(config().defaults)}`,
         `Controls: ${JSON.stringify(config().controls)}`,
         `Home: ${manager.home}`,
+        options.subagents.status(),
       );
     return lines.join("\n");
   };
@@ -98,6 +102,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
   };
   const remove = async (id: string, ctx: ExtensionContext, persist: boolean, uninstall: boolean) => {
     registry.assertIdle(id);
+    options.subagents.assertModuleIdle(entryCapability(id));
     const wasAutoload = config().autoload.includes(id);
     const previous = registry.get(id);
     const active = pi.getActiveTools();
@@ -167,6 +172,9 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       "catalog",
       "updates",
       "update --installed",
+      "subagents status",
+      "subagents enable",
+      "subagents disable",
     ]);
     if (!selected) return;
     const group = available.find((g) => g.label === selected);
@@ -187,6 +195,42 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       if (ctx.mode !== "tui") report(ctx, usage);
       else await panel(ctx);
       return;
+    }
+    if (words[0] === "subagents") {
+      const action = words[1];
+      if (action === "status" && words.length === 2) {
+        report(ctx, options.subagents.status());
+        return;
+      }
+      if ((action === "enable" || action === "disable") && words.length === 2) {
+        const enabled = action === "enable";
+        const previous = options.subagents.isEnabled();
+        try {
+          options.subagents.setEnabled(enabled);
+          refresh(ctx);
+          save((c) => ({ ...c, subagents: enabled }));
+        } catch (error) {
+          options.subagents.setEnabled(previous);
+          refresh(ctx);
+          throw error;
+        }
+        if (!enabled) options.subagents.cancelAll();
+        report(
+          ctx,
+          `Subagents ${enabled ? "enabled" : "disabled"}. ${enabled ? "No models are called until call_subagents runs." : "Running batches were cancelled."}`,
+        );
+        return;
+      }
+      if (action === "cancel" && words.length === 3) {
+        report(
+          ctx,
+          options.subagents.cancel(words[2]!)
+            ? `Cancelled batch ${words[2]}.`
+            : `No active batch ${words[2]}.`,
+        );
+        return;
+      }
+      throw new Error(usage);
     }
     if (words[0] === "status" && words.length === 1) {
       report(ctx, await status(ctx));
@@ -318,6 +362,9 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
         "catalog",
         "updates",
         "update --installed",
+        "subagents enable",
+        "subagents disable",
+        "subagents status",
         ...manager.catalog.modules.flatMap((e) =>
           [
             "",

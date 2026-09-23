@@ -11,6 +11,46 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
+test("Pi SDK child with tools: [] has no implicit built-in tools", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-empty-child-"));
+  let child: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  try {
+    const settingsManager = SettingsManager.inMemory({ packages: [] });
+    const loader = new DefaultResourceLoader({
+      cwd: home,
+      agentDir: home,
+      settingsManager,
+      noExtensions: true,
+      noSkills: true,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+    });
+    await loader.reload();
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(home, "auth.json"),
+      modelsPath: join(home, "models.json"),
+      allowModelNetwork: false,
+    });
+    child = (
+      await createAgentSession({
+        cwd: home,
+        agentDir: home,
+        resourceLoader: loader,
+        settingsManager,
+        modelRuntime,
+        sessionManager: SessionManager.inMemory(home),
+        tools: [],
+      })
+    ).session;
+    await child.bindExtensions({ mode: "print" });
+    assert.deepEqual(child.getActiveToolNames(), []);
+  } finally {
+    child?.dispose();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("real Pi SDK loads built adapter, executes commands, refreshes schemas and preserves excluded tools", async () => {
   const home = await mkdtemp(join(tmpdir(), "enhance-sdk-"));
   const oldHome = process.env.AGENT_ENHANCE_HOME;
@@ -57,6 +97,12 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
         throw new Error(String(e));
       },
     });
+    await session.prompt("/pi-enhance subagents enable");
+    assert.ok(session.getActiveToolNames().includes("call_subagents"));
+    assert.ok(session.getActiveToolNames().includes("list_subagent_models"));
+    await session.prompt("/pi-enhance subagents disable");
+    assert.ok(!session.getActiveToolNames().includes("call_subagents"));
+    assert.ok(!session.getActiveToolNames().includes("list_subagent_models"));
     await session.prompt("/pi-enhance openai gen_image enable");
     await session.prompt("/pi-enhance xai gen_image install");
     await session.prompt("/pi-enhance xai gen_image load");

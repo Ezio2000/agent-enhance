@@ -100,6 +100,30 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 工具名使用下划线，不带供应商。两个图片模块同时加载时仍只有一个 `gen_image`；卸载某供应商后，其参数会从 Schema 消失。最后一个实现卸载后，工具从活动工具集移除。宿主的工具排除规则仍然有效。
 
+### Pi 子代理
+
+`call_subagents` 是 Pi 宿主专属的编排功能，不是供应商能力模块。代码随轻量 Pi 适配器分发，**默认关闭**，不自动启动子会话或调用模型。显式启用后，主模型可通过只读工具 `list_subagent_models` 查询当前 Pi 可用、符合 scoped-models 限制的模型及其文字／图片／推理元数据；不另设预设 agent 或 `view_subagents`。
+
+```text
+/pi-enhance subagents enable
+/pi-enhance subagents status
+/pi-enhance subagents cancel <batch-id>
+/pi-enhance subagents disable
+```
+
+```json
+{
+  "tasks": [
+    { "context": "搜索官方资料并总结来源", "tools": ["search_web"] },
+    { "context": "判断 1=1 是否成立", "model": "minimax-cn/MiniMax-M2.7" }
+  ]
+}
+```
+
+`context` 是完整的子任务提示词，父会话历史不自动复制。`tools` 可省略或传 `[]`（零工具）；指定时只能使用当前父 Pi 会话活跃的内置工具或已加载的 pi-enhance 工具。`model` 不填继承当前模型；显式指定必须使用 Pi 当前可用且位于当前 scoped models 中的精确 `provider/id`。`thinking_level`、`cwd`、`timeout_seconds`、`max_turns` 均可选，后两项不填时本功能不施加额外上限，用户取消及 Pi／供应商限制仍生效。查询目录不调用收费模型，目录可用不保证实际额度。
+
+每个子任务由独立的 **Pi SDK AgentSession** 执行，工具在子会话中显式装配，不手写模型／工具循环。批次立即返回 ID，最多 8 个任务，宿主跨批次最多同时运行 4 个并限制排队数量；完成后在原会话展示结果并触发后续模型回合（可能额外消耗额度），不持续推送进度。`/pi-enhance subagents cancel <batch-id>`、会话关闭／切换分支和禁用会取消任务。Pi 原生写入／命令工具（`edit`、`write`、`bash`、`powershell`）及 pi-enhance 生成／桌面工具（`gen_image`、`gen_video`、`gen_voice`、`use_computer`）默认拦截；仅在交互模式得到用户针对本批次的明确批准后才允许。未知的第三方扩展工具不会被假装成可继承工具。工具白名单不是 OS 沙箱，尤其 `bash` 可以写入任意允许的文件。
+
 ### 图片参数
 
 公共字段：`provider`、`model`、`prompt`、`images`、`timeout_seconds`。供应商专属字段放在 `options.<provider>`：
@@ -209,6 +233,9 @@ npm run smoke -- --live               # search + PDF；上传合成测试文件
 npm run smoke -- --live --images      # 两个供应商各生成一张图
 npm run smoke -- --live --video       # 合成参考图生成短视频，并交给 Muse 查看
 npm run smoke -- --live --computer    # 仅读取桌面应用列表，清理私有运行时
+npx tsx scripts/smoke-subagents.ts --live         # 可选：MiniMax/Kimi/GLM 三个无工具子会话，消耗模型额度
+npx tsx scripts/smoke-subagent-search.ts --live  # 可选：GLM 子会话调用 search_web/zai，消耗模型和搜索额度
+npx tsx scripts/smoke-subagent-host.ts --live    # 可选：Pi 宿主完整派发／回传，消耗 MiniMax 额度
 ```
 
 测试包含迁移的协议／运行时回归、参数合并、认证隔离、安装完整性、一步启用／禁用、交互取消、批量更新失败恢复、并发安装冲突、Pi 真实 SDK 注册／卸载、宿主工具排除规则和最小安装包隔离验收。真实 smoke 使用现有 Pi 登录态，只发送合成测试内容，记录本地产物，不上传验收结果到仓库。

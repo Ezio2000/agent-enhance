@@ -11,6 +11,7 @@ import { PiCredentialResolver } from "./auth.ts";
 import { piHistory } from "./history.ts";
 import { installEnhanceFooter, type FooterLabel } from "./footer.ts";
 import { registerManagement } from "./management.ts";
+import { Subagents } from "./subagents/index.ts";
 
 const command = "pi-enhance";
 const releaseGuidance =
@@ -48,6 +49,8 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   let config = store.load();
   const registry = new CapabilityRegistry(config.defaults);
   const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
+  const subagents = new Subagents(pi, registry);
+  subagents.setEnabled(config.subagents === true);
   let previousProvider: string | undefined;
   let disposed = false;
   let operations = new AbortController();
@@ -107,17 +110,23 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   };
   const refresh = (ctx: ExtensionContext) => {
     const excluded = excludedCapabilities(ctx);
-    const tools = registry.tools().filter((tool) => !excluded.has(tool.name));
+    const hostTools = subagents.tools();
+    const tools = [...registry.tools().filter((tool) => !excluded.has(tool.name)), ...hostTools];
     const active = new Set(pi.getActiveTools());
     for (const tool of tools) {
       const collision = pi.getAllTools().find((t) => t.name === tool.name);
       if (collision && !knownNames.has(tool.name))
         throw new Error(`Tool collision: ${tool.name}; disable the conflicting extension first.`);
-      pi.registerTool({
-        ...tool,
-        execute: (id, args, signal, update, piContext) =>
-          tool.execute(id, args, signal, update, executionContext(piContext)),
-      });
+      const hostTool = hostTools.find((candidate) => candidate.name === tool.name);
+      if (hostTool) pi.registerTool(hostTool);
+      else {
+        const capabilityTool = tool as ReturnType<CapabilityRegistry["tools"]>[number];
+        pi.registerTool({
+          ...capabilityTool,
+          execute: (id, args, signal, update, piContext) =>
+            capabilityTool.execute(id, args, signal, update, executionContext(piContext)),
+        });
+      }
       if (!registered.has(tool.name)) active.add(tool.name);
     }
     const available = new Set(tools.map((t) => t.name));
@@ -172,12 +181,15 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     refresh,
     report,
     signal: () => operations.signal,
+    subagents,
   });
   pi.on("session_start", async (_event, ctx) => {
     disposed = false;
     if (operations.signal.aborted) operations = new AbortController();
     previousProvider = ctx.model?.provider;
     config = store.load();
+    subagents.setEnabled(config.subagents === true);
+    subagents.startSession(ctx.sessionManager.getSessionId());
     Object.assign(registry.defaults, config.defaults);
     for (const id of config.autoload) {
       try {
@@ -221,10 +233,12 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     await registry.lifecycle("task_settled", () => ctx.isIdle());
   });
   pi.on("session_tree", async () => {
+    subagents.cancelAll();
     await registry.lifecycle("session_tree");
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     disposed = true;
+    subagents.shutdown();
     operations.abort();
     try {
       await registry.dispose();

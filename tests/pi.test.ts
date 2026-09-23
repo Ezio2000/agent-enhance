@@ -26,6 +26,8 @@ async function harness(home: string) {
     registerCommand(name: string, definition: any) {
       commands.set(name, definition);
     },
+    registerMessageRenderer() {},
+
     getAllTools() {
       return [...tools.values()];
     },
@@ -101,6 +103,26 @@ async function harness(home: string) {
     },
   };
 }
+test("host-only subagents stay off by default, enable explicitly and persist without installing provider modules", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-subagents-host-"));
+  try {
+    const h = await harness(home);
+    await h.emit("session_start");
+    assert.ok(!h.active().includes("call_subagents"));
+    assert.match(await h.command("subagents enable"), /enabled/);
+    assert.ok(h.active().includes("call_subagents"));
+    assert.ok(h.active().includes("list_subagent_models"));
+    assert.equal(new ConfigStore(home, "pi").load().subagents, true);
+    assert.match(await h.command("subagents status"), /enabled/);
+    assert.match(await h.command("subagents disable"), /disabled/);
+    assert.ok(!h.active().includes("call_subagents"));
+    assert.equal(new ConfigStore(home, "pi").load().subagents, false);
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("Pi adds scoped remote-release guidance to the system prompt without replacing other sections", async () => {
   const home = await mkdtemp(join(tmpdir(), "enhance-prompt-"));
   try {
