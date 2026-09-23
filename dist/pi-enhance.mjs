@@ -257,7 +257,7 @@ function updateJson(path, fallback, update) {
   }
 }
 function validate(config) {
-  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string") || config.subagents !== void 0 && typeof config.subagents !== "boolean")
+  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string") || config.subagents !== void 0 && typeof config.subagents !== "boolean" || config.subagentModel !== void 0 && (typeof config.subagentModel !== "string" || !/^[^\s/]+\/\S+$/.test(config.subagentModel)))
     throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
   return config;
 }
@@ -687,7 +687,7 @@ var groups = [
   { label: "\u684C\u9762\u64CD\u4F5C / Computer use", capabilities: ["use_computer"] },
   { label: "\u8BF7\u6C42\u589E\u5F3A / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] }
 ];
-var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
+var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|model [<provider/id>|inherit]|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
 var errorText = (error) => error instanceof Error ? error.message : String(error);
 var entryCapability = (id) => id.split("/")[0];
 function registerManagement(pi, options) {
@@ -729,7 +729,7 @@ function registerManagement(pi, options) {
         `Defaults: ${JSON.stringify(config().defaults)}`,
         `Controls: ${JSON.stringify(config().controls)}`,
         `Home: ${manager.home}`,
-        options.subagents.status()
+        options.subagents.status(ctx)
       );
     return lines.join("\n");
   };
@@ -810,6 +810,7 @@ Enable installs only this module; no model calls. Saved control values are retai
       "updates",
       "update --installed",
       "subagents status",
+      "subagents model",
       "subagents enable",
       "subagents disable"
     ]);
@@ -836,7 +837,42 @@ Enable installs only this module; no model calls. Saved control values are retai
     if (words[0] === "subagents") {
       const action2 = words[1];
       if (action2 === "status" && words.length === 2) {
-        report(ctx, options.subagents.status());
+        report(ctx, options.subagents.status(ctx));
+        return;
+      }
+      if (action2 === "model" && words.length <= 3) {
+        const models = options.subagents.availableModels(ctx);
+        let selected = words[2];
+        if (!selected) {
+          if (ctx.mode !== "tui")
+            throw new Error("Use /pi-enhance subagents model <provider/id>|inherit outside TUI.");
+          const inherit = "inherit current Pi model";
+          const labels = models.map(
+            (model) => `${model.provider}/${model.id} \xB7 ${model.name} \xB7 ${model.input.join("/")} \xB7 ${model.reasoning ? "thinking" : "no thinking"}`
+          );
+          const choice = await ctx.ui.select(`Subagent default model: ${config().subagentModel ?? inherit}`, [
+            inherit,
+            ...labels
+          ]);
+          if (!choice) return;
+          if (choice === inherit) selected = "inherit";
+          else {
+            const model = models[labels.indexOf(choice)];
+            if (!model) throw new Error("Invalid model selection; no preference was changed.");
+            selected = `${model.provider}/${model.id}`;
+          }
+        }
+        if (selected !== "inherit" && !models.some((model) => `${model.provider}/${model.id}` === selected))
+          throw new Error(`Model ${selected} is not enabled and available in this Pi session.`);
+        save((c) => {
+          if (selected !== "inherit") return { ...c, subagentModel: selected };
+          const { subagentModel: _previous, ...rest } = c;
+          return rest;
+        });
+        report(
+          ctx,
+          `Saved subagent default model: ${selected === "inherit" ? "inherit current Pi model" : selected}. No model calls.`
+        );
         return;
       }
       if ((action2 === "enable" || action2 === "disable") && words.length === 2) {
@@ -992,6 +1028,8 @@ Enable installs only this module; no model calls. Saved control values are retai
         "subagents enable",
         "subagents disable",
         "subagents status",
+        "subagents model",
+        "subagents model inherit",
         ...manager.catalog.modules.flatMap(
           (e) => [
             "",
@@ -1176,7 +1214,7 @@ var TaskSchema = Type2.Object(
     ),
     model: Type2.Optional(
       Type2.String({
-        description: "Exact provider/model-id from list_subagent_models. Defaults to the current Pi model."
+        description: "Exact provider/model-id from list_subagent_models. Overrides the saved subagent default; otherwise inherits the current Pi model."
       })
     ),
     thinking_level: Type2.Optional(
@@ -1260,12 +1298,19 @@ var Subagents = class {
   waiters = [];
   owner;
   enabled = false;
+  defaultModel;
   closed = false;
   setEnabled(enabled) {
     this.enabled = enabled;
   }
   isEnabled() {
     return this.enabled;
+  }
+  setDefaultModel(model) {
+    this.defaultModel = model;
+  }
+  getDefaultModel() {
+    return this.defaultModel;
   }
   startSession(sessionId) {
     if (this.owner && this.owner !== sessionId) this.cancelAll();
@@ -1288,8 +1333,10 @@ var Subagents = class {
     this.batches.delete(id);
     return true;
   }
-  status() {
-    return `Subagents: ${this.enabled ? "enabled" : "disabled"}; running: ${this.activeRunners}; active batches: ${[...this.batches.keys()].join(", ") || "none"}. Background results return to the originating session.`;
+  status(ctx) {
+    const selected = this.defaultModel;
+    const availability = selected && ctx ? this.availableModels(ctx).some((model) => `${model.provider}/${model.id}` === selected) ? "available" : "unavailable in this Pi session" : void 0;
+    return `Subagents: ${this.enabled ? "enabled" : "disabled"}; default model: ${selected ?? "inherit current Pi model"}${availability ? ` (${availability})` : ""}; running: ${this.activeRunners}; active batches: ${[...this.batches.keys()].join(", ") || "none"}. Background results return to the originating session.`;
   }
   assertModuleIdle(capability) {
     if ([...this.batches.values()].some(
@@ -1330,7 +1377,7 @@ var Subagents = class {
   tools() {
     return this.enabled ? [this.modelsTool(), this.callTool()] : [];
   }
-  choices(ctx) {
+  availableModels(ctx) {
     const available = ctx.modelRegistry.getAvailable();
     const scoped = ctx.scopedModels?.length ? new Set(ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`)) : void 0;
     return available.filter((model) => !scoped || scoped.has(`${model.provider}/${model.id}`));
@@ -1339,11 +1386,11 @@ var Subagents = class {
     return {
       name: "list_subagent_models",
       label: "Subagent Models",
-      description: "List models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to inherit the current model.",
+      description: "List models enabled and available in the current Pi session, including text/image input and reasoning metadata. Read-only, no model call. Use exact provider/model-id in call_subagents; omit model to use the saved subagent default or current Pi model.",
       parameters: ModelsSchema,
       execute: async (_id, args, _signal, _update, ctx) => {
         const query = args.query?.toLowerCase() ?? "";
-        const models = this.choices(ctx).filter(
+        const models = this.availableModels(ctx).filter(
           (model) => (!query || `${model.provider}/${model.id} ${model.name}`.toLowerCase().includes(query)) && (!args.input || model.input.includes(args.input)) && (args.reasoning === void 0 || model.reasoning === args.reasoning)
         );
         const offset = args.offset ?? 0;
@@ -1353,7 +1400,8 @@ var Subagents = class {
           input: model.input,
           reasoning: model.reasoning,
           thinking_levels: thinkingLevels(model),
-          current: ctx.model?.provider === model.provider && ctx.model?.id === model.id
+          current: ctx.model?.provider === model.provider && ctx.model?.id === model.id,
+          default: this.defaultModel === `${model.provider}/${model.id}`
         }));
         return {
           content: [
@@ -1362,6 +1410,7 @@ var Subagents = class {
               text: JSON.stringify(
                 {
                   total: models.length,
+                  default_model: this.defaultModel ?? null,
                   offset,
                   next_offset: offset + PAGE_SIZE < models.length ? offset + PAGE_SIZE : null,
                   models: page
@@ -1380,23 +1429,24 @@ var Subagents = class {
     return {
       name: "call_subagents",
       label: "Call Subagents",
-      description: "Create 1\u20138 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model and thinking inherit the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
+      description: "Create 1\u20138 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model priority: explicit task.model, saved subagent default, current Pi model. Thinking inherits the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
       parameters: CallSchema,
       renderCall: (args, theme) => new Text(theme.fg("toolTitle", "call_subagents") + ` \xB7 ${args.tasks.length} task(s)`, 0, 0),
       renderResult: (result, _options, theme) => new Text(theme.fg("muted", result.content.find((c) => c.type === "text")?.text ?? ""), 0, 0),
       execute: async (_id, args, signal, _update, ctx) => {
         if (!this.enabled || this.closed) throw new Error("Subagents are disabled or the session has ended.");
         signal?.throwIfAborted();
-        const models = this.choices(ctx);
+        const models = this.availableModels(ctx);
         const active = new Set(this.pi.getActiveTools());
         const enhanced = new Set(this.registry.tools().map((tool) => tool.name));
         const approved = /* @__PURE__ */ new Set();
         const prepared = [];
         for (const task of args.tasks) {
-          const model = task.model ? models.find((m) => `${m.provider}/${m.id}` === task.model) : ctx.model && models.find((m) => m.provider === ctx.model?.provider && m.id === ctx.model?.id);
+          const requestedModel = task.model ?? this.defaultModel;
+          const model = requestedModel ? models.find((m) => `${m.provider}/${m.id}` === requestedModel) : ctx.model && models.find((m) => m.provider === ctx.model?.provider && m.id === ctx.model?.id);
           if (!model)
             throw new Error(
-              `Model ${task.model ?? "(current)"} is not enabled and available in this Pi session. Use list_subagent_models.`
+              `Model ${requestedModel ?? "(current)"} is not enabled and available in this Pi session. Use list_subagent_models or change /pi-enhance subagents model.`
             );
           if (task.thinking_level && !thinkingLevels(model).includes(task.thinking_level))
             throw new Error(
@@ -1558,6 +1608,7 @@ function createPiEnhance(pi, options) {
   const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
   const subagents = new Subagents(pi, registry);
   subagents.setEnabled(config.subagents === true);
+  subagents.setDefaultModel(config.subagentModel);
   let previousProvider;
   let disposed = false;
   let operations = new AbortController();
@@ -1656,6 +1707,7 @@ function createPiEnhance(pi, options) {
   };
   const saveConfig = (update) => {
     config = store.update(update);
+    subagents.setDefaultModel(config.subagentModel);
     for (const key of Object.keys(registry.defaults)) delete registry.defaults[key];
     Object.assign(registry.defaults, config.defaults);
   };
@@ -1677,6 +1729,7 @@ function createPiEnhance(pi, options) {
     previousProvider = ctx.model?.provider;
     config = store.load();
     subagents.setEnabled(config.subagents === true);
+    subagents.setDefaultModel(config.subagentModel);
     subagents.startSession(ctx.sessionManager.getSessionId());
     Object.assign(registry.defaults, config.defaults);
     for (const id of config.autoload) {
