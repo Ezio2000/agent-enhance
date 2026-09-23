@@ -277,6 +277,11 @@ export class Subagents {
     return {
       name: "call_subagents",
       label: "Call Subagents",
+      promptSnippet:
+        "Delegate substantial independent investigations, parallel subtasks, or useful second opinions to isolated Pi agents; handle trivial questions directly.",
+      promptGuidelines: [
+        "Consider call_subagents when independent or parallel work justifies extra model usage. Give each child self-contained context and only the tools it needs; wait for the background completion before relying on its findings.",
+      ],
       description:
         "Create 1–8 independent Pi agents in the background. Each task needs context; tools are optional (omitted = no tools). Model priority: explicit task.model, saved subagent default, current Pi model. Thinking inherits the current Pi session unless specified. Only models enabled in the current Pi session and tools active in the parent are allowed. Pi and pi-enhance write/effectful tools require explicit user approval; unknown extension tools are unsupported. No implicit timeout or turn limit. Results return as a separate session message after completion; no progress stream. Never retry side effects automatically.",
       parameters: CallSchema,

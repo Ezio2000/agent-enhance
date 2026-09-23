@@ -100,9 +100,14 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
     await session.prompt("/pi-enhance subagents enable");
     assert.ok(session.getActiveToolNames().includes("call_subagents"));
     assert.ok(session.getActiveToolNames().includes("list_subagent_models"));
+    const delegation = session.getToolDefinition("call_subagents");
+    assert.match(delegation?.promptSnippet ?? "", /independent investigations/);
+    assert.match(delegation?.promptGuidelines?.join(" ") ?? "", /trivial|extra model usage/);
+    assert.match(session.systemPrompt, /handle trivial questions directly/);
     await session.prompt("/pi-enhance subagents disable");
     assert.ok(!session.getActiveToolNames().includes("call_subagents"));
     assert.ok(!session.getActiveToolNames().includes("list_subagent_models"));
+    assert.doesNotMatch(session.systemPrompt, /Delegate substantial independent investigations/);
     await session.prompt("/pi-enhance openai gen_image enable");
     await session.prompt("/pi-enhance xai gen_image install");
     await session.prompt("/pi-enhance xai gen_image load");
