@@ -1,0 +1,13 @@
+{
+  "name": "agent-enhance",
+  "owner": { "name": "Ezio2000" },
+  "metadata": { "description": "Agent Enhance capabilities packaged for Claude Code" },
+  "plugins": [
+    {
+      "name": "cc-enhance",
+      "source": "./",
+      "description": "Image/video/voice generation, web search, PDF/video/image understanding and macOS computer use via your own OpenAI Codex, xAI, OpenCode Go, MiniMax and Z.ai subscriptions",
+      "version": "0.2.0"
+    }
+  ]
+}

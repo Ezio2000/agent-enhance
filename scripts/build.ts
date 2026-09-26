@@ -56,6 +56,19 @@ await build({
   target: "node22",
   packages: "external",
 });
+// Claude Code host: fully self-contained (MCP SDK included), run from the plugin checkout with plain node.
+await build({
+  entryPoints: ["packages/hosts/claude-code/src/index.ts"],
+  outfile: "dist/cc-enhance.mjs",
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  legalComments: "inline",
+  banner: {
+    js: 'import { createRequire as __ccRequire } from "node:module"; const require = __ccRequire(import.meta.url);',
+  },
+});
 console.log(
-  `Built Pi adapter and ${catalog.modules.length} independently installable, integrity-pinned modules.`,
+  `Built Pi and Claude Code adapters and ${catalog.modules.length} independently installable, integrity-pinned modules.`,
 );

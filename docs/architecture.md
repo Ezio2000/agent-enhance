@@ -2,7 +2,7 @@
 
 ## Dependency direction
 
-`hosts/pi -> core/contracts` and `capabilities/<function>/<provider> -> core/contracts + transports/<provider>`. No Pi SDK imports are allowed outside the host adapter. `npm run check:boundaries` enforces this. The standalone `dist/core.mjs` and each module bundle can load outside the repository without Pi or node_modules.
+`hosts/pi -> core/contracts`, `hosts/claude-code -> core/contracts` and `capabilities/<function>/<provider> -> core/contracts + transports/<provider>`. No Pi SDK imports are allowed outside the host adapter. `npm run check:boundaries` enforces this. The standalone `dist/core.mjs` and each module bundle can load outside the repository without Pi or node_modules.
 
 A module exports one `CapabilityModule` with an API-versioned `manifest` and a `create(services)` factory. Factories must not start processes or perform network requests. Background resources start lazily on execution and implement disposal. Providers do not register host tools themselves.
 
@@ -36,9 +36,13 @@ Computer Use receives approvals and task-settled callbacks. Ordinary app access 
 
 Request controls are data + pure transforms. They are active only for supported provider/channel/API/model contexts. Their preferences are distinct from proof that a backend honored the requested setting.
 
-## Future hosts
+## Claude Code host
 
-A Claude Code adapter may expose the tools through MCP plus a host plugin for additional lifecycle/approval features. It must supply its own credential strategy and map supported lifecycle events. Request interception, live schema refresh, approval UI and task completion are not assumed universally available. Unsupported capabilities must be disabled explicitly; no Claude Code support is claimed by this release.
+`packages/hosts/claude-code` is bundled into the self-contained `dist/cc-enhance.mjs` and published as the `cc-enhance` plugin of this repository's marketplace. `.mcp.json` starts one stdio MCP server per tool capability (`serve <capability>`); each loads only the enabled `<capability>/*` modules from `hosts/claude-code.json`, merges them with the same registry, and watches the config to reload and emit `tools/list_changed`. Request-control modules and any module requiring unsupported host features are refused explicitly.
+
+Credentials come from the host's own resolver: OpenAI Codex OAuth from the Codex CLI state (`$CODEX_HOME/auth.json`, lock-serialized refresh), everything else from `~/.agent-enhance/credentials.json` (xAI via its own device-code login and locked refresh; API keys entered or copied from Pi). Tokens are never shared with Pi's store because refresh tokens may rotate.
+
+Lifecycle: all servers, hooks and `/cc-enhance` commands of one session descend from the same Claude Code process; its PID keys per-capability control sockets and a session file under the run directory. `UserPromptSubmit` records session ID, transcript path and cwd (history is read from the transcript as text-only user/assistant messages) and injects module recovery notices; `Stop` maps to `task_settled`. Approval uses MCP elicitation. `session_tree`/`provider_change` have no Claude Code equivalent; stdio close disposes modules. The main model is unknown to MCP servers, so `modelInputExcludes` tools stay exposed.
 
 ## State
 

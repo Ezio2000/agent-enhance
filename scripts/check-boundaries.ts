@@ -18,5 +18,11 @@ for (const dir of ["packages/core", "packages/capabilities", "packages/transport
       failures.push(file);
   }
 }
+// The Claude Code host must not depend on the Pi SDK or the Pi host.
+for (const file of await walk("packages/hosts/claude-code")) {
+  if (!file.endsWith(".ts")) continue;
+  const text = await readFile(file, "utf8");
+  if (/from\s+["'][^"']*(?:@earendil-works\/pi-|hosts\/pi)/.test(text)) failures.push(file);
+}
 if (failures.length) throw new Error(`Host SDK leaked into base:\n${failures.join("\n")}`);
 console.log("Dependency boundaries: core/capabilities/transports have no host SDK imports.");

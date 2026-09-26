@@ -1,6 +1,6 @@
 # Agent Enhance
 
-宿主无关的 AI 额外能力基座，当前提供 **Pi 专属适配包 `pi-enhance`**。由 grok-enhance、muse-enhance、openai-codex-enhance 重构而来。非供应商官方项目；真实调用可能消耗订阅／API 额度并上传显式输入文件。
+宿主无关的 AI 额外能力基座，当前提供 **Pi 适配包 `pi-enhance`** 与 **Claude Code 插件 `cc-enhance`**。由 grok-enhance、muse-enhance、openai-codex-enhance 重构而来。非供应商官方项目；真实调用可能消耗订阅／API 额度并上传显式输入文件。
 
 ## 架构
 
@@ -8,7 +8,8 @@
 - `packages/capabilities/<功能>/<供应商>`：纯功能实现，不读 Agent 的凭据文件，不注册宿主工具。
 - `packages/transports/<供应商>`：协议、认证目标地址校验及跨功能辅助代码。
 - `packages/hosts/pi`：Pi 工具、命令、登录态解析、UI 与生命周期桥接。
-- `dist/core.mjs`：可脱离 Pi 导入的自包含基座。未来宿主只需实现契约；**当前没有声称支持 Claude Code**。
+- `packages/hosts/claude-code`：Claude Code 插件（每个功能一个 MCP server、`/cc-enhance` 命令、hooks、独立凭据）。
+- `dist/core.mjs`：可脱离宿主导入的自包含基座；`dist/cc-enhance.mjs`：自包含 Claude Code 宿主。
 
 供应商 ID 为 `openai`、`xai`、`opencode`、`minimax`、`zai`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
 
@@ -180,6 +181,24 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 
 `/pi-enhance` 打开按功能分组的管理面板；`/pi-enhance openai fast manage` 管理安装／禁用／更新，`/pi-enhance openai fast` 打开设置选择器，选中即保存并返回，Esc 取消不改值。控制状态以自定义 Footer 呈现：标签显示在项目地址右侧（启用的值高亮），仅在当前主模型为受支持的 OpenAI Codex Responses 模型时出现，切到其他模型即隐藏；其余扩展状态仍在统计行下方。提供命令参数补全，不替换编辑器。非交互模式须提供显式操作或值。
 
+## Claude Code（cc-enhance）
+
+本仓库同时是 Claude Code 插件市场 `agent-enhance`，插件名 `cc-enhance`。只从 GitHub 安装：
+
+```bash
+claude plugin marketplace add Ezio2000/agent-enhance
+claude plugin install cc-enhance@agent-enhance
+# 更新
+claude plugin marketplace update agent-enhance && claude plugin update cc-enhance@agent-enhance
+```
+
+- 每个功能一个 MCP server，显示为 `plugin:cc-enhance:gen_image`，工具 ID 为 `mcp__plugin_cc-enhance_<功能>__<功能>`。多供应商合并、`provider` 参数与默认路由与 Pi 相同。
+- 新安装不启用任何能力。`/cc-enhance <provider> <capability> enable` 安装（与 Pi 共享 `~/.agent-enhance/packages`）并写入 `hosts/claude-code.json`；运行中的会话监听配置并通过 `tools/list_changed` 即时增减工具，无需重启。
+- 凭据：openai/codex 读取 Codex CLI 登录（`~/.codex/auth.json`，过期前加锁刷新）；其余保存在 `~/.agent-enhance/credentials.json`（明文）。`/cc-enhance login` 查看状态与引导：`login xai`（设备码登录，后台保存）、`login opencode|minimax|zai <key>`（`--global`／`--cn` 选择站点）、`login import-pi`（复制 Pi 中的 API Key；xAI OAuth 不共享）。
+- 生命周期：`UserPromptSubmit` hook 记录会话 ID／transcript（search_web 的 `include_context` 从 transcript 取 user/assistant 文本）并注入恢复提示；`Stop` hook 即任务结束（use_computer 释放运行时）。审批通过 MCP elicitation；`/cc-enhance computer ask|auto|revoke|reset|status` 或 `manage_computer` 工具管理桌面桥。
+- 不支持请求拦截，`fast`／`verbosity`／`image_detail` 在 Claude Code 中拒绝启用。宿主拿不到主模型，`view_image` 始终暴露。图片预览用 macOS `sips` 生成。
+- 长任务建议在 `settings.json` 设置 `MCP_TOOL_TIMEOUT=600000`。产物位于 `~/.agent-enhance/artifacts/claude-code/`。
+
 ## 认证
 
 基座只认识 `CredentialResolver` 与 `(provider, channel, acceptedKinds)`。Pi 实现委托 `modelRegistry.getProviderAuth()` 获取／刷新认证，不自行扫描或复制认证文件。
@@ -222,7 +241,10 @@ Muse contributor 模型涉及上游数据使用政策，勿上传机密。Comput
 modules.lock.json
 packages/<hash>-<module>.mjs
 hosts/pi.json
+hosts/claude-code.json
+credentials.json          # Claude Code 宿主凭据
 artifacts/pi/<capability>/<provider>/<session>/<call>/
+artifacts/claude-code/<capability>/<provider>/…
 ```
 
 本版只使用宿主级配置，不自动读取项目级配置。配置原子写入并使用跨进程写锁；损坏配置不会被默认值覆盖。`status` 检查目录中云能力的认证可用性（单模块 `status` 只检查该模块），不执行计费请求；实际模型额度与后端权限仍须调用验证。浏览面板及 `catalog` 只读元数据，不检查认证、不下载模块。

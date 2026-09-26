@@ -1,0 +1,11 @@
+{
+  "name": "cc-enhance",
+  "version": "0.2.0",
+  "description": "Agent Enhance host adapter for Claude Code: one MCP server per capability, per-provider modules, provider logins",
+  "author": { "name": "Ezio2000" },
+  "repository": "https://github.com/Ezio2000/agent-enhance",
+  "license": "MIT",
+  "commands": ["./packages/hosts/claude-code/plugin/commands/cc-enhance.md"],
+  "hooks": "./packages/hosts/claude-code/plugin/hooks.json",
+  "mcpServers": "./packages/hosts/claude-code/plugin/mcp.json"
+}

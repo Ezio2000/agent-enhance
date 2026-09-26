@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "gen_image": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "gen_image"]
+    },
+    "gen_video": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "gen_video"]
+    },
+    "gen_voice": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "gen_voice"]
+    },
+    "search_web": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "search_web"]
+    },
+    "use_computer": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "use_computer"]
+    },
+    "view_image": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "view_image"]
+    },
+    "view_pdf": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "view_pdf"]
+    },
+    "view_video": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cc-enhance.mjs", "serve", "view_video"]
+    }
+  }
+}
