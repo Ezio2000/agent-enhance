@@ -21,6 +21,8 @@ import { orderSchema, toolTitle } from "./display.ts";
 /** Host features this adapter provides (approval via MCP elicitation, task-settled via the Stop hook). */
 export const SUPPORTED_REQUIREMENTS = new Set(["approval", "task-settled"]);
 const MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
+// Claude Code runs an MCP tool concurrently only when it declares readOnlyHint; use_computer drives one shared desktop.
+const SERIAL_TOOLS = new Set(["use_computer"]);
 export interface ServeOptions {
   home: string;
   catalog: Catalog;
@@ -90,7 +92,10 @@ export async function serve(options: ServeOptions): Promise<void> {
       name: tool.name,
       description: describe(tool),
       inputSchema: orderSchema(JSON.parse(JSON.stringify(tool.parameters))),
-      annotations: { title: toolTitle(tool.name, providers(tool.name)) },
+      annotations: {
+        title: toolTitle(tool.name, providers(tool.name)),
+        ...(SERIAL_TOOLS.has(tool.name) ? {} : { readOnlyHint: true }),
+      },
     })),
     ...(computer()
       ? [

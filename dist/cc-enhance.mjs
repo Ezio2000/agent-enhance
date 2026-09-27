@@ -26285,6 +26285,7 @@ function orderSchema(schema) {
 // packages/hosts/claude-code/src/server.ts
 var SUPPORTED_REQUIREMENTS = /* @__PURE__ */ new Set(["approval", "task-settled"]);
 var MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
+var SERIAL_TOOLS = /* @__PURE__ */ new Set(["use_computer"]);
 var errorText = (error2) => error2 instanceof Error ? error2.message : String(error2);
 var alive = (pid) => {
   try {
@@ -26339,7 +26340,10 @@ async function serve(options) {
       name: tool.name,
       description: describe2(tool),
       inputSchema: orderSchema(JSON.parse(JSON.stringify(tool.parameters))),
-      annotations: { title: toolTitle(tool.name, providers(tool.name)) }
+      annotations: {
+        title: toolTitle(tool.name, providers(tool.name)),
+        ...SERIAL_TOOLS.has(tool.name) ? {} : { readOnlyHint: true }
+      }
     })),
     ...computer() ? [
       {
