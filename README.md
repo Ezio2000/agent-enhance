@@ -8,7 +8,7 @@
 - `packages/capabilities/<功能>/<供应商>`：纯功能实现，不读 Agent 的凭据文件，不注册宿主工具。
 - `packages/transports/<供应商>`：协议、认证目标地址校验及跨功能辅助代码。
 - `packages/hosts/pi`：Pi 工具、命令、登录态解析、UI 与生命周期桥接。
-- `packages/hosts/claude-code`：Claude Code 插件（每个功能一个 MCP server、`/cc-enhance` 命令、hooks、独立凭据）。
+- `packages/hosts/claude-code`：Claude Code 插件（单一 MCP server、`/cc-enhance` 命令、hooks、独立凭据）。
 - `dist/core.mjs`：可脱离宿主导入的自包含基座；`dist/cc-enhance.mjs`：自包含 Claude Code 宿主。
 
 供应商 ID 为 `openai`、`xai`、`opencode`、`minimax`、`zai`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
@@ -192,7 +192,7 @@ claude plugin install cc-enhance@agent-enhance
 claude plugin marketplace update agent-enhance && claude plugin update cc-enhance@agent-enhance
 ```
 
-- 每个功能一个 MCP server，显示为 `plugin:cc-enhance:gen_image`，工具 ID 为 `mcp__plugin_cc-enhance_<功能>__<功能>`。多供应商合并、`provider` 参数与默认路由与 Pi 相同。
+- 所有功能由一个 MCP server `x` 提供（每会话一个进程），调用显示为 `plugin:cc-enhance:x - 图片生成 gen_image · openai (MCP)(prompt: …)`，工具 ID 为 `mcp__plugin_cc-enhance_x__<功能>`。多供应商合并、`provider` 参数与默认路由与 Pi 相同。
 - 新安装不启用任何能力。`/cc-enhance <provider> <capability> enable` 安装（与 Pi 共享 `~/.agent-enhance/packages`）并写入 `hosts/claude-code.json`；运行中的会话监听配置并通过 `tools/list_changed` 即时增减工具，无需重启。
 - 凭据：openai/codex 读取 Codex CLI 登录（`~/.codex/auth.json`，过期前加锁刷新）；其余保存在 `~/.agent-enhance/credentials.json`（明文）。`/cc-enhance login` 查看状态与引导：`login xai`（设备码登录，后台保存）、`login opencode|minimax|zai <key>`（`--global`／`--cn` 选择站点）、`login import-pi`（复制 Pi 中的 API Key；xAI OAuth 不共享）。
 - 生命周期：`UserPromptSubmit` hook 记录会话 ID／transcript（search_web 的 `include_context` 从 transcript 取 user/assistant 文本）并注入恢复提示；`Stop` hook 即任务结束（use_computer 释放运行时）。审批通过 MCP elicitation；`/cc-enhance computer ask|auto|revoke|reset|status` 或 `manage_computer` 工具管理桌面桥。

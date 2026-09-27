@@ -7293,6 +7293,7 @@ import { tmpdir, userInfo } from "node:os";
 import { dirname as dirname2, join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
 var HOST_ID = "claude-code";
+var SERVER_NAME = "x";
 function distDirectory() {
   const here = dirname2(fileURLToPath(import.meta.url));
   return existsSync2(join2(here, "catalog.json")) ? here : join2(here, "../../../../dist");
@@ -26253,6 +26254,34 @@ async function preview(bytes, mime) {
   }
 }
 
+// packages/hosts/claude-code/src/display.ts
+var LABELS = {
+  gen_image: "\u56FE\u7247\u751F\u6210",
+  gen_video: "\u89C6\u9891\u751F\u6210",
+  gen_voice: "\u8BED\u97F3\u5408\u6210",
+  search_web: "\u8054\u7F51\u641C\u7D22",
+  view_pdf: "PDF \u7406\u89E3",
+  view_video: "\u89C6\u9891\u7406\u89E3",
+  view_image: "\u56FE\u7247\u7406\u89E3",
+  use_computer: "\u684C\u9762\u64CD\u4F5C",
+  manage_computer: "\u684C\u9762\u7BA1\u7406",
+  fast: "\u8BF7\u6C42\u589E\u5F3A",
+  verbosity: "\u8BF7\u6C42\u589E\u5F3A",
+  image_detail: "\u8BF7\u6C42\u589E\u5F3A"
+};
+function toolTitle(name, providers = []) {
+  return [LABELS[name], name].filter(Boolean).join(" ") + (providers.length ? ` \xB7 ${providers.join("/")}` : "");
+}
+var FRONT = ["title", "prompt", "search_query", "text", "task", "path", "image", "images", "code"];
+var BACK = ["options", "provider"];
+function orderSchema(schema) {
+  const properties = schema.properties;
+  if (!properties) return schema;
+  const rank = (key) => FRONT.includes(key) ? FRONT.indexOf(key) - FRONT.length : BACK.includes(key) ? 1 + BACK.indexOf(key) : 0;
+  const keys = Object.keys(properties).sort((a, b) => rank(a) - rank(b));
+  return { ...schema, properties: Object.fromEntries(keys.map((key) => [key, properties[key]])) };
+}
+
 // packages/hosts/claude-code/src/server.ts
 var SUPPORTED_REQUIREMENTS = /* @__PURE__ */ new Set(["approval", "task-settled"]);
 var MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
@@ -26288,10 +26317,8 @@ Guidelines:
 - ${tool.promptGuidelines.join("\n- ")}` : "";
   return tool.description + guidelines;
 }
-async function serve(capability, options) {
+async function serve(options) {
   const { home, catalog } = options;
-  if (!catalog.modules.some((e) => e.capability === capability && e.kind === "tool"))
-    throw new Error(`Unknown tool capability: ${capability}`);
   const store = new ConfigStore(home, HOST_ID);
   const manager = new ModuleManager(home, catalog, options.moduleDirectory);
   const registry2 = new CapabilityRegistry();
@@ -26299,24 +26326,25 @@ async function serve(capability, options) {
   const pid = hostPid();
   const errors = /* @__PURE__ */ new Map();
   const server = new Server(
-    { name: `cc-enhance-${capability}`, version: options.version },
+    { name: "cc-enhance", version: options.version },
     { capabilities: { tools: { listChanged: true } } }
   );
   let connected = false;
   let signature = "";
   let tools = [];
   const computer = () => registry2.list().find((e) => e.instance.manage);
+  const providers = (capability) => registry2.list().filter((e) => e.module.manifest.capability === capability).map((e) => e.module.manifest.provider);
   const listing = () => [
     ...tools.map((tool) => ({
       name: tool.name,
-      title: tool.label,
       description: describe2(tool),
-      inputSchema: JSON.parse(JSON.stringify(tool.parameters))
+      inputSchema: orderSchema(JSON.parse(JSON.stringify(tool.parameters))),
+      annotations: { title: toolTitle(tool.name, providers(tool.name)) }
     })),
     ...computer() ? [
       {
         name: "manage_computer",
-        title: "manage_computer",
+        annotations: { title: toolTitle("manage_computer") },
         description: "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
         inputSchema: {
           type: "object",
@@ -26347,7 +26375,9 @@ async function serve(capability, options) {
     errors.delete("config");
     for (const key of Object.keys(registry2.defaults)) delete registry2.defaults[key];
     Object.assign(registry2.defaults, config2.defaults);
-    const wanted = new Set(config2.autoload.filter((id) => id.startsWith(`${capability}/`)));
+    const wanted = new Set(
+      config2.autoload.filter((id) => catalog.modules.some((e) => e.id === id && e.kind === "tool"))
+    );
     for (const entry of registry2.list()) {
       const id = entry.module.manifest.id;
       if (wanted.has(id)) continue;
@@ -26444,7 +26474,6 @@ async function serve(capability, options) {
     else if (request.op === "notice") return registry2.list().flatMap((e) => e.instance.notice?.() ?? []);
     else if (request.op === "status")
       return {
-        capability,
         loaded: registry2.list().map((e) => e.module.manifest.id),
         errors: Object.fromEntries(errors),
         status: Object.fromEntries(
@@ -26458,7 +26487,7 @@ async function serve(capability, options) {
     }
   };
   removeStaleSockets();
-  const sock = socketPath(pid, capability);
+  const sock = socketPath(pid, SERVER_NAME);
   const controlServer = listen(sock, control);
   mkdirSync3(dirname4(store.path), { recursive: true, mode: 448 });
   let timer;
@@ -26691,19 +26720,6 @@ var USAGE = `Usage:
   /cc-enhance updates | update --installed           compare / update installed modules to this release
   /cc-enhance computer status|reset|ask|auto|revoke  manage the live use_computer bridge
   /cc-enhance login [...] | logout <provider>        provider credentials (run "login" for details)`;
-var LABELS = {
-  gen_image: "\u56FE\u7247\u751F\u6210",
-  gen_video: "\u89C6\u9891\u751F\u6210",
-  gen_voice: "\u8BED\u97F3\u5408\u6210",
-  search_web: "\u8054\u7F51\u641C\u7D22",
-  view_pdf: "PDF \u7406\u89E3",
-  view_video: "\u89C6\u9891\u7406\u89E3",
-  view_image: "\u56FE\u7247\u7406\u89E3",
-  use_computer: "\u684C\u9762\u64CD\u4F5C",
-  fast: "\u8BF7\u6C42\u589E\u5F3A",
-  verbosity: "\u8BF7\u6C42\u589E\u5F3A",
-  image_detail: "\u8BF7\u6C42\u589E\u5F3A"
-};
 function unsupportedReason(entry) {
   if (entry.kind !== "tool")
     return "request controls need request interception, which Claude Code does not expose";
@@ -26733,15 +26749,15 @@ async function manage(args, options) {
     const session = sessionSockets();
     if (!session) return "Live session: no cc-enhance servers found for this Claude Code session.";
     const lines = [`Live session (Claude Code pid ${session.pid}):`];
-    for (const [capability, path] of Object.entries(session.sockets).sort()) {
+    for (const path of Object.values(session.sockets)) {
       try {
         const status2 = await send(path, { op: "status" });
         lines.push(
-          `  ${capability}: ${status2.loaded.length ? status2.loaded.join(", ") : "no provider loaded"}` + Object.entries(status2.errors).map(([id2, error2]) => `
+          `  loaded: ${status2.loaded.length ? status2.loaded.join(", ") : "none"}` + Object.entries(status2.errors).map(([id2, error2]) => `
     ! ${id2}: ${error2}`).join("")
         );
       } catch (error2) {
-        lines.push(`  ${capability}: unreachable (${error2.message})`);
+        lines.push(`  server unreachable (${error2.message})`);
       }
     }
     return lines.join("\n");
@@ -26793,8 +26809,8 @@ async function manage(args, options) {
   }
   if (first === "computer") {
     const session = sessionSockets();
-    const path = session?.sockets.use_computer;
-    if (!path) return "use_computer server is not running in this Claude Code session.";
+    const path = session?.sockets[SERVER_NAME];
+    if (!path) return "cc-enhance server is not running in this Claude Code session.";
     return String(await send(path, { op: "manage", action: second ?? "status" }, 6e4));
   }
   if (!second || !action) return USAGE;
@@ -26848,7 +26864,7 @@ async function main(argv) {
   const catalog = JSON.parse(readFileSync3(join8(dist, "catalog.json"), "utf8"));
   const options = { home, catalog, moduleDirectory: join8(dist, "modules") };
   const [command, ...rest] = argv;
-  if (command === "serve") return serve(rest[0] ?? "", { ...options, version: VERSION });
+  if (command === "serve") return serve({ ...options, version: VERSION });
   if (command === "hook") return hook(rest[0]);
   if (command === "poll-xai") return pollXai(home, rest[0] ?? "");
   if (command === "cli") {
@@ -26860,7 +26876,7 @@ async function main(argv) {
     }
     return;
   }
-  throw new Error("Usage: cc-enhance.mjs serve <capability> | hook <prompt|stop> | cli <args\u2026>");
+  throw new Error("Usage: cc-enhance.mjs serve | hook <prompt|stop> | cli <args\u2026>");
 }
 main(process.argv.slice(2)).catch((error2) => {
   if (process.argv[2] === "hook") process.exit(0);

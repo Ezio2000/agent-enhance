@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const HOST_ID = "claude-code";
+/** MCP server key in the plugin config; Claude Code shows it as `plugin:cc-enhance:x`. */
+export const SERVER_NAME = "x";
 /** Directory holding catalog.json and modules/ (the bundle's own dist, or the repository dist in development). */
 export function distDirectory(): string {
   const here = dirname(fileURLToPath(import.meta.url));

@@ -3,8 +3,9 @@ import { ModuleManager, type Catalog, type CatalogEntry } from "../../../core/sr
 import { ClaudeCodeCredentialResolver } from "./credentials.ts";
 import { send, sessionSockets } from "./control.ts";
 import { login, logout } from "./login.ts";
-import { HOST_ID } from "./paths.ts";
+import { HOST_ID, SERVER_NAME } from "./paths.ts";
 import { SUPPORTED_REQUIREMENTS } from "./server.ts";
+import { LABELS } from "./display.ts";
 
 export const USAGE = `Usage:
   /cc-enhance status                                 modules, credentials, defaults, live session state
@@ -17,19 +18,6 @@ export const USAGE = `Usage:
   /cc-enhance computer status|reset|ask|auto|revoke  manage the live use_computer bridge
   /cc-enhance login [...] | logout <provider>        provider credentials (run "login" for details)`;
 
-const LABELS: Record<string, string> = {
-  gen_image: "图片生成",
-  gen_video: "视频生成",
-  gen_voice: "语音合成",
-  search_web: "联网搜索",
-  view_pdf: "PDF 理解",
-  view_video: "视频理解",
-  view_image: "图片理解",
-  use_computer: "桌面操作",
-  fast: "请求增强",
-  verbosity: "请求增强",
-  image_detail: "请求增强",
-};
 export interface ManageOptions {
   home: string;
   catalog: Catalog;
@@ -69,20 +57,20 @@ export async function manage(args: string[], options: ManageOptions): Promise<st
     const session = sessionSockets();
     if (!session) return "Live session: no cc-enhance servers found for this Claude Code session.";
     const lines = [`Live session (Claude Code pid ${session.pid}):`];
-    for (const [capability, path] of Object.entries(session.sockets).sort()) {
+    for (const path of Object.values(session.sockets)) {
       try {
         const status = (await send(path, { op: "status" })) as {
           loaded: string[];
           errors: Record<string, string>;
         };
         lines.push(
-          `  ${capability}: ${status.loaded.length ? status.loaded.join(", ") : "no provider loaded"}` +
+          `  loaded: ${status.loaded.length ? status.loaded.join(", ") : "none"}` +
             Object.entries(status.errors)
               .map(([id, error]) => `\n    ! ${id}: ${error}`)
               .join(""),
         );
       } catch (error) {
-        lines.push(`  ${capability}: unreachable (${(error as Error).message})`);
+        lines.push(`  server unreachable (${(error as Error).message})`);
       }
     }
     return lines.join("\n");
@@ -146,8 +134,8 @@ export async function manage(args: string[], options: ManageOptions): Promise<st
   }
   if (first === "computer") {
     const session = sessionSockets();
-    const path = session?.sockets.use_computer;
-    if (!path) return "use_computer server is not running in this Claude Code session.";
+    const path = session?.sockets[SERVER_NAME];
+    if (!path) return "cc-enhance server is not running in this Claude Code session.";
     return String(await send(path, { op: "manage", action: second ?? "status" }, 60_000));
   }
   if (!second || !action) return USAGE;

@@ -59,7 +59,7 @@ test("claude-code MCP server hot-loads enabled providers and bridges hooks", asy
     await client.connect(
       new StdioClientTransport({
         command: process.execPath,
-        args: [bundle, "serve", "view_pdf"],
+        args: [bundle, "serve"],
         env: box.env,
       }),
     );
@@ -74,7 +74,10 @@ test("claude-code MCP server hot-loads enabled providers and bridges hooks", asy
       tools.map((t) => t.name),
       ["view_pdf"],
     );
-    assert.equal((tools[0]!.inputSchema.properties as Record<string, unknown>).provider !== undefined, true);
+    assert.equal(tools[0]!.annotations?.title, "PDF 理解 view_pdf · opencode");
+    const keys = Object.keys(tools[0]!.inputSchema.properties as Record<string, unknown>);
+    assert.equal(keys[0], "prompt");
+    assert.equal(keys.at(-1), "provider");
     const pdf = join(box.root, "a.pdf");
     await writeFile(pdf, "%PDF-1.4\n%%EOF\n");
     const result = await client.callTool({ name: "view_pdf", arguments: { path: pdf, prompt: "x" } });
@@ -92,7 +95,7 @@ test("claude-code MCP server hot-loads enabled providers and bridges hooks", asy
       await readFile(join(box.env.CC_ENHANCE_RUN_DIR, `${process.pid}.session.json`), "utf8"),
     );
     assert.equal(session.sessionId, "s-1");
-    assert.match(await box.cli("status"), /view_pdf: view_pdf\/opencode/);
+    assert.match(await box.cli("status"), /loaded: view_pdf\/opencode/);
   } finally {
     await client.close();
     await box.cleanup();

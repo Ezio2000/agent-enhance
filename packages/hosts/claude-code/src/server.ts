@@ -15,7 +15,8 @@ import { ClaudeCodeCredentialResolver } from "./credentials.ts";
 import { hostPid, listen, readSession, socketPath, type ControlRequest } from "./control.ts";
 import { transcriptHistory } from "./history.ts";
 import { preview } from "./preview.ts";
-import { HOST_ID, artifactRoot, runDirectory } from "./paths.ts";
+import { HOST_ID, SERVER_NAME, artifactRoot, runDirectory } from "./paths.ts";
+import { orderSchema, toolTitle } from "./display.ts";
 
 /** Host features this adapter provides (approval via MCP elicitation, task-settled via the Stop hook). */
 export const SUPPORTED_REQUIREMENTS = new Set(["approval", "task-settled"]);
@@ -61,11 +62,9 @@ function describe(tool: ToolDefinition<any, any>): string {
   return tool.description + guidelines;
 }
 
-/** One MCP server per capability, so Claude Code shows `plugin:cc-enhance:<capability>`. */
-export async function serve(capability: string, options: ServeOptions): Promise<void> {
+/** Single MCP server exposing every enabled capability (one process per Claude Code session). */
+export async function serve(options: ServeOptions): Promise<void> {
   const { home, catalog } = options;
-  if (!catalog.modules.some((e) => e.capability === capability && e.kind === "tool"))
-    throw new Error(`Unknown tool capability: ${capability}`);
   const store = new ConfigStore(home, HOST_ID);
   const manager = new ModuleManager(home, catalog, options.moduleDirectory);
   const registry = new CapabilityRegistry();
@@ -73,7 +72,7 @@ export async function serve(capability: string, options: ServeOptions): Promise<
   const pid = hostPid();
   const errors = new Map<string, string>();
   const server = new Server(
-    { name: `cc-enhance-${capability}`, version: options.version },
+    { name: "cc-enhance", version: options.version },
     { capabilities: { tools: { listChanged: true } } },
   );
   let connected = false;
@@ -81,18 +80,23 @@ export async function serve(capability: string, options: ServeOptions): Promise<
   let tools: ToolDefinition<any, any>[] = [];
 
   const computer = () => registry.list().find((e) => e.instance.manage);
+  const providers = (capability: string) =>
+    registry
+      .list()
+      .filter((e) => e.module.manifest.capability === capability)
+      .map((e) => e.module.manifest.provider);
   const listing = () => [
     ...tools.map((tool) => ({
       name: tool.name,
-      title: tool.label,
       description: describe(tool),
-      inputSchema: JSON.parse(JSON.stringify(tool.parameters)),
+      inputSchema: orderSchema(JSON.parse(JSON.stringify(tool.parameters))),
+      annotations: { title: toolTitle(tool.name, providers(tool.name)) },
     })),
     ...(computer()
       ? [
           {
             name: "manage_computer",
-            title: "manage_computer",
+            annotations: { title: toolTitle("manage_computer") },
             description:
               "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
             inputSchema: {
@@ -126,7 +130,9 @@ export async function serve(capability: string, options: ServeOptions): Promise<
       errors.delete("config");
       for (const key of Object.keys(registry.defaults)) delete registry.defaults[key];
       Object.assign(registry.defaults, config.defaults);
-      const wanted = new Set(config.autoload.filter((id) => id.startsWith(`${capability}/`)));
+      const wanted = new Set(
+        config.autoload.filter((id) => catalog.modules.some((e) => e.id === id && e.kind === "tool")),
+      );
       for (const entry of registry.list()) {
         const id = entry.module.manifest.id;
         if (wanted.has(id)) continue;
@@ -232,7 +238,6 @@ export async function serve(capability: string, options: ServeOptions): Promise<
     else if (request.op === "notice") return registry.list().flatMap((e) => e.instance.notice?.() ?? []);
     else if (request.op === "status")
       return {
-        capability,
         loaded: registry.list().map((e) => e.module.manifest.id),
         errors: Object.fromEntries(errors),
         status: Object.fromEntries(
@@ -249,7 +254,7 @@ export async function serve(capability: string, options: ServeOptions): Promise<
   };
 
   removeStaleSockets();
-  const sock = socketPath(pid, capability);
+  const sock = socketPath(pid, SERVER_NAME);
   const controlServer = listen(sock, control);
   mkdirSync(dirname(store.path), { recursive: true, mode: 0o700 });
   let timer: NodeJS.Timeout | undefined;
