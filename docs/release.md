@@ -16,7 +16,7 @@
 
 ## Claude Code plugin
 
-The plugin runs `dist/cc-enhance.mjs` straight from the Git checkout Claude Code clones, so the committed bundle must match the source (`npm run build`, then commit `dist`). Validate with `claude plugin validate .`, trial with `claude -p --plugin-dir /absolute/path/to/agent-enhance …`, push, then install/update only from GitHub: `claude plugin marketplace update agent-enhance` and `claude plugin update cc-enhance@agent-enhance` (restart or `/reload-plugins`). Module bundles and catalog are shared with Pi; host code changes alone do not require a new `MODULE_REVISION`.
+The plugin runs `dist/cc-enhance.mjs` straight from the Git checkout Claude Code clones, so the committed bundle must match the source (`npm run build`, then commit `dist`). Validate with `claude plugin validate .`, trial with `claude -p --plugin-dir /absolute/path/to/agent-enhance …`, push, then install/update only from GitHub: `claude plugin marketplace update agent-enhance` and `claude plugin update cc-enhance@agent-enhance` (restart or `/reload-plugins`). The plugin manifest has no fixed version, so Claude Code versions it by Git commit and every pushed commit is an update. Module bundles and catalog are shared with Pi; host code changes alone do not require a new `MODULE_REVISION`.
 
 ## Development trials and source migration
 
