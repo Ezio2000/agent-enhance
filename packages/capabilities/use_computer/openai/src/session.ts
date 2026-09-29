@@ -165,7 +165,11 @@ export class ComputerSession {
   endTurn(isIdle: () => boolean = () => true): Promise<void> {
     return this.serial(async () => {
       // A different extension may have started work while this cleanup was queued.
-      if (!isIdle() || !this.client) return;
+      if (!isIdle()) return;
+      // A settled task is an expected disconnect the tool description already covers, so the
+      // next prompt gets no recovery notice; only interrupted or failed tasks leave one pending.
+      this.used = false;
+      if (!this.client) return;
       const started = Date.now();
       let hook: CleanupReport["hook"] = "skipped";
       try {

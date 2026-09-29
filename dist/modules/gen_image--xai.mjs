@@ -8748,10 +8748,10 @@ function imageTool(deps) {
   return {
     name: "gen_image",
     label: "Grok Image",
-    description: "Generate or edit one image with Grok Imagine using the configured xAI credentials, independently of the main model provider. Omit images for generation; pass up to five explicit local PNG/JPEG/WebP paths or public/data URLs for editing. No conversation images are read automatically. Default model grok-imagine-image-2.0; older grok-imagine-image-quality and grok-imagine-image are selectable. Supports aspect ratio and 1k/2k resolution. quality (auto/low/medium) is only available for image-2.0. Inspect references before editing and describe what must remain unchanged. Saves the original and returns a smaller preview; use original paths for subsequent edits. Each call returns one image, can take several minutes, and consumes account quota. Requests are not automatically retried.",
+    description: "Generate or edit one image with Grok Imagine. Omit images to generate; pass up to five explicit PNG/JPEG/WebP paths or URLs to edit (conversation images are never read). Models: grok-imagine-image-2.0 (default, the only one with quality), grok-imagine-image-quality, grok-imagine-image. Options: aspect_ratio, resolution 1k/2k. Before editing, look at the references and state what must stay unchanged. The original is saved locally with a smaller preview returned; reuse the original path for later edits. Calls can take minutes, use account quota and are not retried automatically.",
     promptSnippet: "Generate/edit images with Grok Imagine, including reference images",
     promptGuidelines: [
-      "Use gen_image when the user requests Grok image generation or editing. Pass explicit original paths for follow-up edits. Do not claim an image was generated if the tool failed."
+      "Use gen_image for requested image generation or editing; do not claim an image was produced if the call failed."
     ],
     parameters: ImageSchema,
     async execute(_callId, args, signal, onUpdate, ctx) {

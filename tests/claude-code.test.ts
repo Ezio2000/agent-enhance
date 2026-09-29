@@ -102,6 +102,30 @@ test("claude-code MCP server hot-loads enabled providers and bridges hooks", asy
   }
 });
 
+test("claude-code tool descriptions fit Claude Code's 2048-character MCP limit with every provider loaded", async () => {
+  const box = await sandbox();
+  const client = new Client({ name: "test", version: "1" });
+  try {
+    const catalog = JSON.parse(await readFile(resolve("dist/catalog.json"), "utf8"));
+    for (const m of catalog.modules.filter((m: { kind: string }) => m.kind === "tool"))
+      await box.cli(m.provider, m.capability, "enable");
+    await client.connect(
+      new StdioClientTransport({ command: process.execPath, args: [bundle, "serve"], env: box.env }),
+    );
+    const tools = (await client.listTools()).tools;
+    assert.ok(tools.some((t) => t.name === "gen_image"));
+    // Claude Code cuts longer descriptions, so text past the limit never reaches the model.
+    for (const tool of tools)
+      assert.ok(
+        tool.description!.length <= 2048,
+        `${tool.name} description is ${tool.description!.length} characters`,
+      );
+  } finally {
+    await client.close();
+    await box.cleanup();
+  }
+});
+
 test("claude-code credentials: stored API keys, Pi import, Codex auth file", async () => {
   const box = await sandbox();
   const saved = { ...process.env };

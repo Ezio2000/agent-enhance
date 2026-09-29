@@ -8817,10 +8817,10 @@ function imageTool(deps) {
   return {
     name: "gen_image",
     label: "MiniMax Image",
-    description: `Generate one image with MiniMax image-01 over the Token Plan channel (sk-cp key). Text-to-image only: this provider has no edit/reference-image support, so passing images is an error. Options under options.minimax: aspect_ratio (1:1 default, observed 1024x1024 JPEG output), prompt_optimizer, seed. The backend currently returns JPEG originals; the actual format is reported from the saved bytes. The daily image allowance is enforced server-side with its own quota, separate from the token window, and is not exposed by any quota API; hitting it surfaces error 2067. Each call produces exactly one image; for batches issue parallel calls. Requests are never automatically retried. Generated originals are saved locally; small inline previews may be included alongside. Reuse original saved paths with providers that support editing.`,
+    description: `Generate one image with MiniMax image-01. Text-to-image only: it cannot edit, so passing images is an error. Options: aspect_ratio (default 1:1, 1024x1024), prompt_optimizer, seed. Output is usually JPEG and is saved locally. A separate server-side daily image allowance applies; exhausting it returns error 2067. Calls are not retried automatically.`,
     promptSnippet: "Generate images with MiniMax image-01 via the Token Plan",
     promptGuidelines: [
-      "Use gen_image with provider minimax for MiniMax image generation. Do not pass images for edits; this backend is generation-only. Do not claim an image was produced if the tool failed."
+      "Use gen_image for requested image generation or editing; do not claim an image was produced if the call failed."
     ],
     parameters: ImageSchema,
     async execute(callId, args, signal, onUpdate, ctx) {

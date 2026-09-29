@@ -32,8 +32,8 @@
         ]
       },
       "file": "gen_image--minimax.mjs",
-      "sha256": "cb65fb8b5e11d448a7073e200d2dc4d2164e31b663dc6800e7c7198a49d428b9",
-      "bytes": 398058
+      "sha256": "923818b4363c1e9c960015d99858c84de94f83a733f01546ed50805a7472172d",
+      "bytes": 397503
     },
     {
       "apiVersion": 1,
@@ -50,8 +50,8 @@
         ]
       },
       "file": "gen_image--openai.mjs",
-      "sha256": "43e7f5351cd10afc833d66131bfcd4b6b4839bc755c06d9595c56d0ae7e9e067",
-      "bytes": 412601
+      "sha256": "de67bac4e5bd759ddac459be318d6ea2cce11f771c323cc69fd39da12fa7e0a9",
+      "bytes": 411680
     },
     {
       "apiVersion": 1,
@@ -68,8 +68,8 @@
         ]
       },
       "file": "gen_image--xai.mjs",
-      "sha256": "4334d084be45b5edb7716d429237d2ca50b83c4924b440fbcb891519001f866b",
-      "bytes": 392640
+      "sha256": "02f4b6deb4652d647322d8eed6ee36ca2c5fd186c5328645b2e8a7fef349674c",
+      "bytes": 392373
     },
     {
       "apiVersion": 1,
@@ -136,8 +136,8 @@
         ]
       },
       "file": "search_web--openai.mjs",
-      "sha256": "62e2ed552bd97fce42136e46655db1dd593845e7564167a41d7a4d75c59568b0",
-      "bytes": 402018
+      "sha256": "0f6a172d03521ae3fad432175c146af3450e347ea501f441ce5538f4486c74dc",
+      "bytes": 401746
     },
     {
       "apiVersion": 1,
@@ -154,8 +154,8 @@
         ]
       },
       "file": "search_web--zai.mjs",
-      "sha256": "2d25b1b6f8363d993f4076a308938d6eff55ae3467fb68b3f986f794eca55a47",
-      "bytes": 398208
+      "sha256": "3455aa645ef07f391ffc830d2d7583dd7304327541a73b789f5fbe2160900020",
+      "bytes": 397836
     },
     {
       "apiVersion": 1,
@@ -172,8 +172,8 @@
         "task-settled"
       ],
       "file": "use_computer--openai.mjs",
-      "sha256": "6c499955d8d15e5ca1ddb8bb53045404c6b26addddc62499ca44341b9279824c",
-      "bytes": 419105
+      "sha256": "8f8fe51775a0606cc056d138a6dd86d10dcd1fe270409060c7d9bffc216cb0ae",
+      "bytes": 418006
     },
     {
       "apiVersion": 1,

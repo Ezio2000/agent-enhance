@@ -54,6 +54,7 @@ test("MCP persists within a run, but disconnects and discards JS state at turn c
     await h.session.endTurn();
     assert.equal(h.session.status().connected, false);
     assert.equal(h.session.status().generation, undefined);
+    assert.equal(h.session.recoveryNotice(), undefined);
     assert.equal(h.disposals(), 1);
     const c = await h.session.run(call("next"));
     assert.equal(count(c), 1);
@@ -64,6 +65,20 @@ test("MCP persists within a run, but disconnects and discards JS state at turn c
     await h.session.reset();
   }
   assert.equal(h.disposals(), 2);
+});
+
+test("recovery notice stays pending after an unsettled disconnect until the task settles", async () => {
+  const h = harness();
+  try {
+    assert.equal(h.session.recoveryNotice(), undefined);
+    await h.session.run(call("warmup"));
+    await h.session.reset();
+    assert.match(h.session.recoveryNotice() ?? "", /disconnected/);
+    await h.session.endTurn();
+    assert.equal(h.session.recoveryNotice(), undefined);
+  } finally {
+    await h.session.reset();
+  }
 });
 
 test("turn cleanup preserves app grants, is idempotent, and allows queued next-run work", async () => {

@@ -25513,7 +25513,7 @@ var CapabilityRegistry = class {
     return {
       name: capability,
       label: capability,
-      description: `One ${capability} tool; loaded providers: ${providers.join(", ")}. Select provider explicitly or use the configured default. No cross-provider fallback.${COMMON_FIELDS[capability] ? ` Shared fields stay at the top level; provider-specific parameters belong in options.<provider>.` : ""}
+      description: `Providers: ${providers.join(", ")}. Set provider or omit it for the configured default; a failed call never falls back to another provider.${COMMON_FIELDS[capability] ? ` Provider-specific parameters go in options.<provider>.` : ""}
 ` + entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool.promptGuidelines ?? []))],
