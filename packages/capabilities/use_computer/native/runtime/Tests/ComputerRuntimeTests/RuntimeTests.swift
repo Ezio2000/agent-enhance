@@ -1,6 +1,21 @@
 import XCTest
 @testable import ComputerRuntime
 final class RuntimeTests: XCTestCase {
+    func testOverlappingWindowIdentityUsesDirectNumberOrUniqueTitle() throws {
+        let rect = CGRect(x: 77, y: 83, width: 1203, height: 680)
+        let candidates = [
+            WindowCandidate(id: 10, pid: 123, title: "WatermarkWidget", layer: 0, bounds: rect),
+            WindowCandidate(id: 11, pid: 123, title: "飞书", layer: 0, bounds: rect),
+            WindowCandidate(id: 12, pid: 456, title: "飞书", layer: 0, bounds: rect)
+        ]
+        XCTAssertEqual(try WindowIdentity.resolve(pid: 123, title: "飞书", bounds: rect, directIDs: [], candidates: candidates), 11)
+        XCTAssertEqual(try WindowIdentity.resolve(pid: 123, title: "WatermarkWidget", bounds: rect, directIDs: [], candidates: candidates), 10)
+        XCTAssertEqual(try WindowIdentity.resolve(pid: 123, title: "", bounds: rect, directIDs: [12, 11], candidates: candidates), 11)
+        XCTAssertThrowsError(try WindowIdentity.resolve(pid: 123, title: "", bounds: rect, directIDs: [12], candidates: candidates))
+        XCTAssertThrowsError(try WindowIdentity.resolve(pid: 123, title: "missing", bounds: rect, directIDs: [], candidates: candidates))
+        let duplicate = candidates + [WindowCandidate(id: 13, pid: 123, title: "飞书", layer: 0, bounds: rect)]
+        XCTAssertThrowsError(try WindowIdentity.resolve(pid: 123, title: "飞书", bounds: rect, directIDs: [], candidates: duplicate))
+    }
     func testWindowRelativeCoordinatesAcrossDisplays() throws {
         let r = CGRect(x: -1000, y: -300, width: 500, height: 400)
         XCTAssertEqual(try localPoint(CGPoint(x: 20, y: 30), in: r), CGPoint(x: -980, y: -270))

@@ -22,6 +22,8 @@ private struct ElementTarget {
     private var windows: [String: WindowTarget] = [:]
     private var elements: [String: ElementTarget] = [:]
     private var observedBounds: [String: CGRect] = [:]
+    private var accessibilityPrepared: Set<pid_t> = []
+    private var accessibilityModes: [pid_t: [String: Int32]] = [:]
     init(lockPath: String, isolation: IsolationPolicy = .isolatedOnly) {
         input = Input(lockPath: lockPath); self.isolation = isolation
     }
@@ -82,6 +84,22 @@ private struct ElementTarget {
         let ax = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(ax, 2)
         return ax
+    }
+    private func prepareAccessibility(_ app: NSRunningApplication) async {
+        guard !accessibilityPrepared.contains(app.processIdentifier) else { return }
+        let ax = appAX(app)
+        var changed = false
+        var modes: [String: Int32] = [:]
+        for attribute in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
+            // Chromium/CEF setters may accept these modes without advertising them as settable.
+            if (value(ax, attribute) as? Bool) == true { modes[attribute] = 0; continue }
+            let result = AXUIElementSetAttributeValue(ax, attribute as CFString, kCFBooleanTrue)
+            modes[attribute] = result.rawValue
+            if result == .success { changed = true }
+        }
+        accessibilityModes[app.processIdentifier] = modes
+        accessibilityPrepared.insert(app.processIdentifier)
+        if changed { try? await Task.sleep(nanoseconds: 100_000_000) }
     }
     private func window(_ id: String) throws -> WindowTarget {
         try requireAX()
@@ -253,21 +271,17 @@ private struct ElementTarget {
     private func windowNumber(_ w: WindowTarget) throws -> CGWindowID {
         let r = try bounds(w.ax)
         let all = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
-        if let n = value(w.ax, "AXWindowNumber") as? NSNumber,
-           all.contains(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == n.uint32Value && ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == w.app.processIdentifier }) {
-            return CGWindowID(n.uint32Value)
+        let candidates = all.compactMap { row -> WindowCandidate? in
+            guard let number = row[kCGWindowNumber as String] as? NSNumber,
+                  let pid = row[kCGWindowOwnerPID as String] as? NSNumber,
+                  let raw = row[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: raw) else { return nil }
+            return WindowCandidate(id: number.uint32Value, pid: pid.int32Value,
+                title: row[kCGWindowName as String] as? String ?? "", layer: row[kCGWindowLayer as String] as? Int ?? 0, bounds: bounds)
         }
-        let matches = all.filter {
-            guard ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == w.app.processIdentifier,
-                  ($0[kCGWindowLayer as String] as? Int) == 0,
-                  let raw = $0[kCGWindowBounds as String] as? NSDictionary,
-                  let other = CGRect(dictionaryRepresentation: raw) else { return false }
-            return abs(r.minX - other.minX) < 2 && abs(r.minY - other.minY) < 2 && abs(r.width - other.width) < 2 && abs(r.height - other.height) < 2
-        }
-        guard matches.count == 1, let n = matches[0][kCGWindowNumber as String] as? NSNumber else {
-            throw RuntimeError(code: "WINDOW_CAPTURE", message: "Cannot uniquely match the accessibility window to a capture window.")
-        }
-        return CGWindowID(n.uint32Value)
+        let directIDs = [(value(w.ax, "AXWindowNumber") as? NSNumber)?.uint32Value, WindowIdentity.number(w.ax)].compactMap { $0 }
+        return try WindowIdentity.resolve(pid: w.app.processIdentifier, title: string(w.ax, kAXTitleAttribute) ?? w.title,
+            bounds: r, directIDs: directIDs, candidates: candidates)
     }
     func handle(_ method: String, _ p: [String: Any]) async throws -> Any {
         let target = (p["window"] as? String).flatMap { windows[$0] }
@@ -330,6 +344,7 @@ private struct ElementTarget {
         case "listWindows":
             try requireAX()
             let app = try running(required(p, "app"))
+            await prepareAccessibility(app)
             var result: [[String: Any]] = []
             for ax in try read(appAX(app), kAXWindowsAttribute) as? [AXUIElement] ?? [] {
                 AXUIElementSetMessagingTimeout(ax, 2)
@@ -367,12 +382,16 @@ private struct ElementTarget {
         }
         switch method {
         case "observe":
+            await prepareAccessibility(w.app)
             let snapshot = UUID().uuidString
             elements = elements.filter { $0.value.window != id }
             var rows: [[String: Any]] = [], seen: [AXUIElement] = []
+            var depthLimited = false
             let depth = min(max(p["depth"] as? Int ?? 12, 1), 30)
             func walk(_ ax: AXUIElement, _ level: Int, _ parent: String?) {
-                guard rows.count < 1500, level <= depth, !seen.contains(where: { CFEqual($0, ax) }) else { return }
+                guard !seen.contains(where: { CFEqual($0, ax) }) else { return }
+                if level > depth { depthLimited = true; return }
+                guard rows.count < 1500 else { return }
                 seen.append(ax)
                 let key = "e:\(snapshot):\(rows.count)"
                 elements[key] = ElementTarget(ax: ax, window: id)
@@ -390,8 +409,14 @@ private struct ElementTarget {
                 for child in children(ax) { walk(child, level + 1, key) }
             }
             walk(w.ax, 0, nil)
+            if let focused = value(appAX(w.app), kAXFocusedUIElementAttribute), CFGetTypeID(focused as CFTypeRef) == AXUIElementGetTypeID() {
+                let ax = focused as! AXUIElement
+                if let owner = value(ax, kAXWindowAttribute), CFEqual(owner as CFTypeRef, w.ax) { walk(ax, 0, nil) }
+            }
             let r = try bounds(w.ax); observedBounds[id] = r
-            return ["snapshot": snapshot, "window": id, "bounds": rectJSON(r), "elements": rows, "truncated": rows.count >= 1500]
+            return ["snapshot": snapshot, "window": id, "bounds": rectJSON(r), "elements": rows,
+                "truncated": depthLimited || rows.count >= 1500, "truncation": ["depth": depthLimited, "nodeLimit": rows.count >= 1500],
+                "accessibilityModes": accessibilityModes[w.app.processIdentifier] ?? [:]]
         case "screenshot":
             guard CGPreflightScreenCaptureAccess() else {
                 _ = CGRequestScreenCaptureAccess()

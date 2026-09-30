@@ -10,7 +10,7 @@ export const ComputerSchema = Type.Object(
       minLength: 1,
       maxLength: 32000,
       description:
-        "JavaScript using computer and print. First call: print(await computer.getState()); read the returned API docs before constructing actions. Permissions are in state.permissions.",
+        "JavaScript using computer and print. All APIs are async; use var for persistent bindings. First call: print(await computer.getState()); then var app=await computer.getApp(bundleId); var win=await app.getWindow(observedId); await win.pressKey(keys,options). Input methods belong to Window, not computer. Permissions are in state.permissions.",
     }),
     title: Type.Optional(
       Type.String({
