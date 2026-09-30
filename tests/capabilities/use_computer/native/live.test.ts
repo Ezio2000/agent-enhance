@@ -59,7 +59,15 @@ test(
       }
       const run = async (code: string) => {
         const result = await session.run({ code, sessionId: "native-ui", timeoutMs: 10000 });
-        assert.equal(result.error, undefined, result.error?.message);
+        assert.equal(
+          result.error,
+          undefined,
+          JSON.stringify({
+            error: result.error,
+            operations: result.operations,
+            content: result.content.filter((c) => c.type === "text"),
+          }),
+        );
         return result;
       };
       const inspect = async (expression: string) => {
@@ -67,6 +75,9 @@ test(
         const printed = await run(`print(JSON.stringify(${expression}));`);
         return JSON.parse(printed.content.at(-1)!.text!);
       };
+      await run(
+        "var front=await computer.getApp('com.agent-enhance.fixture.front'); var frontWindows=await front.listWindows(); var frontWin=await front.getWindow(frontWindows[0].id); await frontWin.activate();",
+      );
       const apps = await inspect("await computer.listApps()");
       assert.equal(apps.find((a: any) => a.active)?.id, "com.agent-enhance.fixture.front");
       await run(

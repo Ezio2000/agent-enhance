@@ -81,14 +81,24 @@ export const WORKER_SOURCE = String.raw`
       }
       return scopes.run({window:this.id,mode:selected.mode},async()=>{
         const acquired=[];
+        let failure;
         try {
           for (const key of keys) { await this.keyDown(key,selected); acquired.push(key); }
           return await callback();
+        } catch(error) {
+          failure=error;
+          throw error;
         } finally {
           // Attempt all releases even if one fails; the host also ends the native call.
           const errors=[];
           for (const key of acquired.reverse()) { try { await this.keyUp(key,selected); } catch(error) { errors.push(error); } }
-          if(errors.length) throw new AggregateError(errors,'Input scope release failed; host cleanup follows.');
+          if(errors.length) {
+            const all=failure ? [failure,...errors] : errors;
+            const error=new AggregateError(all,'Input scope release failed; host cleanup follows. '+all.map(error=>error.message ?? String(error)).join('; '),{cause:failure});
+            error.code=failure?.code ?? errors[0]?.code;
+            error.indeterminate=all.some(error=>error.indeterminate===true);
+            throw error;
+          }
         }
       });
     }

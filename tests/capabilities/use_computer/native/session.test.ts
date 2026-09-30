@@ -5,7 +5,7 @@ import type {
   NativeRuntime,
   Json,
 } from "../../../../packages/capabilities/use_computer/native/src/runtime.ts";
-function harness() {
+function harness(failRelease = false) {
   const requests: { method: string; params: Json }[] = [];
   let starts = 0,
     closes = 0;
@@ -30,6 +30,10 @@ function harness() {
             held.add(params.key);
             break;
           case "keyUp":
+            if (failRelease)
+              throw Object.assign(new Error("Foreground focus changed before key release"), {
+                code: "FOCUS_CHANGED",
+              });
             held.delete(params.key);
             break;
           case "click":
@@ -119,6 +123,29 @@ test("error after an accepted step releases held input, reports uncertainty, nev
     assert.equal(h.held.size, 0);
     assert.ok(result.operations.some((x) => x.error?.indeterminate));
     assert.equal((await run(h.session, "app.id")).content.at(-1)!.text, "test.app");
+  } finally {
+    await h.session.reset();
+  }
+});
+test("release failure preserves the original action error and host cleanup releases the held key", async () => {
+  const h = harness(true);
+  try {
+    const result = await run(
+      h.session,
+      bind +
+        " await win.withKeys(['shift'],async()=>{await win.click({element:'denied'});},{mode:'foreground'});",
+    );
+    assert.match(result.error!.message, /AX operation indeterminate/);
+    assert.match(result.error!.message, /Foreground focus changed before key release/);
+    assert.equal(result.error!.code, "AX_ERROR");
+    assert.equal(result.error!.indeterminate, true);
+    assert.equal(result.cleanup!.releasedKeys, 1);
+    assert.equal(h.held.size, 0);
+    assert.equal(h.requests.filter((x) => x.method === "click").length, 1);
+    assert.deepEqual(
+      result.operations.filter((x) => x.error).map((x) => x.error.code),
+      ["AX_ERROR", "FOCUS_CHANGED"],
+    );
   } finally {
     await h.session.reset();
   }

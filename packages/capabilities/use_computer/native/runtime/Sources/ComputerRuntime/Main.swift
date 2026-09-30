@@ -90,6 +90,12 @@ import Darwin
 final class Fixture: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let menu = NSMenu()
+        let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        edit.submenu = NSMenu(title: "Edit")
+        edit.submenu?.addItem(withTitle: "Select All", action: NSSelectorFromString("selectAll:"), keyEquivalent: "a")
+        menu.addItem(edit)
+        NSApplication.shared.mainMenu = menu
         window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 500, height: 350), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Agent Enhance Computer Fixture"
         let field = NSTextField(frame: NSRect(x: 20, y: 285, width: 450, height: 25)); field.stringValue = "fixture"; field.setAccessibilityIdentifier("fixture-text")
