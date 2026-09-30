@@ -43,7 +43,10 @@ export const WORKER_SOURCE = String.raw`
   class Window {
     constructor(id) { this.id=id; }
     [inspect.custom]() { return {window:this.id}; }
-    invoke(method, params={}, opts={}) { return rpc(method,{...params,...options(this.id,opts),window:this.id}); }
+    invoke(method, params={}, opts={}) {
+      if(Object.prototype.hasOwnProperty.call(params,'mode')) throw new Error('Put mode in the separate options argument, e.g. window.click({element:id}, {mode:"foreground"}). No action was dispatched.');
+      return rpc(method,{...params,...options(this.id,opts),window:this.id});
+    }
     observe(opts={}) { return this.invoke('observe',opts); }
     async screenshot() {
       const result = await this.invoke('screenshot');

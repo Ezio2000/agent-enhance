@@ -120,7 +120,10 @@ var WORKER_SOURCE = String.raw`
   class Window {
     constructor(id) { this.id=id; }
     [inspect.custom]() { return {window:this.id}; }
-    invoke(method, params={}, opts={}) { return rpc(method,{...params,...options(this.id,opts),window:this.id}); }
+    invoke(method, params={}, opts={}) {
+      if(Object.prototype.hasOwnProperty.call(params,'mode')) throw new Error('Put mode in the separate options argument, e.g. window.click({element:id}, {mode:"foreground"}). No action was dispatched.');
+      return rpc(method,{...params,...options(this.id,opts),window:this.id});
+    }
     observe(opts={}) { return this.invoke('observe',opts); }
     async screenshot() {
       const result = await this.invoke('screenshot');
@@ -9220,7 +9223,7 @@ var ComputerSchema = typebox_exports.Object(
     code: typebox_exports.String({
       minLength: 1,
       maxLength: 32e3,
-      description: "JavaScript using computer and print. Start with await computer.getState(); full API docs are returned on first execution."
+      description: "JavaScript using computer and print. First call: print(await computer.getState()); read the returned API docs before constructing actions. Permissions are in state.permissions."
     }),
     title: typebox_exports.Optional(
       typebox_exports.String({
@@ -9243,7 +9246,7 @@ function computerTool(session, output) {
   return {
     name: "use_computer",
     label: "Computer Use",
-    description: "Operate native macOS apps through the independent Agent Enhance runtime using JavaScript. Use computer.getState(), computer.getApp(bundleId), app.listWindows(), app.getWindow(windowId), then window.observe(). Full API documentation is emitted on first use; computer.help() returns it again. Prefer var for reusable bindings. print(value) emits output; window.screenshot() emits PNG and returns coordinate metadata. Only native UI is supported, including browsers through their macOS UI.\nDefault background delivery uses AX semantics; foreground input must explicitly set {mode:'foreground'}. Background keyboard needs an observed element; use setValue for writable controls. Raw key holds, pointer input, dragging and modifier-mouse combinations require foreground. withKeys(keys, asyncCallback, {mode:'foreground'}) scopes modifier keys. Observe fresh UI, use exact returned IDs, and never replay failed actions automatically.\nBindings persist until the task settles/reset, while held keys/buttons are released at every call boundary. Timeout/cancellation stops the script and clears queued actions without undoing completed effects. Native input can be accepted/dispatched without confirmed application effect: observe to verify. Returns bounded text and up to four PNG screenshots (24 MiB total), saved locally.",
+    description: "Operate native macOS apps using JavaScript. First call: print(await computer.getState()); read the returned API docs before actions. getState returns {apps,permissions:{accessibility,screenRecording,eventSynthesizing},generation}. Then use computer.getApp(bundleId), app.listWindows(), app.getWindow(windowId), window.observe(). computer.help() returns full docs. Prefer var for reusable bindings. print emits output; screenshot emits PNG plus coordinate metadata. Browsers use native UI.\nDefault background delivery uses AX semantics. Put mode in the separate options argument: window.click({element:id}, {mode:'foreground'}), never inside the target object. Background keyboard needs an observed element; use setValue for writable controls. Raw keys, pointer input, drag and modifier-mouse combinations require foreground. withKeys(keys, asyncCallback, {mode:'foreground'}) scopes modifiers. Observe fresh UI, use exact returned IDs, and never replay failed actions automatically.\nBindings persist until the task settles/reset, while held keys/buttons are released at every call boundary. Timeout/cancellation stops the script and clears queued actions without undoing completed effects. Native input can be accepted/dispatched without confirmed application effect: observe to verify. Returns bounded text and up to four PNG screenshots (24 MiB total), saved locally.",
     promptSnippet: "Operate native Mac applications with JavaScript, background AX actions and explicit foreground keyboard/mouse combinations",
     promptGuidelines: [
       "Prefer APIs/CLI when available; use use_computer for desktop UI tasks. Observe before acting and verify dispatched effects."

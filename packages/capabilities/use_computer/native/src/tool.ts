@@ -9,7 +9,7 @@ export const ComputerSchema = Type.Object(
       minLength: 1,
       maxLength: 32000,
       description:
-        "JavaScript using computer and print. Start with await computer.getState(); full API docs are returned on first execution.",
+        "JavaScript using computer and print. First call: print(await computer.getState()); read the returned API docs before constructing actions. Permissions are in state.permissions.",
     }),
     title: Type.Optional(
       Type.String({
@@ -36,8 +36,8 @@ export function computerTool(
     name: "use_computer",
     label: "Computer Use",
     description:
-      "Operate native macOS apps through the independent Agent Enhance runtime using JavaScript. Use computer.getState(), computer.getApp(bundleId), app.listWindows(), app.getWindow(windowId), then window.observe(). Full API documentation is emitted on first use; computer.help() returns it again. Prefer var for reusable bindings. print(value) emits output; window.screenshot() emits PNG and returns coordinate metadata. Only native UI is supported, including browsers through their macOS UI.\n" +
-      "Default background delivery uses AX semantics; foreground input must explicitly set {mode:'foreground'}. Background keyboard needs an observed element; use setValue for writable controls. Raw key holds, pointer input, dragging and modifier-mouse combinations require foreground. withKeys(keys, asyncCallback, {mode:'foreground'}) scopes modifier keys. Observe fresh UI, use exact returned IDs, and never replay failed actions automatically.\n" +
+      "Operate native macOS apps using JavaScript. First call: print(await computer.getState()); read the returned API docs before actions. getState returns {apps,permissions:{accessibility,screenRecording,eventSynthesizing},generation}. Then use computer.getApp(bundleId), app.listWindows(), app.getWindow(windowId), window.observe(). computer.help() returns full docs. Prefer var for reusable bindings. print emits output; screenshot emits PNG plus coordinate metadata. Browsers use native UI.\n" +
+      "Default background delivery uses AX semantics. Put mode in the separate options argument: window.click({element:id}, {mode:'foreground'}), never inside the target object. Background keyboard needs an observed element; use setValue for writable controls. Raw keys, pointer input, drag and modifier-mouse combinations require foreground. withKeys(keys, asyncCallback, {mode:'foreground'}) scopes modifiers. Observe fresh UI, use exact returned IDs, and never replay failed actions automatically.\n" +
       "Bindings persist until the task settles/reset, while held keys/buttons are released at every call boundary. Timeout/cancellation stops the script and clears queued actions without undoing completed effects. Native input can be accepted/dispatched without confirmed application effect: observe to verify. Returns bounded text and up to four PNG screenshots (24 MiB total), saved locally.",
     promptSnippet:
       "Operate native Mac applications with JavaScript, background AX actions and explicit foreground keyboard/mouse combinations",

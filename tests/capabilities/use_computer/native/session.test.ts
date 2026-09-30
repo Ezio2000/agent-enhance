@@ -110,6 +110,17 @@ test("foreground combination uses one API path, inherits mode and releases modif
     await h.session.reset();
   }
 });
+test("misplaced delivery mode fails before a click is dispatched instead of silently using background", async () => {
+  const h = harness();
+  try {
+    const result = await run(h.session, bind + " await win.click({element:'element-1',mode:'foreground'});");
+    assert.match(result.error!.message, /separate options argument/);
+    assert.equal(h.requests.filter((x) => x.method === "click").length, 0);
+    assert.equal(h.held.size, 0);
+  } finally {
+    await h.session.reset();
+  }
+});
 test("error after an accepted step releases held input, reports uncertainty, never replays", async () => {
   const h = harness();
   try {
