@@ -1,0 +1,169 @@
+/** Evaluated by a child Node process; source stays plain JS so a standalone module needs no loader. */
+export const WORKER_SOURCE = String.raw`
+(async () => {
+  const { start } = await import('node:repl');
+  const { PassThrough, Writable } = await import('node:stream');
+  const { AsyncLocalStorage } = await import('node:async_hooks');
+  const { inspect } = await import('node:util');
+  const calls = new AsyncLocalStorage();
+  const scopes = new AsyncLocalStorage();
+  let next = 0;
+  const pending = new Map();
+  const output = (value) => {
+    const call = calls.getStore();
+    if (!call?.active) throw new Error('The JS call has ended. Detached output/actions are not allowed.');
+    const text = typeof value === 'string' ? value : inspect(value, {depth:12,maxArrayLength:2000,maxStringLength:32000,colors:false});
+    if (call.textBytes < 1024 * 1024) {
+      const bounded = Buffer.from(text).subarray(0, 1024 * 1024 - call.textBytes).toString('utf8').replace(/\uFFFD$/, '');
+      call.textBytes += Buffer.byteLength(bounded);
+      call.content.push({type:'text',text:bounded});
+      process.send({type:'output',id:call.id,block:{type:'text',text:bounded}});
+    }
+  };
+  const rpc = (method, params = {}) => {
+    const call = calls.getStore();
+    if (!call?.active) return Promise.reject(new Error('The JS call has ended. No action was executed.'));
+    const id = ++next;
+    const promise = new Promise((resolve,reject) => {
+      pending.set(id,{resolve,reject});
+      process.send({type:'native',id,callId:call.id,method,params});
+    });
+    call.pending.add(promise);
+    promise.then(() => call.pending.delete(promise), () => call.pending.delete(promise));
+    return promise;
+  };
+  let documentation = '';
+  const options = (window, opts) => {
+    const scope = scopes.getStore();
+    if (scope && (scope.window !== window || (opts?.mode && opts.mode !== scope.mode))) {
+      throw new Error('An input scope cannot change its target window or mode.');
+    }
+    return {...opts,mode:opts?.mode ?? scope?.mode ?? 'background'};
+  };
+  class Window {
+    constructor(id) { this.id=id; }
+    [inspect.custom]() { return {window:this.id}; }
+    invoke(method, params={}, opts={}) { return rpc(method,{...params,...options(this.id,opts),window:this.id}); }
+    observe(opts={}) { return this.invoke('observe',opts); }
+    async screenshot() {
+      const result = await this.invoke('screenshot');
+      const call = calls.getStore();
+      const bytes = Buffer.byteLength(result.image ?? '', 'base64');
+      if (call.images < 4 && call.imageBytes + bytes <= 24*1024*1024) {
+        call.images++; call.imageBytes+=bytes;
+        call.content.push({type:'image',data:result.image,mimeType:result.mimeType});
+        process.send({type:'output',id:call.id,block:{type:'image',data:result.image,mimeType:result.mimeType}});
+      } else output('[Screenshot omitted: maximum 4 images / 24 MiB per call.]');
+      const {image,...meta}=result; return meta;
+    }
+    activate() { return this.invoke('activate',{}, {mode:'foreground'}); }
+    setBounds(rect) { return this.invoke('setBounds',rect); }
+    minimize() { return this.invoke('minimize'); }
+    restore() { return this.invoke('restore'); }
+    performAction(element,action) { return this.invoke('performAction',{element,action}); }
+    setValue(element,value) { return this.invoke('setValue',{element,value}); }
+    menu(path,opts={}) { return this.invoke('menu',{path},opts); }
+    click(target,opts={}) { return this.invoke('click',target,opts); }
+    pressKey(keys,opts={}) { return this.invoke('pressKey',{keys},opts); }
+    typeText(text,opts={}) { return this.invoke('typeText',{text},opts); }
+    keyDown(key,opts={}) { return this.invoke('keyDown',{key},opts); }
+    keyUp(key,opts={}) { return this.invoke('keyUp',{key},opts); }
+    moveMouse(point,opts={}) { return this.invoke('moveMouse',{point},opts); }
+    mouseDown(point,opts={}) { return this.invoke('mouseDown',{point},opts); }
+    mouseUp(point,opts={}) { return this.invoke('mouseUp',{point},opts); }
+    drag(path,opts={}) { return this.invoke('drag',path,opts); }
+    scroll(delta,opts={}) { return this.invoke('scroll',delta,opts); }
+    async withKeys(keys,callback,opts={}) {
+      const selected = options(this.id,opts);
+      if (selected.mode !== 'foreground') throw new Error('withKeys requires mode: foreground.');
+      if (!Array.isArray(keys) || !keys.length || new Set(keys).size !== keys.length || typeof callback !== 'function') {
+        throw new Error('withKeys requires unique keys and an async callback.');
+      }
+      return scopes.run({window:this.id,mode:selected.mode},async()=>{
+        const acquired=[];
+        try {
+          for (const key of keys) { await this.keyDown(key,selected); acquired.push(key); }
+          return await callback();
+        } finally {
+          // Attempt all releases even if one fails; the host also ends the native call.
+          const errors=[];
+          for (const key of acquired.reverse()) { try { await this.keyUp(key,selected); } catch(error) { errors.push(error); } }
+          if(errors.length) throw new AggregateError(errors,'Input scope release failed; host cleanup follows.');
+        }
+      });
+    }
+  }
+  class App {
+    constructor(info) { Object.assign(this,info); }
+    [inspect.custom]() { return {id:this.id,name:this.name,pid:this.pid}; }
+    listWindows() { return rpc('listWindows',{app:this.id}); }
+    async getWindow(id) {
+      if (!(await this.listWindows()).some(window=>window.id===id)) throw new Error('Window ID does not belong to this app. List windows again.');
+      return new Window(id);
+    }
+  }
+  const computer={
+    help:()=>documentation,
+    getState:()=>rpc('getState'),
+    listApps:async()=>(await rpc('getState')).apps,
+    getApp:async(app)=>new App(await rpc('getApp',{app})),
+    launchApp:async(app,opts={})=>new App(await rpc('launchApp',{app,...opts})),
+    wait:async(ms)=>{
+      const call=calls.getStore();
+      if (!call?.active || !Number.isFinite(ms) || ms<0 || ms>30000) throw new Error('wait requires 0..30000 ms within an active call.');
+      await new Promise(resolve=>setTimeout(resolve,ms));
+      if(!call.active) throw new Error('Call ended while waiting.');
+    }
+  };
+  const input=new PassThrough();
+  const shell=start({input,output:new Writable({write(chunk,encoding,done){done();}}),terminal:false,prompt:'',useGlobal:false});
+  const log=(...args)=>output(args.map(value=>typeof value==='string'?value:inspect(value,{depth:12,colors:false})).join(' '));
+  Object.assign(shell.context,{computer,print:output,console:{log,info:log,warn:log,error:log}});
+  // The default REPL evaluator routes thrown/await errors through its domain instead
+  // of its callback. Observe that channel as well; otherwise an error hangs the call.
+  let evaluationError;
+  shell._domain.on('error',error=>{
+    // An old timer retains its originating call's async context. It must not reject
+    // an unrelated evaluation that happens to be active when that timer fires.
+    if(calls.getStore()?.active) evaluationError?.(error);
+  });
+  const evaluate=code=>new Promise((resolve,reject)=>{
+    const finish=(error,value)=>{evaluationError=undefined; error?reject(error):resolve(value);};
+    evaluationError=error=>finish(error);
+    shell.eval(code+'\n',shell.context,'use_computer',finish);
+  });
+  let executing=false;
+  process.on('message',async message=>{
+    if(message.type==='nativeResult') {
+      const item=pending.get(message.id); if(!item) return;
+      pending.delete(message.id);
+      if(message.error) { const error=new Error(message.error.message); Object.assign(error,message.error); item.reject(error); }
+      else item.resolve(message.result);
+      return;
+    }
+    if(message.type!=='execute') return;
+    if(executing) { process.send({type:'result',id:message.id,error:{message:'JS worker is busy.'},content:[]}); return; }
+    executing=true;
+    documentation=message.documentation;
+    const call={id:message.id,active:true,pending:new Set(),content:[],textBytes:0,images:0,imageBytes:0};
+    await calls.run(call,async()=>{
+      let failure;
+      try {
+        if(message.fresh) output(documentation);
+        const result=await evaluate(message.code);
+        // Drain submitted RPCs even if code forgot await; native outcomes are not abandoned.
+        const settled=await Promise.allSettled([...call.pending]);
+        const rejected=settled.find(result=>result.status==='rejected');
+        if(rejected) throw rejected.reason;
+        if(result!==undefined) output(result);
+      } catch(error) {
+        failure={message:error?.stack ?? String(error),code:error?.code,indeterminate:error?.indeterminate};
+        await Promise.allSettled([...call.pending]);
+      } finally { call.active=false; executing=false; }
+      process.send({type:'result',id:message.id,content:call.content,error:failure});
+    });
+  });
+  process.on('disconnect',()=>process.exit(0));
+  process.send({type:'ready'});
+})().catch(error=>{process.stderr.write(String(error.stack ?? error));process.exit(1);});
+`;

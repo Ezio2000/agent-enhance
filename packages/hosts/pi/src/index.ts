@@ -143,6 +143,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
       id = manifest.id;
     registry.load(module, {
       artifactRoot: join(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
+      runtimeRoot: join(options.home, "runtimes"),
       preview: (bytes, mime) =>
         resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 }),
     });

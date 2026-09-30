@@ -159,21 +159,20 @@
     },
     {
       "apiVersion": 1,
-      "id": "use_computer/openai",
+      "id": "use_computer/native",
       "capability": "use_computer",
-      "provider": "openai",
+      "provider": "native",
       "kind": "tool",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "platforms": [
         "darwin"
       ],
       "requires": [
-        "approval",
         "task-settled"
       ],
-      "file": "use_computer--openai.mjs",
-      "sha256": "8f8fe51775a0606cc056d138a6dd86d10dcd1fe270409060c7d9bffc216cb0ae",
-      "bytes": 418006
+      "file": "use_computer--native.mjs",
+      "sha256": "cd44871982f08ea3303f2086df22740900613baa0d4b7edf24ee27067d1406af",
+      "bytes": 801407
     },
     {
       "apiVersion": 1,

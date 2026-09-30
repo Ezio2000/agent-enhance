@@ -122,6 +122,37 @@ async function harness(home: string) {
     },
   };
 }
+
+test(
+  "Pi enables native computer without auth/startup and offers only status/reset management",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "enhance-native-pi-"));
+    const h = await harness(home);
+    try {
+      await h.emit("session_start");
+      assert.match(await h.command("native use_computer enable"), /enabled/i);
+      assert.ok(h.active().includes("use_computer"));
+      assert.deepEqual(Object.keys(h.tools.get("use_computer").parameters.properties), [
+        "provider",
+        "code",
+        "title",
+        "timeout_seconds",
+      ]);
+      const status = await h.command("native use_computer status");
+      assert.match(status, /not_checked/);
+      assert.match(status, /"connected": false/);
+      assert.match(await h.command("native use_computer ask"), /status.*reset/);
+      assert.match(await h.command("native use_computer reset"), /not_checked/);
+      assert.match(await h.command("status"), /local native runtime; no login/);
+      assert.ok(!(await readdir(home)).includes("runtimes"));
+      assert.deepEqual(new ConfigStore(home, "pi").load().autoload, ["use_computer/native"]);
+    } finally {
+      await h.emit("session_shutdown");
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
 test("host-only subagents stay off by default, enable explicitly and persist without installing provider modules", async () => {
   const home = await mkdtemp(join(tmpdir(), "enhance-subagents-host-"));
   try {

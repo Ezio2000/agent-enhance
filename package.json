@@ -35,7 +35,8 @@
     "setup": "tsx scripts/setup.ts",
     "verify:distribution": "tsx scripts/verify-distribution.ts",
     "format": "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
-    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
+    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json",
+    "build:computer-native": "tsx scripts/build-computer-native.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

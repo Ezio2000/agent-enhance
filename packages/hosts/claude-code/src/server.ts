@@ -20,7 +20,7 @@ import { orderSchema, toolTitle } from "./display.ts";
 
 /** Host features this adapter provides (approval via MCP elicitation, task-settled via the Stop hook). */
 export const SUPPORTED_REQUIREMENTS = new Set(["approval", "task-settled"]);
-const MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
+const MANAGE_ACTIONS = ["status", "reset"];
 // Claude Code runs an MCP tool concurrently only when it declares readOnlyHint; use_computer drives one shared desktop.
 const SERIAL_TOOLS = new Set(["use_computer"]);
 export interface ServeOptions {
@@ -103,7 +103,7 @@ export async function serve(options: ServeOptions): Promise<void> {
             name: "manage_computer",
             annotations: { title: toolTitle("manage_computer") },
             description:
-              "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
+              "Manage the native computer runtime: status (no startup or permission prompts), reset (stop owned runtime, release held input and drop JS state).",
             inputSchema: {
               type: "object",
               properties: { action: { type: "string", enum: MANAGE_ACTIONS } },
@@ -158,6 +158,7 @@ export async function serve(options: ServeOptions): Promise<void> {
           const module = await manager.load(id);
           registry.load(module, {
             artifactRoot: artifactRoot(home, module.manifest.capability, module.manifest.provider),
+            runtimeRoot: `${home}/runtimes`,
             preview,
           });
           errors.delete(id);

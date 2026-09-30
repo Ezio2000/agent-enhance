@@ -2,6 +2,8 @@
 
 ## Build
 
+When native Computer Use sources or its build recipe change, run `npm run build:computer-native` on macOS first and commit `dist/native/computer-runtime.json.gz`. This builds arm64/x86_64, combines the executable, creates an ad-hoc signed app, and records its source fingerprint. Normal builds (including Linux CI) verify and embed the committed payload without requiring Swift. Run `swift test --package-path packages/capabilities/use_computer/native/runtime --scratch-path /tmp/agent-enhance-swift-test` on macOS for native unit tests.
+
 1. `npm ci --ignore-scripts`
 2. `npm run check` (strict types, dependency boundaries, reproducible bundles, automated tests, offline minimal-tarball verification)
 3. Commit source and `dist/modules/*.mjs` together.
@@ -38,8 +40,8 @@ Staging and installation records are separate from host preferences. If enable's
 
 `npm run smoke -- --live --images --video --computer` uses the **currently installed** Pi extension and real host authentication. It sends only generated fixtures, creates two images and one short video, queries search, views a PDF and a synthetic clip, and performs a read-only native desktop observation. It may consume quota. No paid request is retried automatically. Results remain under ignored `artifacts/smoke/`.
 
-The desktop probe never clicks, types, sends, deletes, purchases, or changes permissions. It verifies cleanup of the bridge-owned process group. If upstream auth, quota or runtime prerequisites block a capability, record that as a failed/blocked trial rather than claiming success.
+The desktop probe never clicks, types, sends, deletes, purchases, or changes permissions. It verifies cleanup of the owned native service and JS worker. If upstream auth, quota or native runtime/system permission prerequisites block a capability, record that as a failed/blocked trial rather than claiming success.
 
 ## Rollback
 
-Restore the backed-up Pi package list and reload Pi. Existing source projects, old artifacts and host credentials remain untouched. Request preferences for the new package live under `~/.agent-enhance/hosts/pi.json`; desktop approvals are not persisted. New module files and artifacts can remain without affecting the old installation.
+Restore the backed-up Pi package list and reload Pi. Existing source projects, old artifacts and host credentials remain untouched. Request preferences for the new package live under `~/.agent-enhance/hosts/pi.json`; desktop system permissions remain managed by macOS. New module files and artifacts can remain without affecting the old installation.

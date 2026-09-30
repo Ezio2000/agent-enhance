@@ -1,11 +1,11 @@
 import type { ModuleManifest } from "../../../../core/src/contracts.ts";
 export const manifest = {
   apiVersion: 1,
-  id: "use_computer/openai",
+  id: "use_computer/native",
   capability: "use_computer",
-  provider: "openai",
+  provider: "native",
   kind: "tool",
-  version: "0.2.0",
+  version: "0.3.0",
   platforms: ["darwin"],
-  requires: ["approval", "task-settled"],
+  requires: ["task-settled"],
 } satisfies ModuleManifest;

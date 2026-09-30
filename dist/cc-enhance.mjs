@@ -26284,7 +26284,7 @@ function orderSchema(schema) {
 
 // packages/hosts/claude-code/src/server.ts
 var SUPPORTED_REQUIREMENTS = /* @__PURE__ */ new Set(["approval", "task-settled"]);
-var MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
+var MANAGE_ACTIONS = ["status", "reset"];
 var SERIAL_TOOLS = /* @__PURE__ */ new Set(["use_computer"]);
 var errorText = (error2) => error2 instanceof Error ? error2.message : String(error2);
 var alive = (pid) => {
@@ -26349,7 +26349,7 @@ async function serve(options) {
       {
         name: "manage_computer",
         annotations: { title: toolTitle("manage_computer") },
-        description: "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
+        description: "Manage the native computer runtime: status (no startup or permission prompts), reset (stop owned runtime, release held input and drop JS state).",
         inputSchema: {
           type: "object",
           properties: { action: { type: "string", enum: MANAGE_ACTIONS } },
@@ -26402,6 +26402,7 @@ async function serve(options) {
         const module = await manager.load(id);
         registry2.load(module, {
           artifactRoot: artifactRoot(home, module.manifest.capability, module.manifest.provider),
+          runtimeRoot: `${home}/runtimes`,
           preview
         });
         errors.delete(id);
@@ -26722,7 +26723,7 @@ var USAGE = `Usage:
   /cc-enhance <provider> <capability> install|uninstall|update|status
   /cc-enhance defaults <capability> <provider>       default provider when several are enabled
   /cc-enhance updates | update --installed           compare / update installed modules to this release
-  /cc-enhance computer status|reset|ask|auto|revoke  manage the live use_computer bridge
+  /cc-enhance computer status|reset  manage the native computer runtime
   /cc-enhance login [...] | logout <provider>        provider credentials (run "login" for details)`;
 function unsupportedReason(entry) {
   if (entry.kind !== "tool")
@@ -26771,7 +26772,7 @@ async function manage(args, options) {
     const credentials = new ClaudeCodeCredentialResolver(home);
     const lines = [];
     for (const entry2 of only ? [only] : catalog.modules) {
-      const auth = entry2.auth ? (await credentials.resolve(entry2.auth, { interactive: false })).status : entry2.capability === "use_computer" ? "ChatGPT desktop runtime (checked on first use)" : "none";
+      const auth = entry2.auth ? (await credentials.resolve(entry2.auth, { interactive: false })).status : entry2.capability === "use_computer" ? "native macOS runtime; no login" : "none";
       lines.push(
         `${entry2.id.padEnd(22)} ${LABELS[entry2.capability] ?? ""}  ${state(entry2, config2)}; auth: ${auth}`
       );

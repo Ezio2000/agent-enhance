@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { CredentialResolver } from "./auth.ts";
 
-export type ProviderId = "openai" | "xai" | "opencode" | "minimax" | "zai";
+export type ProviderId = "openai" | "xai" | "opencode" | "minimax" | "zai" | "native";
 export interface ModelInfo {
   id: string;
   provider: string;
@@ -66,6 +66,8 @@ export interface ModuleManifest {
 }
 export interface ModuleServices {
   artifactRoot: string;
+  /** Stable directory for materialized native capability runtimes. */
+  runtimeRoot?: string;
   preview?: (bytes: Uint8Array, mime: string) => Promise<{ data: string; mimeType: string } | null>;
 }
 export type LifecycleEvent = "task_settled" | "session_shutdown" | "session_tree" | "provider_change";

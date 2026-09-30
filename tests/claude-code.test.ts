@@ -52,6 +52,43 @@ test("claude-code CLI enables tool modules and refuses request controls", async 
   }
 });
 
+test(
+  "Claude Code loads the native computer contract without starting desktop processes",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    const box = await sandbox();
+    const client = new Client({ name: "native-test", version: "1" });
+    try {
+      assert.match(await box.cli("native", "use_computer", "enable"), /Enabled use_computer\/native/);
+      await client.connect(
+        new StdioClientTransport({ command: process.execPath, args: [bundle, "serve"], env: box.env }),
+      );
+      const tools = (await client.listTools()).tools;
+      const computer = tools.find((t) => t.name === "use_computer")!;
+      assert.deepEqual(Object.keys(computer.inputSchema.properties!), [
+        "title",
+        "code",
+        "timeout_seconds",
+        "provider",
+      ]);
+      assert.notEqual(computer.annotations?.readOnlyHint, true);
+      const manage = tools.find((t) => t.name === "manage_computer")!;
+      assert.deepEqual((manage.inputSchema.properties!.action as any).enum, ["status", "reset"]);
+      const status = await client.callTool({ name: "manage_computer", arguments: { action: "status" } });
+      assert.match(JSON.stringify(status.content), /not_checked/);
+      assert.equal(
+        (await client.callTool({ name: "manage_computer", arguments: { action: "ask" } })).isError,
+        true,
+      );
+      assert.match(await box.cli("computer", "reset"), /not_checked/);
+      assert.match(await box.cli("status"), /native macOS runtime; no login/);
+    } finally {
+      await client.close();
+      await box.cleanup();
+    }
+  },
+);
+
 test("claude-code MCP server hot-loads enabled providers and bridges hooks", async () => {
   const box = await sandbox();
   const client = new Client({ name: "test", version: "1" });
@@ -107,7 +144,10 @@ test("claude-code tool descriptions fit Claude Code's 2048-character MCP limit w
   const client = new Client({ name: "test", version: "1" });
   try {
     const catalog = JSON.parse(await readFile(resolve("dist/catalog.json"), "utf8"));
-    for (const m of catalog.modules.filter((m: { kind: string }) => m.kind === "tool"))
+    for (const m of catalog.modules.filter(
+      (m: { kind: string; platforms?: string[] }) =>
+        m.kind === "tool" && (!m.platforms || m.platforms.includes(process.platform)),
+    ))
       await box.cli(m.provider, m.capability, "enable");
     await client.connect(
       new StdioClientTransport({ command: process.execPath, args: [bundle, "serve"], env: box.env }),
