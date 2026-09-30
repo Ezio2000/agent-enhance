@@ -33,6 +33,11 @@ export const WORKER_SOURCE = String.raw`
     return promise;
   };
   let documentation = '';
+  const keyAliases={cmd:'command',meta:'command',super:'command',ctrl:'control',alt:'option',esc:'escape',enter:'return',backspace:'delete'};
+  const normalizeKey=key=>{
+    if(typeof key!=='string') return key;
+    const lower=key.trim().toLowerCase(); return Object.hasOwn(keyAliases,lower)?keyAliases[lower]:lower;
+  };
   let isolation = 'isolated-only';
   const emitPNG = (data, mimeType='image/png') => {
     const call=calls.getStore();
@@ -84,16 +89,17 @@ export const WORKER_SOURCE = String.raw`
     replaceText(element,text,opts={}) { const {range,...options}=opts; return this.invoke('replaceText',{element,text,range},options); }
     menu(path,opts={}) { return this.invoke('menu',{path},opts); }
     click(target,opts={}) { return this.invoke('click',target,opts); }
-    pressKey(keys,opts={}) { return this.invoke('pressKey',{keys},opts); }
+    pressKey(keys,opts={}) { return this.invoke('pressKey',{keys:Array.isArray(keys)?keys.map(normalizeKey):keys},opts); }
     typeText(text,opts={}) { return this.invoke('typeText',{text},opts); }
-    keyDown(key,opts={}) { return this.invoke('keyDown',{key},opts); }
-    keyUp(key,opts={}) { return this.invoke('keyUp',{key},opts); }
+    keyDown(key,opts={}) { return this.invoke('keyDown',{key:normalizeKey(key)},opts); }
+    keyUp(key,opts={}) { return this.invoke('keyUp',{key:normalizeKey(key)},opts); }
     moveMouse(point,opts={}) { return this.invoke('moveMouse',{point},opts); }
     mouseDown(point,opts={}) { return this.invoke('mouseDown',{point},opts); }
     mouseUp(point,opts={}) { return this.invoke('mouseUp',{point},opts); }
     drag(path,opts={}) { return this.invoke('drag',path,opts); }
     scroll(delta,opts={}) { return this.invoke('scroll',delta,opts); }
     async withKeys(keys,callback,opts={}) {
+      if(Array.isArray(keys)) keys=keys.map(normalizeKey);
       const selected = options(this.id,opts);
       if(selected.expect !== undefined) {
         const error=new Error('Put expect on the action inside withKeys, not on the modifier scope. No key was held.');

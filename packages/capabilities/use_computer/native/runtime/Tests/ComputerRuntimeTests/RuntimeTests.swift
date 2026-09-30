@@ -25,6 +25,13 @@ final class RuntimeTests: XCTestCase {
     func testKeyValidationDoesNotSynthesizeEvents() throws {
         XCTAssertEqual(try Input.keyCode("command"), 55)
         XCTAssertEqual(try Input.keyCode("return"), 36)
+        XCTAssertEqual(try Input.keyCode("Return"), 36)
+        XCTAssertEqual(try Input.keyCode("Enter"), 36)
+        XCTAssertEqual(try Input.keyCode("Command"), 55)
+        XCTAssertEqual(try Input.keyCode("CMD"), 55)
+        XCTAssertEqual(try Input.keyCode("Meta"), 55)
+        XCTAssertEqual(try Input.keyCode("Ctrl"), 59)
+        XCTAssertEqual(try Input.keyCode("Alt"), 58)
         XCTAssertThrowsError(try Input.keyCode("unknown-key"))
         XCTAssertThrowsError(try Input.button("invalid"))
     }

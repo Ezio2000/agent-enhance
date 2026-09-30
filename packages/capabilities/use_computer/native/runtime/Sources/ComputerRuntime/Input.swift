@@ -110,7 +110,10 @@ final class Input {
         }
         current = c
     }
-    static func keyCode(_ name: String) throws -> CGKeyCode {
+    static func keyCode(_ rawName: String) throws -> CGKeyCode {
+        let lower = rawName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let aliases = ["cmd": "command", "meta": "command", "super": "command", "ctrl": "control", "alt": "option", "esc": "escape", "enter": "return", "backspace": "delete"]
+        let name = aliases[lower] ?? lower
         if let m = modifiers[name] { return m.0 }
         if let code = namedKeys[name] { return code }
         if name.count == 1, let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
@@ -125,7 +128,7 @@ final class Input {
                    String(utf16CodeUnits: chars, count: count).lowercased() == name { return code }
             }
         }
-        throw RuntimeError(code: "INVALID_ARGUMENT", message: "Unsupported key \(name). Use lowercase named/layout keys or typeText for Unicode.")
+        throw RuntimeError(code: "INVALID_ARGUMENT", message: "Unsupported key \(rawName). Use named/layout keys or typeText for Unicode.")
     }
     private func context() throws -> InputContext {
         guard let current else { throw RuntimeError(code: "INPUT_SCOPE", message: "Input has no bound target.") }

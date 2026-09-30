@@ -33,6 +33,10 @@ replaceText(elementId,text,{range?:{location,length},expect?:Expectation}) -> ve
 Semantic text APIs never substitute an unverified keyboard shortcut.
 click({element?:id,point?:{x,y},button?:"left"|"right"|"middle",count?:1|2|3},options?)
 pressKey(keys:string[],options?); typeText(text,options?)
+  Named/layout key names are case-insensitive; Command/Cmd/Meta/Super, Control/Ctrl, Option/Alt,
+  Return/Enter, Escape/Esc and Delete/Backspace are accepted. Text case/Unicode belongs in typeText.
+  Foreground mode selects the window; CEF's AX focused flag alone may not select its native keyboard
+  responder. Explicitly click the observed editor when needed, then verify typed text before sending.
 keyDown(key,options?); keyUp(key,options?)
 moveMouse(point,options?); mouseDown(point,options?); mouseUp(point,options?)
 drag({from:point,to:point,duration_ms?:number,button?:string},options?)

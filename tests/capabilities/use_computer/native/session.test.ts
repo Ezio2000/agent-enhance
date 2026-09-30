@@ -74,6 +74,36 @@ function harness(failRelease = false, isolation: ComputerIsolation = "shared") {
 const run = (session: ComputerSession, code: string, timeoutMs = 3000, signal?: AbortSignal) =>
   session.run({ code, timeoutMs, sessionId: "test-session", signal });
 const bind = "var app = await computer.getApp('test.app'); var win = await app.getWindow('window-1');";
+test("keyboard aliases normalize before dispatch and duplicate modifier scopes hold nothing", async () => {
+  const h = harness();
+  try {
+    const result = await run(
+      h.session,
+      bind +
+        "await win.pressKey(['Command','Return']); await win.withKeys(['CMD'],async()=>{await win.pressKey(['A'])}); await win.keyDown('Ctrl'); await win.keyUp('Control'); await win.pressKey(['constructor']);",
+    );
+    assert.equal(result.error, undefined);
+    assert.deepEqual(
+      h.requests.filter((r) => r.method === "pressKey").map((r) => r.params.keys),
+      [["command", "return"], ["a"], ["constructor"]],
+    );
+    assert.deepEqual(
+      h.requests.filter((r) => r.method === "keyDown").map((r) => r.params.key),
+      ["command", "control"],
+    );
+    assert.deepEqual(
+      h.requests.filter((r) => r.method === "keyUp").map((r) => r.params.key),
+      ["command", "control"],
+    );
+    assert.equal(h.held.size, 0);
+    const count = h.requests.filter((r) => r.method === "keyDown").length;
+    const duplicate = await run(h.session, "await win.withKeys(['Command','cmd'],async()=>{})");
+    assert.match(duplicate.error!.message, /unique keys/);
+    assert.equal(h.requests.filter((r) => r.method === "keyDown").length, count);
+  } finally {
+    await h.session.reset();
+  }
+});
 test("real Node REPL retains await bindings and resets only at task settlement", async () => {
   const h = harness();
   try {
