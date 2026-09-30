@@ -168,6 +168,7 @@ export class ComputerSession {
       this.startup = controller;
       const signal = call.signal ? AbortSignal.any([controller.signal, call.signal]) : controller.signal;
       const fresh = !this.native;
+      let callGeneration: string | undefined;
       const operations: Json[] = [];
       let cleanup: Json | undefined;
       let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -192,6 +193,7 @@ export class ComputerSession {
       try {
         const execution = async (): Promise<Json> => {
           if (!this.native) await this.initialize(signal);
+          callGeneration = this.generation;
           const native = this.native!,
             worker = this.worker!;
           const check = () => {
@@ -235,6 +237,7 @@ export class ComputerSession {
         return {
           content,
           error: errorJSON(error),
+          generation: callGeneration,
           freshRuntime: fresh,
           operations,
           cleanup: this.lastCleanup,

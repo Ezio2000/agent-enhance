@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ComputerSession } from "../../../../packages/capabilities/use_computer/native/src/session.ts";
+import { ComputerOutput } from "../../../../packages/capabilities/use_computer/native/src/output.ts";
 import type {
   NativeRuntime,
   Json,
@@ -195,6 +196,46 @@ test("timeout kills a stuck JS worker and starts a fresh generation without repl
     assert.equal(next.error, undefined);
     assert.equal(h.starts(), 2);
   } finally {
+    await h.session.reset();
+  }
+});
+
+test("cancellation retains the started generation in diagnostics while clearing live state", async () => {
+  const h = harness();
+  const controller = new AbortController();
+  try {
+    const pending = run(
+      h.session,
+      bind + "var cancelMarker=1; await win.keyDown('shift',{mode:'foreground'}); await computer.wait(1000);",
+      3000,
+      controller.signal,
+    );
+    const deadline = Date.now() + 2000;
+    while (!h.requests.some((request) => request.method === "keyDown") && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(h.requests.some((request) => request.method === "keyDown"));
+    controller.abort();
+    const cancelled = await pending;
+    assert.match(cancelled.error!.message, /cancelled/);
+    assert.equal(cancelled.freshRuntime, true);
+    assert.equal(cancelled.generation, "generation-1");
+    assert.equal(h.session.status().generation, undefined);
+    assert.equal(h.held.size, 0);
+    const formatted = await new ComputerOutput("/tmp/unused-computer-output").format(
+      "cancel-generation",
+      cancelled,
+    );
+    const text = formatted.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+    assert.match(text, /Fresh native computer runtime \(generation-1\)/);
+    assert.doesNotMatch(text, /startup failed/);
+    const recovered = await run(h.session, "print(typeof cancelMarker)");
+    assert.equal(recovered.generation, "generation-2");
+    assert.ok(recovered.content.some((block) => block.text === "undefined"));
+  } finally {
+    controller.abort();
     await h.session.reset();
   }
 });

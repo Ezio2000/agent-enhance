@@ -650,6 +650,7 @@ var ComputerSession = class {
       this.startup = controller;
       const signal = call.signal ? AbortSignal.any([controller.signal, call.signal]) : controller.signal;
       const fresh = !this.native;
+      let callGeneration;
       const operations = [];
       let cleanup;
       let deadline;
@@ -673,6 +674,7 @@ var ComputerSession = class {
       try {
         const execution = async () => {
           if (!this.native) await this.initialize(signal);
+          callGeneration = this.generation;
           const native = this.native, worker = this.worker;
           const check = () => {
             signal.throwIfAborted();
@@ -714,6 +716,7 @@ var ComputerSession = class {
         return {
           content,
           error: errorJSON(error),
+          generation: callGeneration,
           freshRuntime: fresh,
           operations,
           cleanup: this.lastCleanup
