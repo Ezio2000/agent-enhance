@@ -30,8 +30,8 @@ Every script/native failure starts with a concise summary before API docs or use
 
 ## Distribution and lifecycle
 
-`npm run build:computer-native` builds macOS 14+ arm64/x86_64, creates a universal ad-hoc signed app and packs it with a source fingerprint. Normal builds verify and embed the committed payload; users need no compiler or additional runtime download.
+`npm run build:computer-native` builds macOS 14+ arm64/x86_64, creates a universal app signed with the fixed self-signed certificate and certificate-bound designated requirement and packs it with a source fingerprint. Normal builds verify and embed the committed payload; users need no compiler or additional runtime download.
 
 `ModuleServices.runtimeRoot` selects the content-addressed cache, normally `<home>/runtimes`. Instances launch through LaunchServices without activation or daemon registration. Cleanup stops only the owned native PID/JS worker and removes the socket workspace; cache and user artifacts remain. `task_settled` disposes resources when idle; session shutdown, branch/provider changes, reset and unload also clear bindings.
 
-Status does not launch a service and reports uninspected permissions as `not_checked`. Management supports status/reset; macOS owns Accessibility, Screen Recording and Event Synthesizing permissions. Ad-hoc signed updates may require renewed OS grants. Notarized Developer ID distribution and a guest desktop/VM are outside this module.
+Status does not launch a service and reports uninspected permissions as `not_checked`. Management supports status/reset; macOS owns Accessibility, Screen Recording and Event Synthesizing permissions. Migration from the old ad-hoc identity requires renewed OS grants once. Subsequent builds preserve the certificate and designated requirement; every new Mac requires initial grants. Notarized Developer ID distribution and a guest desktop/VM are outside this module.

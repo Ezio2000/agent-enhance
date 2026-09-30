@@ -5,7 +5,7 @@ export const manifest = {
   capability: "use_computer",
   provider: "native",
   kind: "tool",
-  version: "0.4.0",
+  version: "0.4.1",
   platforms: ["darwin"],
   requires: ["task-settled"],
 } satisfies ModuleManifest;

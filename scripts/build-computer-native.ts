@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { computerIdentifier, loadComputerSigning } from "./computer-signing.ts";
 const exec = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const packagePath = join(root, "packages/capabilities/use_computer/native/runtime");
@@ -29,11 +30,18 @@ export async function nativeSourceHash(): Promise<string> {
       .update(await readFile(join(packagePath, name)))
       .update("\0");
   hash.update(await readFile(fileURLToPath(import.meta.url)));
+  hash.update(await readFile(join(root, "scripts/computer-signing.ts")));
+  hash.update(await readFile(join(packagePath, "../package.json")));
   return hash.digest("hex");
 }
 export async function buildComputerNative(): Promise<void> {
   if (process.platform !== "darwin")
     throw new Error("Build the native payload on macOS; normal module builds reuse the committed payload.");
+  const signer = await loadComputerSigning();
+  const { version } = JSON.parse(await readFile(join(packagePath, "../package.json"), "utf8")) as {
+    version: string;
+  };
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid native package version.");
   const temp = await mkdtemp(join(tmpdir(), "enhance-native-build-"));
   try {
     const binaries: string[] = [];
@@ -64,18 +72,35 @@ export async function buildComputerNative(): Promise<void> {
       `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>com.agent-enhance.computer</string>
+<key>CFBundleIdentifier</key><string>${computerIdentifier}</string>
 <key>CFBundleName</key><string>Agent Enhance Computer</string>
 <key>CFBundleExecutable</key><string>ComputerRuntime</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>${version}</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>\n`,
     );
-    await exec("codesign", ["--force", "--sign", "-", "--timestamp=none", app]);
+    await exec("codesign", [
+      "--force",
+      "--sign",
+      signer.identity,
+      "--keychain",
+      signer.keychain,
+      "--timestamp=none",
+      "--requirements",
+      `=designated => ${signer.requirement}`,
+      app,
+    ]);
     await exec("codesign", ["--verify", "--strict", app]);
+    await exec("codesign", [
+      "--verify",
+      "--all-architectures",
+      "--test-requirement",
+      `=${signer.requirement}`,
+      app,
+    ]);
     const files: { path: string; mode: number; data: string }[] = [];
     async function pack(directory: string) {
       for (const item of (await readdir(join(temp, directory), { withFileTypes: true })).sort((a, b) =>
@@ -92,9 +117,18 @@ export async function buildComputerNative(): Promise<void> {
       }
     }
     await pack("Agent Enhance Computer.app");
-    const payload = gzipSync(Buffer.from(JSON.stringify({ sourceHash: await nativeSourceHash(), files })), {
-      level: 9,
-    });
+    const payload = gzipSync(
+      Buffer.from(
+        JSON.stringify({
+          sourceHash: await nativeSourceHash(),
+          signing: { type: "self-signed", certificateSha1: signer.identity, requirement: signer.requirement },
+          files,
+        }),
+      ),
+      {
+        level: 9,
+      },
+    );
     await mkdir(join(root, "dist/native"), { recursive: true });
     await writeFile(join(root, "dist/native/computer-runtime.json.gz"), payload);
     console.log(`Universal signed native payload: ${payload.length} bytes.`);

@@ -5,12 +5,20 @@ import { join } from "node:path";
 import type { Catalog } from "../packages/core/src/modules.ts";
 import { gunzipSync } from "node:zlib";
 import { nativeSourceHash } from "./build-computer-native.ts";
+import { computerCertificateSha1, computerRequirement } from "./computer-signing.ts";
 const root = process.cwd();
 const nativePayload = await readFile("dist/native/computer-runtime.json.gz");
-if (JSON.parse(gunzipSync(nativePayload).toString()).sourceHash !== (await nativeSourceHash()))
+const nativeArchive = JSON.parse(gunzipSync(nativePayload).toString());
+if (nativeArchive.sourceHash !== (await nativeSourceHash()))
   throw new Error(
     "Native runtime sources changed. Run npm run build:computer-native on macOS before building modules.",
   );
+if (
+  nativeArchive.signing?.type !== "self-signed" ||
+  nativeArchive.signing.certificateSha1 !== computerCertificateSha1 ||
+  nativeArchive.signing.requirement !== computerRequirement(computerCertificateSha1)
+)
+  throw new Error("Native payload does not carry the published fixed signing identity.");
 await mkdir("dist/modules", { recursive: true });
 let revision = process.env.MODULE_REVISION ?? "development";
 try {
