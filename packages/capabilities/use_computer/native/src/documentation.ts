@@ -14,10 +14,14 @@ App: {id,name,pid}; app.listWindows() -> [{id,title,bounds,minimized}]
 app.getWindow(id) -> Window. Copy exact opaque IDs.
 
 Window:
-observe({depth?:number}) -> {snapshot,window,bounds,elements,truncated,truncation}
-  depth defaults to 12, maximum 30. truncation.depth means descendants exceeded the requested depth;
+observe({depth?:number}) -> {snapshot,window,bounds,elements,truncated,truncation,relatedWindows,accessibilityModes}
+  depth defaults to 12, maximum 60. truncation.depth means descendants exceeded the requested depth;
   request deeper observation before concluding chat/web controls are absent. Supported application
   accessibility modes are enabled without activation to expose Chromium/Electron web content.
+  A modal's elements belong to that modal, not its parent. relatedWindows supplies its exact window ID;
+  getWindow(relatedId) and observe that window before input. AXValue can be ignored/misapplied by web editors;
+  EFFECT_MISMATCH is a real failure. Observe the partial state; explicit Window keyboard input is a different
+  route requiring an observed target and verified effects, never an automatic replay or foreground fallback.
   elements: {id,parent?,role,title?,description?,identifier?,value?,enabled?,focused?,bounds?,actions,valueWritable,selectedRange?,selectedRangeWritable}
   selectedRange: {location,length}, in UTF-16 code units. Surrogate pairs cannot be split.
 screenshot() -> {window,bounds,width,height,scaleX,scaleY} plus PNG

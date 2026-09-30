@@ -296,7 +296,8 @@ private struct ElementTarget {
                 throw RuntimeError(code: "ISOLATION_VIOLATION", message: "The launched application activated itself. Stop and observe; no action is replayed.", indeterminate: true,
                     details: ["target": ["app": app["id"] ?? "", "pid": app["pid"] ?? 0], "delivery": "launch-services"])
             }
-            if checkWindow, let target, target.app.isActive {
+            if checkWindow { try await Task.sleep(nanoseconds: 50_000_000) }
+            if checkWindow, let target, NSWorkspace.shared.frontmostApplication?.processIdentifier == target.app.processIdentifier {
                 let after = value(appAX(target.app), kAXFocusedWindowAttribute)
                 if active?.processIdentifier != target.app.processIdentifier ||
                     (before != nil && after.map { CFEqual(before! as CFTypeRef, $0 as CFTypeRef) } != true) ||
@@ -387,9 +388,21 @@ private struct ElementTarget {
             elements = elements.filter { $0.value.window != id }
             var rows: [[String: Any]] = [], seen: [AXUIElement] = []
             var depthLimited = false
-            let depth = min(max(p["depth"] as? Int ?? 12, 1), 30)
+            var related: [[String: Any]] = []
+            let depth = min(max(p["depth"] as? Int ?? 12, 1), 60)
             func walk(_ ax: AXUIElement, _ level: Int, _ parent: String?) {
                 guard !seen.contains(where: { CFEqual($0, ax) }) else { return }
+                if let owner = value(ax, kAXWindowAttribute), CFGetTypeID(owner as CFTypeRef) == AXUIElementGetTypeID(), !CFEqual(owner as CFTypeRef, w.ax) {
+                    let ownerAX = owner as! AXUIElement
+                    let appWindows = value(appAX(w.app), kAXWindowsAttribute) as? [AXUIElement] ?? []
+                    if appWindows.contains(where: { CFEqual($0, ownerAX) }) {
+                        let ownerID = windows.first { $0.value.app.processIdentifier == w.app.processIdentifier && CFEqual($0.value.ax, ownerAX) }?.key ?? "w:\(generation):\(UUID().uuidString)"
+                        let title = string(ownerAX, kAXTitleAttribute) ?? ""
+                        windows[ownerID] = WindowTarget(app: w.app, ax: ownerAX, title: title)
+                        if !related.contains(where: { ($0["id"] as? String) == ownerID }) { related.append(["id": ownerID, "title": title]) }
+                    }
+                    return
+                }
                 if level > depth { depthLimited = true; return }
                 guard rows.count < 1500 else { return }
                 seen.append(ax)
@@ -416,7 +429,7 @@ private struct ElementTarget {
             let r = try bounds(w.ax); observedBounds[id] = r
             return ["snapshot": snapshot, "window": id, "bounds": rectJSON(r), "elements": rows,
                 "truncated": depthLimited || rows.count >= 1500, "truncation": ["depth": depthLimited, "nodeLimit": rows.count >= 1500],
-                "accessibilityModes": accessibilityModes[w.app.processIdentifier] ?? [:]]
+                "accessibilityModes": accessibilityModes[w.app.processIdentifier] ?? [:], "relatedWindows": related]
         case "screenshot":
             guard CGPreflightScreenCaptureAccess() else {
                 _ = CGRequestScreenCaptureAccess()
