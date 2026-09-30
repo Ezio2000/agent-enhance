@@ -15,6 +15,21 @@ export interface ToolResult<D = Record<string, unknown>> {
   content: Content[];
   details: D;
 }
+/** Hosts retain content and diagnostics on failure, including screenshots. */
+export class ToolExecutionError extends Error {
+  constructor(readonly toolResult: ToolResult<any>) {
+    super(
+      toolResult.content
+        .filter((c) => c.type === "text")
+        .map((c) => c.text)
+        .join("\n"),
+    );
+  }
+}
+export function toolFailureResult(error: unknown): ToolResult<any> | undefined {
+  const result = (error as { toolResult?: ToolResult<any> } | null)?.toolResult;
+  return result && Array.isArray(result.content) && result.details ? result : undefined;
+}
 export interface HistoryMessage {
   role: string;
   content?: unknown;

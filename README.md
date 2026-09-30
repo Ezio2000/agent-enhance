@@ -240,7 +240,7 @@ var win = await app.getWindow("复制返回的窗口 ID");
 print(await win.observe());
 ```
 
-默认后台：AX 动作、设置控件值和菜单不激活应用。后台键盘需要观测中的目标元素，并只表示事件已投递，需观测确认效果。坐标点击、按键保持、鼠标移动、滚动、拖拽和修饰键鼠标组合需要显式 `{mode: "foreground"}`；不支持时不会自动改用前台。
+默认 `isolated-only`：拒绝前台激活及 HID 输入，后台定向键鼠也拒绝用户正在使用的应用。AX 语义编辑可操作该应用的非活动兄弟窗口；用户当前窗口拒绝写入。后台键盘需要观测中的元素和已确认的应用内焦点；坐标点击、按键保持、鼠标移动、滚动、拖拽和修饰键组合支持定向后台投递，使用独立逻辑光标与自身修饰键，不移动真实光标、不暗加 Command。部分非活动控件仍会忽略事件，投递成功不能证明效果。宿主仅在启动前显式设置 `AGENT_ENHANCE_COMPUTER_ISOLATION=shared` 时开放 `{mode: "foreground"}`；不自动回退。
 
 ```javascript
 await win.withKeys(
@@ -248,13 +248,15 @@ await win.withKeys(
   async () => {
     await win.drag({ from: { x: 40, y: 80 }, to: { x: 220, y: 80 } });
   },
-  { mode: "foreground" },
+  { element: "观测中可聚焦的文本元素 ID" },
 );
 ```
 
+文本编辑优先使用 `replaceText`、`selectAll`、`selectText`，选区按 UTF-16 计数并拒绝拆分 emoji。可用 `expect: {element, value, selectedRange, timeout_ms}` 检查实际效果；不匹配报 `EFFECT_MISMATCH`，停止后续 awaited 动作。原始 Command+A 保持字面语义，不假装选中成功。
+
 截图采用窗口独立捕获，返回 PNG、窗口逻辑坐标和像素缩放；坐标输入前须观测或截图。元素 ID 在新观测后失效，窗口几何变化会使旧坐标观测失效。浏览器通过原生 UI 操作，没有 DOM/Tab API。
 
-JS 变量保留到任务完全结束，自动续跑期间保留；新任务、reset、会话／分支／模型提供方切换和卸载时清理。组合输入按提交顺序执行，前台输入有跨进程互斥；每次调用结束都释放按键与鼠标按钮，保持状态不跨调用。取消或超时停止后续动作，不撤销已发生效果，也不自动重放。管理只支持 status/reset，无按应用审批模式。
+JS 变量保留到任务完全结束，自动续跑期间保留；新任务、reset、会话／分支／模型提供方切换和卸载时清理。组合输入按提交顺序执行，同一应用的 CU 操作有跨进程互斥；共享前台另外互斥。每个上下文记录逻辑光标、按键／按钮及原始 PID／窗口／通道，每次调用结束沿原路径释放，保持状态不跨调用。取消或超时可中断正在等待的原生动作并丢弃队列，不撤销已发生效果，也不自动重放。失败摘要置于输出开头，完整诊断、截图、投递路径及释放结果保存在本地产物中；捕获原生异常也不会抹去失败记录。Claude Code 会将失败返回中的图片折叠为文字；后续用 `computer.showImage(已保存的PNG路径)` 展示原截图，无需重放操作或重新截图。管理只支持 status/reset，无按应用审批模式。
 
 原生服务通过 LaunchServices 后台启动，断链退出，不注册常驻服务。原生包使用 ad-hoc 签名；不同原生版本可能需要重新授予系统权限。`ModuleServices.runtimeRoot` 可指定物化目录，默认位于 Agent Enhance 根目录的 `runtimes/`。
 

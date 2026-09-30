@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { ToolDefinition } from "../../../../core/src/contracts.ts";
+import { ToolExecutionError } from "../../../../core/src/contracts.ts";
 import type { ComputerSession } from "./session.ts";
 import type { ComputerOutput } from "./output.ts";
 export const ComputerSchema = Type.Object(
@@ -36,11 +37,9 @@ export function computerTool(
     name: "use_computer",
     label: "Computer Use",
     description:
-      "Operate native macOS apps using JavaScript. First call: print(await computer.getState()); read the returned API docs before actions. getState returns {apps,permissions:{accessibility,screenRecording,eventSynthesizing},generation}. Then use computer.getApp(bundleId), app.listWindows(), app.getWindow(windowId), window.observe(). computer.help() returns full docs. Prefer var for reusable bindings. print emits output; screenshot emits PNG plus coordinate metadata. Browsers use native UI.\n" +
-      "Default background delivery uses AX semantics. Put mode in the separate options argument: window.click({element:id}, {mode:'foreground'}), never inside the target object. Background keyboard needs an observed element; use setValue for writable controls. Raw keys, pointer input, drag and modifier-mouse combinations require foreground. withKeys(keys, asyncCallback, {mode:'foreground'}) scopes modifiers. Observe fresh UI, use exact returned IDs, and never replay failed actions automatically.\n" +
-      "Bindings persist until the task settles/reset, while held keys/buttons are released at every call boundary. Timeout/cancellation stops the script and clears queued actions without undoing completed effects. Native input can be accepted/dispatched without confirmed application effect: observe to verify. Returns bounded text and up to four PNG screenshots (24 MiB total), saved locally.",
+      "Operate macOS apps with JavaScript. First call: print(await computer.getState()); read local API docs. App/window APIs use exact observed IDs. Prefer verified replaceText/selectAll/selectText and AX element actions. Default isolated-only refuses foreground/HID and the user's active input target. The host alone may enable shared input. Directed background keys need an observed element; coordinate mouse uses a logical cursor and preserves only explicit scope modifiers. withKeys supports background and releases through the original target. Optional expect verifies value/selectedRange and throws EFFECT_MISMATCH; dispatched alone never proves an app effect. No foreground fallback, hidden Command modifier or automatic replay. Failure summaries and complete diagnostics/screenshot artifacts are retained. computer.showImage(path) displays saved failure PNGs without replay.",
     promptSnippet:
-      "Operate native Mac applications with JavaScript, background AX actions and explicit foreground keyboard/mouse combinations",
+      "Operate native Mac applications with JavaScript, isolated background semantics and directed input",
     promptGuidelines: [
       "Prefer APIs/CLI when available; use use_computer for desktop UI tasks. Observe before acting and verify dispatched effects.",
     ],
@@ -59,13 +58,7 @@ export function computerTool(
         signal,
       });
       const formatted = await output.format(ctx.sessionId, result);
-      if (result.error)
-        throw new Error(
-          formatted.content
-            .filter((c) => c.type === "text")
-            .map((c) => c.text)
-            .join("\n"),
-        );
+      if (result.error) throw new ToolExecutionError(formatted);
       return formatted;
     },
   };

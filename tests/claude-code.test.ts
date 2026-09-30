@@ -252,3 +252,87 @@ test("claude-code transcript history keeps only user/assistant text", () => {
     { role: "assistant", content: "sure" },
   ]);
 });
+
+test("Claude Code MCP retains error screenshots, native details and cleanup across module boundaries", async () => {
+  const box = await sandbox();
+  const client = new Client({ name: "error-content-test", version: "1" });
+  try {
+    const { createHash } = await import("node:crypto");
+    const { ModuleManager } = await import("../packages/core/src/modules.ts");
+    const { ConfigStore } = await import("../packages/core/src/config.ts");
+    const manifest = {
+      apiVersion: 1 as const,
+      id: "use_computer/native",
+      capability: "use_computer",
+      provider: "native" as const,
+      kind: "tool" as const,
+      version: "test",
+    };
+    const details = {
+      status: "error",
+      operations: [
+        {
+          method: "pressKey",
+          error: {
+            code: "EFFECT_MISMATCH",
+            details: {
+              observed: { location: 4, length: 0 },
+              target: { pid: 123, window: "w:test" },
+              delivery: "pid-keyboard",
+            },
+          },
+        },
+      ],
+      cleanup: { releasedKeys: 1, releaseErrors: [] },
+      fullOutputPath: "/temporary/diagnostics.json",
+    };
+    const content = [
+      { type: "text", text: "FAILED\nEFFECT_MISMATCH\nFull diagnostics: /temporary/diagnostics.json" },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ];
+    const source = `export default {manifest:${JSON.stringify(manifest)},create(){return {tool:{name:'use_computer',label:'Computer Use',description:'Error transport fixture',parameters:{type:'object',properties:{}},async execute(){const e=new Error('failed');e.toolResult=${JSON.stringify({ content, details })};throw e;}}}}}`;
+    const modules = join(box.root, "modules");
+    await mkdir(modules);
+    const file = "use_computer--native.mjs";
+    await writeFile(join(modules, file), source);
+    const catalog = {
+      version: 1 as const,
+      repository: "Ezio2000/agent-enhance",
+      revision: "test",
+      modules: [
+        {
+          ...manifest,
+          file,
+          bytes: Buffer.byteLength(source),
+          sha256: createHash("sha256").update(source).digest("hex"),
+        },
+      ],
+    };
+    await new ModuleManager(box.env.AGENT_ENHANCE_HOME, catalog, modules).install(manifest.id);
+    new ConfigStore(box.env.AGENT_ENHANCE_HOME, "claude-code").update((c) => ({
+      ...c,
+      autoload: [manifest.id],
+    }));
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `import {serve} from ${JSON.stringify(resolve("packages/hosts/claude-code/src/server.ts"))}; await serve(${JSON.stringify({ home: box.env.AGENT_ENHANCE_HOME, catalog, moduleDirectory: modules, version: "test" })});`,
+        ],
+        env: box.env,
+      }),
+    );
+    const result = await client.callTool({ name: "use_computer", arguments: {} });
+    assert.equal(result.isError, true);
+    assert.deepEqual(result.content, content);
+    assert.equal(result.structuredContent, undefined);
+    assert.deepEqual(result._meta?.agentEnhance, details);
+  } finally {
+    await client.close();
+    await box.cleanup();
+  }
+});

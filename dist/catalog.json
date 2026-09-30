@@ -163,7 +163,7 @@
       "capability": "use_computer",
       "provider": "native",
       "kind": "tool",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "platforms": [
         "darwin"
       ],
@@ -171,8 +171,8 @@
         "task-settled"
       ],
       "file": "use_computer--native.mjs",
-      "sha256": "f497be392a0128dfb7db67d298ea24f82148a9268f8da94d67fec022fd107e4a",
-      "bytes": 804019
+      "sha256": "dca29920ae8e04ac85491335490defd073873680236765191706c2d159a0d794",
+      "bytes": 1025631
     },
     {
       "apiVersion": 1,

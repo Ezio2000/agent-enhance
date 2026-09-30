@@ -33,30 +33,44 @@ export const WORKER_SOURCE = String.raw`
     return promise;
   };
   let documentation = '';
+  let isolation = 'isolated-only';
+  const emitPNG = (data, mimeType='image/png') => {
+    const call=calls.getStore();
+    if(!call?.active) throw new Error('The JS call has ended. No image was emitted.');
+    const bytes=Buffer.byteLength(data,'base64');
+    if(call.images >= 4 || call.imageBytes + bytes > 24*1024*1024) {
+      output('[Screenshot omitted: maximum 4 images / 24 MiB per call.]'); return;
+    }
+    call.images++;call.imageBytes+=bytes;
+    const block={type:'image',data,mimeType};call.content.push(block);
+    process.send({type:'output',id:call.id,block});
+  };
   const options = (window, opts) => {
     const scope = scopes.getStore();
     if (scope && (scope.window !== window || (opts?.mode && opts.mode !== scope.mode))) {
       throw new Error('An input scope cannot change its target window or mode.');
     }
-    return {...opts,mode:opts?.mode ?? scope?.mode ?? 'background'};
+    const mode = opts?.mode ?? scope?.mode ?? 'background';
+    if(isolation === 'isolated-only' && mode === 'foreground') {
+      const error = new Error('This session is isolated-only. The host has disabled shared foreground input.');
+      error.code='ISOLATION_REQUIRED';
+      error.details={isolation,dispatched:false,delivery:'blocked',target:{window}}; throw error;
+    }
+    return {...scope?.options,...opts,mode};
   };
   class Window {
     constructor(id) { this.id=id; }
     [inspect.custom]() { return {window:this.id}; }
     invoke(method, params={}, opts={}) {
       if(Object.prototype.hasOwnProperty.call(params,'mode')) throw new Error('Put mode in the separate options argument, e.g. window.click({element:id}, {mode:"foreground"}). No action was dispatched.');
-      return rpc(method,{...params,...options(this.id,opts),window:this.id});
+      const selected=options(this.id,opts);
+      if(!['pressKey','typeText','keyDown','keyUp'].includes(method)) delete selected.element;
+      return rpc(method,{...selected,...params,window:this.id});
     }
     observe(opts={}) { return this.invoke('observe',opts); }
     async screenshot() {
       const result = await this.invoke('screenshot');
-      const call = calls.getStore();
-      const bytes = Buffer.byteLength(result.image ?? '', 'base64');
-      if (call.images < 4 && call.imageBytes + bytes <= 24*1024*1024) {
-        call.images++; call.imageBytes+=bytes;
-        call.content.push({type:'image',data:result.image,mimeType:result.mimeType});
-        process.send({type:'output',id:call.id,block:{type:'image',data:result.image,mimeType:result.mimeType}});
-      } else output('[Screenshot omitted: maximum 4 images / 24 MiB per call.]');
+      emitPNG(result.image ?? '',result.mimeType);
       const {image,...meta}=result; return meta;
     }
     activate() { return this.invoke('activate',{}, {mode:'foreground'}); }
@@ -64,7 +78,10 @@ export const WORKER_SOURCE = String.raw`
     minimize() { return this.invoke('minimize'); }
     restore() { return this.invoke('restore'); }
     performAction(element,action) { return this.invoke('performAction',{element,action}); }
-    setValue(element,value) { return this.invoke('setValue',{element,value}); }
+    setValue(element,value,opts={}) { return this.invoke('setValue',{element,value},opts); }
+    selectAll(element,opts={}) { return this.invoke('selectAll',{element},opts); }
+    selectText(element,range,opts={}) { return this.invoke('selectText',{element,range},opts); }
+    replaceText(element,text,opts={}) { const {range,...options}=opts; return this.invoke('replaceText',{element,text,range},options); }
     menu(path,opts={}) { return this.invoke('menu',{path},opts); }
     click(target,opts={}) { return this.invoke('click',target,opts); }
     pressKey(keys,opts={}) { return this.invoke('pressKey',{keys},opts); }
@@ -78,11 +95,14 @@ export const WORKER_SOURCE = String.raw`
     scroll(delta,opts={}) { return this.invoke('scroll',delta,opts); }
     async withKeys(keys,callback,opts={}) {
       const selected = options(this.id,opts);
-      if (selected.mode !== 'foreground') throw new Error('withKeys requires mode: foreground.');
+      if(selected.expect !== undefined) {
+        const error=new Error('Put expect on the action inside withKeys, not on the modifier scope. No key was held.');
+        error.code='INVALID_ARGUMENT'; throw error;
+      }
       if (!Array.isArray(keys) || !keys.length || new Set(keys).size !== keys.length || typeof callback !== 'function') {
         throw new Error('withKeys requires unique keys and an async callback.');
       }
-      return scopes.run({window:this.id,mode:selected.mode},async()=>{
+      return scopes.run({window:this.id,mode:selected.mode,options:selected},async()=>{
         const acquired=[];
         let failure;
         try {
@@ -100,6 +120,7 @@ export const WORKER_SOURCE = String.raw`
             const error=new AggregateError(all,'Input scope release failed; host cleanup follows. '+all.map(error=>error.message ?? String(error)).join('; '),{cause:failure});
             error.code=failure?.code ?? errors[0]?.code;
             error.indeterminate=all.some(error=>error.indeterminate===true);
+            error.details=failure?.details ?? errors[0]?.details;
             throw error;
           }
         }
@@ -117,6 +138,14 @@ export const WORKER_SOURCE = String.raw`
   }
   const computer={
     help:()=>documentation,
+    showImage:async(path)=>{
+      if(typeof path !== 'string' || !path) throw new Error('showImage requires a saved PNG path.');
+      const {readFile,stat}=await import('node:fs/promises');
+      if((await stat(path)).size>24*1024*1024) throw new Error('PNG artifact exceeds 24 MiB.');
+      const bytes=await readFile(path);
+      if(!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw new Error('showImage accepts PNG artifacts.');
+      emitPNG(bytes.toString('base64'));return {path,mimeType:'image/png'};
+    },
     getState:()=>rpc('getState'),
     listApps:async()=>(await rpc('getState')).apps,
     getApp:async(app)=>new App(await rpc('getApp',{app})),
@@ -158,6 +187,7 @@ export const WORKER_SOURCE = String.raw`
     if(executing) { process.send({type:'result',id:message.id,error:{message:'JS worker is busy.'},content:[]}); return; }
     executing=true;
     documentation=message.documentation;
+    isolation=message.isolation;
     const call={id:message.id,active:true,pending:new Set(),content:[],textBytes:0,images:0,imageBytes:0};
     await calls.run(call,async()=>{
       let failure;
@@ -170,7 +200,7 @@ export const WORKER_SOURCE = String.raw`
         if(rejected) throw rejected.reason;
         if(result!==undefined) output(result);
       } catch(error) {
-        failure={message:error?.stack ?? String(error),code:error?.code,indeterminate:error?.indeterminate};
+        failure={message:error?.stack ?? String(error),code:error?.code,indeterminate:error?.indeterminate,details:error?.details};
         await Promise.allSettled([...call.pending]);
       } finally { call.active=false; executing=false; }
       process.send({type:'result',id:message.id,content:call.content,error:failure});

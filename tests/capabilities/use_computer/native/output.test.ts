@@ -20,10 +20,45 @@ test("native output saves full text and PNGs, bounds images and preserves partia
     });
     assert.equal(result.content.filter((c) => c.type === "image").length, 4);
     assert.equal((result.details.images as string[]).length, 4);
-    assert.ok((await readFile(result.details.fullOutputPath as string, "utf8")).startsWith(raw));
+    const artifact = JSON.parse(await readFile(result.details.fullOutputPath as string, "utf8"));
+    assert.equal(artifact.text, raw + "\n\n[Screenshot omitted: maximum 4 images / 24 MiB per call.]");
+    assert.deepEqual(artifact.operations, [{ method: "click", outcome: "accepted" }]);
+    assert.equal(artifact.error.message, "failure");
+    assert.match(
+      (result.content[0] as { text: string }).text.slice(0, 2000),
+      /FAILED[\s\S]*Full diagnostics/,
+    );
     assert.match(
       result.content[0]!.type === "text" ? result.content[0]!.text : "",
       /Actions may have partially completed/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("caught native failures produce complete diagnostics and retain cleanup without becoming a script error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ae-output-failures-"));
+  try {
+    const result = await new ComputerOutput(root).format("session", {
+      content: [],
+      freshRuntime: false,
+      generation: "g",
+      operations: [
+        {
+          method: "pressKey",
+          target: { pid: 123, window: "w" },
+          delivery: "pid-window",
+          error: { code: "EFFECT_MISMATCH", message: "wrong range" },
+        },
+      ],
+      cleanup: { releasedKeys: 1, releasedButtons: 1 },
+    });
+    assert.equal(result.details.status, "completed_with_operation_errors");
+    const artifact = JSON.parse(await readFile(result.details.fullOutputPath as string, "utf8"));
+    assert.deepEqual(artifact.cleanup, { releasedKeys: 1, releasedButtons: 1 });
+    assert.match(
+      (result.content[0] as { text: string }).text,
+      /SCRIPT COMPLETED WITH NATIVE FAILURES[\s\S]*EFFECT_MISMATCH[\s\S]*123/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

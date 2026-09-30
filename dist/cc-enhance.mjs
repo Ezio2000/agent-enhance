@@ -25741,6 +25741,12 @@ var ModuleManager = class {
   }
 };
 
+// packages/core/src/contracts.ts
+function toolFailureResult(error2) {
+  const result = error2?.toolResult;
+  return result && Array.isArray(result.content) && result.details ? result : void 0;
+}
+
 // packages/hosts/claude-code/src/credentials.ts
 import { readFile as readFile2 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
@@ -26304,8 +26310,12 @@ function removeStaleSockets() {
   } catch {
   }
 }
-function toMcp(result) {
+function toMcp(result, isError = false) {
   return {
+    ...isError ? { isError: true } : {},
+    // Claude Code prefers structuredContent over the actual text/image blocks.
+    // Keep host diagnostics in metadata so REPL output/docs/screenshots survive.
+    _meta: { agentEnhance: result.details },
     content: result.content.map(
       (part) => part.type === "image" ? { type: "image", data: part.data, mimeType: part.mimeType } : { type: "text", text: part.text }
     )
@@ -26470,6 +26480,8 @@ async function serve(options) {
       const ctx = await context(extra.signal);
       return toMcp(await tool.execute(String(extra.requestId), args, extra.signal, onUpdate, ctx));
     } catch (error2) {
+      const failure3 = toolFailureResult(error2);
+      if (failure3) return toMcp(failure3, true);
       return { isError: true, content: [{ type: "text", text: errorText(error2) }] };
     }
   });

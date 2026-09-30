@@ -32,11 +32,108 @@ final class RuntimeTests: XCTestCase {
         let input = Input(lockPath: dir.appendingPathComponent("input.lock").path)
         defer { input.releaseAll() }
         var activated: [String] = []
-        try input.prepare("one", focused: { true }) { activated.append("one") }
-        try input.prepare("two", focused: { true }) { activated.append("two") }
-        try input.prepare("one", focused: { true }) { activated.append("one") }
-        try input.prepare("one", focused: { true }) { XCTFail("Repeated input should retain focus") }
+        try input.prepare("one", pid: 123, focused: { true }) { activated.append("one") }
+        try input.prepare("two", pid: 123, focused: { true }) { activated.append("two") }
+        try input.prepare("one", pid: 123, focused: { true }) { activated.append("one") }
+        try input.prepare("one", pid: 123, focused: { true }) { XCTFail("Repeated input should retain focus") }
         XCTAssertEqual(activated, ["one", "two", "one"])
-        XCTAssertThrowsError(try input.prepare("one", focused: { false }) { XCTFail("Do not reactivate after focus changed") })
+        XCTAssertThrowsError(try input.prepare("one", pid: 123, focused: { false }) { XCTFail("Do not reactivate after focus changed") })
+    }
+}
+
+extension RuntimeTests {
+    func testUTF16SelectionsRejectSplitSurrogates() throws {
+        let text = "A中🙂Z"
+        let range = try textRange(["location": 1, "length": 3], in: text)
+        XCTAssertEqual(range.location, 1); XCTAssertEqual(range.length, 3)
+        XCTAssertThrowsError(try textRange(["location": 3, "length": 1], in: text))
+        XCTAssertThrowsError(try textRange(["location": 0, "length": 6], in: text))
+    }
+    func testDirectedInputPreservesModifiersAndReleaseRouteWithoutMovingPointer() throws {
+        guard PointerEvents.available else { throw XCTSkip("Private directed pointer symbol unavailable") }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var posted: [(CGEventType, CGEventFlags, InputRoute)] = []
+        let before = CGEvent(source: nil)!.location
+        let input = Input(lockPath: root.appendingPathComponent("input").path) { e, route in
+            XCTAssertNotEqual(e.getIntegerValueField(.eventSourceStateID), Int64(CGEventSourceStateID.combinedSessionState.rawValue))
+            XCTAssertNotEqual(e.getIntegerValueField(.eventSourceStateID), Int64(CGEventSourceStateID.hidSystemState.rawValue))
+            posted.append((e.type, e.flags, route))
+        }
+        let bounds = CGRect(x: -1000, y: -300, width: 500, height: 400)
+        try input.prepareBackground("one", pid: 123, number: 777, bounds: bounds)
+        try input.keyDown("shift")
+        try input.mouse("left", down: true, at: CGPoint(x: -980, y: -280))
+        XCTAssertThrowsError(try input.prepareBackground("two", pid: 456, number: 888, bounds: bounds))
+        let cleanup = input.releaseAll()
+        XCTAssertEqual(cleanup["releasedKeys"] as? Int, 1); XCTAssertEqual(cleanup["releasedButtons"] as? Int, 1)
+        XCTAssertEqual(posted.map{$0.0}, [.flagsChanged,.leftMouseDown,.leftMouseUp,.flagsChanged])
+        XCTAssertTrue(posted.allSatisfy{$0.2.pid == 123 && $0.2.window == "one"})
+        XCTAssertTrue(posted.dropLast().allSatisfy{$0.1.contains(.maskShift) && !$0.1.contains(.maskCommand)})
+        XCTAssertEqual(posted.last!.1, [])
+        XCTAssertEqual(CGEvent(source: nil)!.location, before)
+    }
+    func testReleaseFailureRetainsOwnershipForRetry() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var fail = true
+        let input = Input(lockPath: root.appendingPathComponent("input").path) { e, _ in
+            if !e.flags.contains(.maskShift) && fail { fail = false; throw RuntimeError(code: "INPUT", message: "release failure") }
+        }
+        let another = Input(lockPath: root.appendingPathComponent("input").path) { _, _ in }
+        try input.prepareBackground("one", pid: 123, number: 777, bounds: .zero)
+        try input.keyDown("shift")
+        XCTAssertEqual(input.releaseAll()["releasedKeys"] as? Int, 0)
+        XCTAssertTrue(input.hasHeldInput)
+        XCTAssertThrowsError(try another.acquireApplication(123))
+        XCTAssertEqual(input.releaseAll()["releasedKeys"] as? Int, 1)
+        XCTAssertFalse(input.hasHeldInput)
+        XCTAssertNoThrow(try another.acquireApplication(123)); another.releaseAll()
+    }
+    func testOriginalRouteReleaseAndApplicationLeases() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var routes: [InputRoute] = []
+        let one = Input(lockPath: root.appendingPathComponent("input").path) { _, route in routes.append(route) }
+        let two = Input(lockPath: root.appendingPathComponent("input").path) { _, _ in }
+        try one.prepareBackground("one", pid: 123, number: 777, bounds: CGRect(x: 1, y: 2, width: 30, height: 40))
+        try one.keyDown("shift")
+        XCTAssertThrowsError(try two.acquireApplication(123))
+        XCTAssertNoThrow(try two.acquireApplication(456))
+        XCTAssertThrowsError(try one.prepareBackground("one", pid: 123, number: 777, bounds: .zero))
+        try one.resumeOwned("one", directed: true)
+        try one.keyUp("shift")
+        XCTAssertEqual(routes.count, 2); XCTAssertEqual(routes.first, routes.last)
+        one.releaseAll(); two.releaseAll()
+        XCTAssertNoThrow(try two.acquireApplication(123)); two.releaseAll()
+    }
+    func testIsolationPolicyRejectsDirectNativeBypasses() throws {
+        for (method, params) in [("activate", [:]), ("typeText", ["mode": "foreground"]), ("launchApp", ["foreground": true])] as [(String,[String:Any])] {
+            XCTAssertThrowsError(try IsolationPolicy.isolatedOnly.check(method, params))
+            XCTAssertNoThrow(try IsolationPolicy.shared.check(method, params))
+        }
+    }
+    @MainActor func testControlCancelsAwaitingActionAndDropsQueuedMutations() async {
+        let started = expectation(description: "started"), stopped = expectation(description: "stopped")
+        var held = false, queuedExecuted = false, replies = 0
+        let queue = RequestQueue { method, _ in
+            if method == "drag" {
+                held = true; started.fulfill()
+                defer { held = false }
+                try await Task.sleep(nanoseconds: 10_000_000_000)
+            } else if method == "mutation" { queuedExecuted = true }
+            return ["held":held]
+        }
+        queue.submit(.init(method: "drag", params: [:]) {_ in replies += 1})
+        await fulfillment(of: [started], timeout: 1)
+        queue.submit(.init(method: "mutation", params: [:]) {_ in replies += 1})
+        queue.submit(.init(method: "shutdown", params: [:]) {reply in
+            XCTAssertFalse(held); XCTAssertNotNil(reply["result"]); replies += 1; stopped.fulfill()
+        })
+        await fulfillment(of: [stopped], timeout: 1)
+        XCTAssertFalse(queuedExecuted); XCTAssertEqual(replies, 3)
     }
 }

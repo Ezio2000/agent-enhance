@@ -6,6 +6,7 @@ import { join, dirname } from "node:path";
 import { release } from "node:os";
 import { gunzipSync } from "node:zlib";
 import { nativePayload } from "./payload.ts";
+import type { ComputerIsolation } from "./isolation.ts";
 export type Json = Record<string, any>;
 export interface NativeRuntime {
   info: Json;
@@ -16,10 +17,12 @@ export interface NativeRuntime {
 export class NativeError extends Error {
   readonly code?: string;
   readonly indeterminate: boolean;
+  readonly details: Json;
   constructor(error: Json) {
     super(String(error.message));
     this.code = error.code;
     this.indeterminate = error.indeterminate === true;
+    this.details = error.details ?? {};
   }
 }
 export class NativeConnection implements NativeRuntime {
@@ -139,7 +142,11 @@ async function materialize(root: string): Promise<string> {
     await rm(stage, { recursive: true, force: true });
   }
 }
-export async function startNative(root: string, signal?: AbortSignal): Promise<NativeRuntime> {
+export async function startNative(
+  root: string,
+  signal?: AbortSignal,
+  isolation: ComputerIsolation = "isolated-only",
+): Promise<NativeRuntime> {
   if (process.platform !== "darwin" || Number(release().split(".")[0]) < 23)
     throw new Error("use_computer/native requires macOS 14 or newer.");
   signal?.throwIfAborted();
@@ -166,6 +173,8 @@ export async function startNative(root: string, signal?: AbortSignal): Promise<N
       ready,
       "--parent-pid",
       String(process.pid),
+      "--isolation",
+      isolation,
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );

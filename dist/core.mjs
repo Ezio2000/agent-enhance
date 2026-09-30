@@ -4,6 +4,20 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// packages/core/src/contracts.ts
+var ToolExecutionError = class extends Error {
+  constructor(toolResult) {
+    super(
+      toolResult.content.filter((c) => c.type === "text").map((c) => c.text).join("\n")
+    );
+    this.toolResult = toolResult;
+  }
+};
+function toolFailureResult(error) {
+  const result = error?.toolResult;
+  return result && Array.isArray(result.content) && result.details ? result : void 0;
+}
+
 // packages/core/src/auth.ts
 var EnhanceError = class extends Error {
   constructor(code, message) {
@@ -8881,12 +8895,14 @@ export {
   EnhanceError,
   ModuleManager,
   StaticCredentialResolver,
+  ToolExecutionError,
   annotateError,
   createProgressTicker,
   emptyConfig,
   enhanceHome,
   readJson,
   requireCredential,
+  toolFailureResult,
   transformControlledRequest,
   updateJson
 };

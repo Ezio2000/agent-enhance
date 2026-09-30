@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { DOCUMENTATION } from "./documentation.ts";
 import { WORKER_SOURCE } from "./worker-source.ts";
 import { startNative, type NativeRuntime, type Json } from "./runtime.ts";
+import { checkIsolation, computerIsolation, type ComputerIsolation } from "./isolation.ts";
 export interface ComputerCall {
   code: string;
   timeoutMs: number;
@@ -22,6 +23,7 @@ const errorJSON = (error: any): Json => ({
   message: error?.message ?? String(error),
   code: error?.code,
   indeterminate: error?.indeterminate,
+  details: error?.details,
 });
 export class ComputerSession {
   private native?: NativeRuntime;
@@ -45,7 +47,12 @@ export class ComputerSession {
   private used = false;
   constructor(
     private root: string,
-    private factory: (root: string, signal?: AbortSignal) => Promise<NativeRuntime> = startNative,
+    private factory: (
+      root: string,
+      signal?: AbortSignal,
+      isolation?: ComputerIsolation,
+    ) => Promise<NativeRuntime> = startNative,
+    readonly isolation: ComputerIsolation = computerIsolation(),
   ) {}
   status() {
     return {
@@ -56,6 +63,7 @@ export class ComputerSession {
       nativePid: this.native?.info.pid,
       workerPid: this.worker?.pid,
       defaultMode: "background",
+      isolation: this.isolation,
       lastCleanup: this.lastCleanup,
     };
   }
@@ -70,7 +78,7 @@ export class ComputerSession {
     return job;
   }
   private async initialize(signal?: AbortSignal): Promise<void> {
-    const native = await this.factory(this.root, signal);
+    const native = await this.factory(this.root, signal, this.isolation);
     if (signal?.aborted) {
       await native.close();
       signal.throwIfAborted();
@@ -123,27 +131,41 @@ export class ComputerSession {
             )
               throw new Error("The owning call ended. Queued action was not executed.");
             try {
+              checkIsolation(this.isolation, message.method, message.params);
               const result = await native.request(message.method, {
                 ...message.params,
                 callId: submitted.id,
               });
               if (message.method === "getState" && result?.permissions)
                 native.info.permissions = result.permissions;
-              if (submitted.operations.length < 128)
-                submitted.operations.push({
-                  method: message.method,
-                  effectful: !READ_ONLY.has(message.method),
-                  outcome: result?.outcome ?? "observed",
-                });
+              submitted.operations.push({
+                method: message.method,
+                effectful: !READ_ONLY.has(message.method),
+                outcome: result?.outcome ?? "observed",
+                target: result?.target ?? {
+                  app: message.params.app,
+                  window: message.params.window,
+                  element: message.params.element,
+                },
+                delivery: result?.delivery ?? "ax",
+                mode: message.params.mode,
+                effectConfirmed: result?.effectConfirmed,
+              });
               if (child.connected) child.send({ type: "nativeResult", id: message.id, result });
             } catch (error) {
               const detail = errorJSON(error);
-              if (submitted.operations.length < 128)
-                submitted.operations.push({
-                  method: message.method,
-                  effectful: !READ_ONLY.has(message.method),
-                  error: detail,
-                });
+              submitted.operations.push({
+                method: message.method,
+                effectful: !READ_ONLY.has(message.method),
+                error: detail,
+                target: detail.details?.target ?? {
+                  app: message.params.app,
+                  window: message.params.window,
+                  element: message.params.element,
+                },
+                delivery:
+                  detail.details?.delivery ?? (message.params.mode === "foreground" ? "hid" : "background"),
+              });
               if (child.connected) child.send({ type: "nativeResult", id: message.id, error: detail });
             }
           };
@@ -207,13 +229,26 @@ export class ComputerSession {
           check();
           const response = await new Promise<Json>((resolve, reject) => {
             this.active = { id, operations, content, resolve, reject };
-            worker.send({ type: "execute", id, code: call.code, documentation: DOCUMENTATION, fresh });
+            worker.send({
+              type: "execute",
+              id,
+              code: call.code,
+              documentation: DOCUMENTATION,
+              fresh,
+              isolation: this.isolation,
+            });
           });
           check();
           this.active = undefined;
           await this.actionQueue;
           check();
           cleanup = await native.request("endCall");
+          if (cleanup?.releaseErrors?.length)
+            throw Object.assign(new Error("Native owned-input release failed. Observe before continuing."), {
+              code: "INPUT_RELEASE",
+              indeterminate: true,
+              details: { cleanup },
+            });
           check();
           return response;
         };

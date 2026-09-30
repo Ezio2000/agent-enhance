@@ -68,7 +68,7 @@ export async function buildComputerNative(): Promise<void> {
 <key>CFBundleName</key><string>Agent Enhance Computer</string>
 <key>CFBundleExecutable</key><string>ComputerRuntime</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>0.3.0</string>
+<key>CFBundleVersion</key><string>0.4.0</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>

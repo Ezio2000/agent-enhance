@@ -11,6 +11,7 @@ import { CapabilityRegistry } from "../../../core/src/registry.ts";
 import { ConfigStore } from "../../../core/src/config.ts";
 import { ModuleManager, type Catalog } from "../../../core/src/modules.ts";
 import type { ExecutionContext, ToolDefinition, ToolResult } from "../../../core/src/contracts.ts";
+import { toolFailureResult } from "../../../core/src/contracts.ts";
 import { ClaudeCodeCredentialResolver } from "./credentials.ts";
 import { hostPid, listen, readSession, socketPath, type ControlRequest } from "./control.ts";
 import { transcriptHistory } from "./history.ts";
@@ -48,8 +49,12 @@ function removeStaleSockets(): void {
     /* Nothing to clean. */
   }
 }
-function toMcp(result: ToolResult<any>): CallToolResult {
+function toMcp(result: ToolResult<any>, isError = false): CallToolResult {
   return {
+    ...(isError ? { isError: true } : {}),
+    // Claude Code prefers structuredContent over the actual text/image blocks.
+    // Keep host diagnostics in metadata so REPL output/docs/screenshots survive.
+    _meta: { agentEnhance: result.details },
     content: result.content.map((part) =>
       part.type === "image"
         ? { type: "image", data: part.data, mimeType: part.mimeType }
@@ -234,6 +239,8 @@ export async function serve(options: ServeOptions): Promise<void> {
       const ctx = await context(extra.signal);
       return toMcp(await tool.execute(String(extra.requestId), args, extra.signal, onUpdate, ctx));
     } catch (error) {
+      const failure = toolFailureResult(error);
+      if (failure) return toMcp(failure, true);
       return { isError: true, content: [{ type: "text", text: errorText(error) }] };
     }
   });

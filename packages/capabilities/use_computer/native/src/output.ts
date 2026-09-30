@@ -34,35 +34,85 @@ export class ComputerOutput {
         continue;
       }
       totalBytes += bytes.length;
-      const path = join(await dir(), `screenshot-${images.length + 1}.png`);
+      const path = join(await dir(), "screenshot-" + (images.length + 1) + ".png");
       await writeFile(path, bytes);
       images.push(path);
       content.push({ type: "image", data: block.data, mimeType: "image/png" });
     }
     const raw = texts.join("\n\n");
-    const lines = raw.split("\n");
-    let bounded = lines.slice(0, 2000).join("\n");
-    if (Buffer.byteLength(bounded) > 48 * 1024) {
+    let bounded = raw.split("\n").slice(0, 2000).join("\n");
+    if (Buffer.byteLength(bounded) > 48 * 1024)
       bounded = Buffer.from(bounded)
         .subarray(0, 48 * 1024)
         .toString("utf8")
         .replace(/\uFFFD$/, "");
-    }
+    const failures = result.operations.filter((operation) => operation.error);
+    const diagnostic = !!result.error || failures.length > 0;
     let fullOutputPath: string | undefined;
-    if (bounded !== raw) {
+    if (diagnostic) {
+      fullOutputPath = join(await dir(), "diagnostics.json");
+      await writeFile(
+        fullOutputPath,
+        JSON.stringify(
+          {
+            generation: result.generation,
+            freshRuntime: result.freshRuntime,
+            error: result.error,
+            operations: result.operations,
+            cleanup: result.cleanup,
+            text: raw,
+            images,
+          },
+          null,
+          2,
+        ),
+      );
+    } else if (bounded !== raw) {
       fullOutputPath = join(await dir(), "output.txt");
       await writeFile(fullOutputPath, raw);
     }
+    const failure = result.error ?? failures.at(-1)?.error;
+    const operation = failures.at(-1) ?? result.operations.at(-1);
+    const summary = diagnostic
+      ? [
+          result.error ? "FAILED" : "SCRIPT COMPLETED WITH NATIVE FAILURES",
+          String(failure?.code ?? "SCRIPT_ERROR") +
+            ": " +
+            String(failure?.message ?? "")
+              .split("\n")[0]!
+              .slice(0, 400),
+          "Generation: " +
+            (result.generation ?? "startup failed") +
+            ". Target/route: " +
+            JSON.stringify(failure?.details?.target ?? operation?.target ?? {}).slice(0, 300) +
+            " / " +
+            (failure?.details?.delivery ?? operation?.delivery ?? "see diagnostics") +
+            ".",
+          "Native failures: " +
+            failures.length +
+            ". Cleanup: " +
+            JSON.stringify({
+              reason: result.cleanup?.reason,
+              releasedKeys: result.cleanup?.releasedKeys,
+              releasedButtons: result.cleanup?.releasedButtons,
+              releaseErrors: result.cleanup?.releaseErrors?.length ?? 0,
+              nativeStopped: result.cleanup?.nativeStopped,
+              workerStopped: result.cleanup?.workerStopped,
+            }),
+          "Full diagnostics: " + fullOutputPath,
+          "Actions may have partially completed. Observe before continuing; no action was replayed.",
+        ].join("\n")
+      : "";
     const text = [
-      result.freshRuntime ? `Fresh native computer runtime (${result.generation ?? "startup failed"}).` : "",
+      summary,
+      result.freshRuntime
+        ? "Fresh native computer runtime (" + (result.generation ?? "startup failed") + ")."
+        : "",
       bounded,
-      result.error
-        ? `${result.error.message}\nActions may have partially completed. Observe before continuing; no action was replayed.\nOperations: ${JSON.stringify(result.operations)}`
-        : result.operations.some((operation) => operation.error)
-          ? `Native operation failures handled by the script: ${JSON.stringify(result.operations.filter((operation) => operation.error))}. Observe to verify the final state.`
-          : "",
-      fullOutputPath ? `[Truncated to 2000 lines / 48 KiB. Full output: ${fullOutputPath}]` : "",
-      images.length ? `Screenshots: ${images.join(", ")}` : "",
+      fullOutputPath && !diagnostic
+        ? "[Truncated to 2000 lines / 48 KiB. Full output: " + fullOutputPath + "]"
+        : "",
+      images.length ? "Screenshots: " + images.join(", ") : "",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -73,7 +123,7 @@ export class ComputerOutput {
     return {
       content,
       details: {
-        status: result.error ? "error" : "completed",
+        status: result.error ? "error" : failures.length ? "completed_with_operation_errors" : "completed",
         generation: result.generation,
         freshRuntime: result.freshRuntime,
         operations: result.operations,

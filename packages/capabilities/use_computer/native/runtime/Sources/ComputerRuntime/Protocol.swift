@@ -5,7 +5,33 @@ struct RuntimeError: Error {
     let code: String
     let message: String
     var indeterminate = false
-    var json: [String: Any] { ["code": code, "message": message, "indeterminate": indeterminate] }
+    var details: [String: Any] = [:]
+    var json: [String: Any] { ["code": code, "message": message, "indeterminate": indeterminate, "details": details] }
+}
+enum IsolationPolicy: String {
+    case isolatedOnly = "isolated-only", shared
+    func check(_ method: String, _ params: [String: Any]) throws {
+        if self == .isolatedOnly && (params["mode"] as? String == "foreground" || method == "activate" ||
+            (method == "launchApp" && params["foreground"] as? Bool == true)) {
+            throw RuntimeError(code: "ISOLATION_REQUIRED", message: "This session is isolated-only. Foreground/HID delivery is disabled by the host; code cannot change the policy.",
+                details: ["isolation": rawValue, "dispatched": false, "delivery": "blocked", "target": ["window": params["window"] ?? "", "app": params["app"] ?? ""]])
+        }
+    }
+}
+func textRange(_ raw: Any?, in text: String) throws -> CFRange {
+    guard let p = raw as? [String: Any], let location = p["location"] as? Int, let length = p["length"] as? Int else {
+        throw RuntimeError(code: "INVALID_ARGUMENT", message: "Text range requires integer UTF-16 location and length.")
+    }
+    let units = Array(text.utf16)
+    guard location >= 0, length >= 0, location <= units.count, length <= units.count - location else {
+        throw RuntimeError(code: "INVALID_ARGUMENT", message: "Text range is outside the current value.")
+    }
+    for index in [location, location + length] where index > 0 && index < units.count {
+        guard !(0xDC00...0xDFFF).contains(units[index]) || !(0xD800...0xDBFF).contains(units[index - 1]) else {
+            throw RuntimeError(code: "INVALID_ARGUMENT", message: "Text range splits a Unicode surrogate pair.")
+        }
+    }
+    return CFRange(location: location, length: length)
 }
 func required<T>(_ params: [String: Any], _ key: String, as: T.Type = T.self) throws -> T {
     guard let value = params[key] as? T else {

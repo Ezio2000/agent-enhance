@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import type { ComputerIsolation } from "../../../../packages/capabilities/use_computer/native/src/isolation.ts";
 import { ComputerSession } from "../../../../packages/capabilities/use_computer/native/src/session.ts";
 import { ComputerOutput } from "../../../../packages/capabilities/use_computer/native/src/output.ts";
 import type {
   NativeRuntime,
   Json,
 } from "../../../../packages/capabilities/use_computer/native/src/runtime.ts";
-function harness(failRelease = false) {
+function harness(failRelease = false, isolation: ComputerIsolation = "shared") {
   const requests: { method: string; params: Json }[] = [];
   let starts = 0,
     closes = 0;
@@ -60,7 +64,7 @@ function harness(failRelease = false) {
     };
   };
   return {
-    session: new ComputerSession("/tmp/unused-computer-root", factory),
+    session: new ComputerSession("/tmp/unused-computer-root", factory, isolation),
     requests,
     held,
     starts: () => starts,
@@ -203,6 +207,7 @@ test("timeout kills a stuck JS worker and starts a fresh generation without repl
 test("cancellation retains the started generation in diagnostics while clearing live state", async () => {
   const h = harness();
   const controller = new AbortController();
+  const outputRoot = await mkdtemp(join(tmpdir(), "ae-cancel-output-"));
   try {
     const pending = run(
       h.session,
@@ -221,10 +226,7 @@ test("cancellation retains the started generation in diagnostics while clearing 
     assert.equal(cancelled.generation, "generation-1");
     assert.equal(h.session.status().generation, undefined);
     assert.equal(h.held.size, 0);
-    const formatted = await new ComputerOutput("/tmp/unused-computer-output").format(
-      "cancel-generation",
-      cancelled,
-    );
+    const formatted = await new ComputerOutput(outputRoot).format("cancel-generation", cancelled);
     const text = formatted.content
       .filter((block) => block.type === "text")
       .map((block) => block.text)
@@ -236,6 +238,58 @@ test("cancellation retains the started generation in diagnostics while clearing 
     assert.ok(recovered.content.some((block) => block.text === "undefined"));
   } finally {
     controller.abort();
+    await h.session.reset();
+    await rm(outputRoot, { recursive: true, force: true });
+  }
+});
+test("isolated-only rejects foreground options and direct entry paths before native dispatch", async () => {
+  const h = harness(false, "isolated-only");
+  try {
+    for (const code of [
+      "await win.activate()",
+      "await win.click({point:{x:1,y:1}},{mode:'foreground'})",
+      "await win.invoke('activate')",
+      "await computer.launchApp('test.app',{foreground:true})",
+    ]) {
+      const result = await run(h.session, bind + code);
+      assert.equal(result.error?.code, "ISOLATION_REQUIRED");
+      assert.equal(result.error?.details.dispatched, false);
+    }
+    assert.equal(h.requests.filter((r) => ["activate", "click", "launchApp"].includes(r.method)).length, 0);
+  } finally {
+    await h.session.reset();
+  }
+});
+test("background scopes inherit the element and release on exception; semantic APIs preserve ranges", async () => {
+  const h = harness(false, "isolated-only");
+  try {
+    const result = await run(
+      h.session,
+      bind +
+        "await win.withKeys(['shift'],async()=>{await win.typeText('B');throw new Error('scope failure');},{element:'element-1'});",
+    );
+    assert.match(result.error!.message, /scope failure/);
+    assert.equal(h.held.size, 0);
+    const scope = h.requests.filter((r) => ["keyDown", "typeText", "keyUp"].includes(r.method));
+    assert.deepEqual(
+      scope.map((r) => r.method),
+      ["keyDown", "typeText", "keyUp"],
+    );
+    assert.ok(scope.every((r) => r.params.mode === "background" && r.params.element === "element-1"));
+    assert.equal(
+      (
+        await run(
+          h.session,
+          "await win.selectAll('element-1');await win.selectText('element-1',{location:1,length:3});await win.replaceText('element-1','X',{range:{location:1,length:3}});",
+        )
+      ).error,
+      undefined,
+    );
+    assert.deepEqual(h.requests.find((r) => r.method === "replaceText")?.params.range, {
+      location: 1,
+      length: 3,
+    });
+  } finally {
     await h.session.reset();
   }
 });
@@ -370,5 +424,52 @@ test("Promise.all side effects execute in submission order", async () => {
     assert.ok(h.requests.filter((x) => x.method === "click").every((x) => x.params.mode === "background"));
   } finally {
     await h.session.reset();
+  }
+});
+
+test("complete operation traces retain late caught failures; expectations cannot apply to releases", async () => {
+  const h = harness();
+  try {
+    const result = await run(
+      h.session,
+      bind +
+        "for(var i=0;i<140;i++)await computer.getState();try{await win.click({element:'denied'});}catch(e){print(e.code)}",
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.operations.at(-1)?.error.code, "AX_ERROR");
+    assert.equal(result.operations.filter((o) => o.method === "getState").length, 140);
+    assert.ok(result.content.some((c) => c.text === "AX_ERROR"));
+    const scope = await run(
+      h.session,
+      "await win.withKeys(['shift'],async()=>{}, {expect:{element:'element-1',value:'x'}})",
+    );
+    assert.equal(scope.error?.code, "INVALID_ARGUMENT");
+    assert.equal(h.requests.filter((r) => r.method === "keyDown").length, 0);
+  } finally {
+    await h.session.reset();
+  }
+});
+
+test("saved failure images can be emitted without replaying desktop operations", async () => {
+  const h = harness();
+  const root = await mkdtemp(join(tmpdir(), "ae-image-artifact-"));
+  try {
+    const { writeFile } = await import("node:fs/promises");
+    const png = join(root, "saved.png");
+    await writeFile(png, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const result = await run(h.session, "await computer.showImage(" + JSON.stringify(png) + ")");
+    assert.equal(result.error, undefined);
+    assert.equal(result.content.filter((c) => c.type === "image").length, 1);
+    assert.equal(result.operations.length, 0);
+    assert.deepEqual(
+      h.requests.map((r) => r.method),
+      ["beginCall", "endCall"],
+    );
+    await writeFile(png, "invalid");
+    const bad = await run(h.session, "await computer.showImage(" + JSON.stringify(png) + ")");
+    assert.match(bad.error!.message, /PNG artifacts/);
+  } finally {
+    await h.session.reset();
+    await rm(root, { recursive: true, force: true });
   }
 });
