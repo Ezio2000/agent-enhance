@@ -70,7 +70,7 @@ test("post-dispatch isolation failures give read-only recovery without suggestin
     const error = {
       code: "ISOLATION_VIOLATION",
       message: "Focus changed after dispatch",
-      details: { dispatched: true, phase: "post_dispatch" },
+      details: { dispatched: true, phase: "post_dispatch", focusRecoveryAvailable: true },
     };
     const result = await new ComputerOutput(root).format("session", {
       content: [],
@@ -85,6 +85,7 @@ test("post-dispatch isolation failures give read-only recovery without suggestin
     );
     const artifact = JSON.parse(await readFile(result.details.fullOutputPath as string, "utf8"));
     assert.equal(artifact.error.details.dispatched, true);
+    assert.match((result.content[0] as { text: string }).text, /computer\.restoreUserFocus\(\)/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

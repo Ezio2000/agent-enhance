@@ -1,6 +1,10 @@
 import Foundation
 import CoreGraphics
 
+func canRestoreUserFocus(currentPID: Int32?, interruptedBy: Int32, elapsed: TimeInterval) -> Bool {
+    currentPID == interruptedBy && elapsed >= 0 && elapsed <= 90
+}
+
 struct RuntimeError: Error {
     let code: String
     let message: String

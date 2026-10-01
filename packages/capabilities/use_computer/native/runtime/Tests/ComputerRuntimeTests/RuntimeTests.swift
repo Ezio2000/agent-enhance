@@ -85,6 +85,14 @@ final class RuntimeTests: XCTestCase {
 }
 
 extension RuntimeTests {
+    func testFocusRecoveryOnlyRestoresTheRecordedInterruptionBeforeExpiry() {
+        XCTAssertTrue(canRestoreUserFocus(currentPID: 123, interruptedBy: 123, elapsed: 10))
+        XCTAssertFalse(canRestoreUserFocus(currentPID: 456, interruptedBy: 123, elapsed: 10))
+        XCTAssertFalse(canRestoreUserFocus(currentPID: nil, interruptedBy: 123, elapsed: 10))
+        XCTAssertFalse(canRestoreUserFocus(currentPID: 123, interruptedBy: 123, elapsed: 91))
+        XCTAssertFalse(canRestoreUserFocus(currentPID: 123, interruptedBy: 123, elapsed: -1))
+        XCTAssertNoThrow(try IsolationPolicy.isolatedOnly.check("restoreUserFocus", [:]))
+    }
     func testUTF16SelectionsRejectSplitSurrogates() throws {
         let text = "A中🙂Z"
         let range = try textRange(["location": 1, "length": 3], in: text)

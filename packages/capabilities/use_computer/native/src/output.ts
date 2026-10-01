@@ -104,6 +104,9 @@ export class ComputerOutput {
           failure?.code === "ISOLATION_VIOLATION"
             ? "Recovery: focus changed after dispatch. Read getState, listWindows and observe, including related modal windows; do not replay input or change global isolation settings to recover a read-only task."
             : "",
+          failure?.details?.focusRecoveryAvailable === true
+            ? "focusRecoveryAvailable:true. After checking completed effects, call computer.restoreUserFocus() to return to the displaced app/window, then observe freshly before continuing."
+            : "",
         ].join("\n")
       : "";
     const text = [

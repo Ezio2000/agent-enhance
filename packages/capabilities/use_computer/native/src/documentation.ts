@@ -17,6 +17,12 @@ computer.restartApp(bundleId,{foreground?:boolean,accessibility?:boolean}) -> Ap
   If a CEF app remains webContent.pending and a restart is authorized, restartApp with accessibility:true.
   Restart closes app windows; it never force-kills a refused/pending quit. Acquire new app/window handles.
   Observe never restarts apps. Default isolation refuses restarting the user's active application.
+computer.restoreUserFocus() -> {restored:boolean,...}
+  After ISOLATION_VIOLATION, first observe state/windows and completed effects. If diagnostics report
+  focusRecoveryAvailable:true, explicitly call restoreUserFocus before further UI input. It returns only
+  to the app/window displaced by this runtime's recorded unexpected activation, within 90 seconds.
+  If foreground has since changed, it dispatches no activation. It accepts no arbitrary app/window target,
+  changes no isolation policy, and never replays the original action. Obtain fresh observations afterwards.
 computer.wait(ms) (0..30000, bounded by the call deadline)
 App: {id,name,pid}; app.listWindows() -> [{id,title,bounds,minimized}]
 app.getWindow(id) -> Window. Copy exact opaque IDs.
@@ -72,6 +78,7 @@ Only the host can opt into shared, with AGENT_ENHANCE_COMPUTER_ISOLATION=shared 
 Code and tool arguments cannot change policy. No route falls back automatically.
 ISOLATION_VIOLATION can be detected AFTER an action ran: never treat it as an undispatched action.
 Read getState/listWindows/observe (including related modal windows) and verify completed effects first.
+If focusRecoveryAvailable:true, use computer.restoreUserFocus() to return the displaced user focus before input.
 For read-only tasks, do not switch shared mode or edit host configuration as an error recovery step.
 Isolated input refuses the user's active window; directed keys/pointer refuse the user's active application.
 AX semantic edits on an inactive sibling window do not select its app key window.

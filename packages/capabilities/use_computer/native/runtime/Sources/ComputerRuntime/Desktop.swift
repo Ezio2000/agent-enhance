@@ -13,6 +13,12 @@ private struct ElementTarget {
     let ax: AXUIElement
     let window: String
 }
+private struct FocusRecovery {
+    let app: NSRunningApplication
+    let window: AXUIElement?
+    let interruptedBy: pid_t
+    let recordedAt: TimeInterval
+}
 
 @MainActor final class Desktop {
     let generation = UUID().uuidString
@@ -25,6 +31,7 @@ private struct ElementTarget {
     private var accessibilityObservers: [pid_t: AXObserver] = [:]
     private var accessibilityObserverStatus: [pid_t: [String: Int32]] = [:]
     private var accessibilityModes: [pid_t: [String: Int32]] = [:]
+    private var focusRecovery: FocusRecovery?
     init(lockPath: String, isolation: IsolationPolicy = .isolatedOnly) {
         input = Input(lockPath: lockPath); self.isolation = isolation
     }
@@ -302,13 +309,19 @@ private struct ElementTarget {
         let checkWindow = isolation == .isolatedOnly && target != nil && !["observe", "screenshot", "keyUp", "mouseUp"].contains(method)
         let checkLaunch = isolation == .isolatedOnly && ["launchApp", "restartApp"].contains(method)
         let active = (checkWindow || checkLaunch) ? NSWorkspace.shared.frontmostApplication : nil
-        let before = checkWindow ? active.flatMap { value(appAX($0), kAXFocusedWindowAttribute) } : nil
+        let before = active.flatMap { value(appAX($0), kAXFocusedWindowAttribute) }
+        func recordFocusRecovery(_ interruptedBy: pid_t) -> Bool {
+            guard let active, active.processIdentifier != interruptedBy else { return false }
+            let ax = before.flatMap { CFGetTypeID($0 as CFTypeRef) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+            focusRecovery = FocusRecovery(app: active, window: ax, interruptedBy: interruptedBy, recordedAt: ProcessInfo.processInfo.systemUptime)
+            return true
+        }
         do {
             let result = try await dispatch(method, p)
             if checkLaunch, let app = result as? [String: Any], app["active"] as? Bool == true,
                app["pid"] as? Int32 != active?.processIdentifier {
                 throw RuntimeError(code: "ISOLATION_VIOLATION", message: "The launched application activated itself. Stop and observe; no action is replayed.", indeterminate: true,
-                    details: ["target": ["app": app["id"] ?? "", "pid": app["pid"] ?? 0], "delivery": "launch-services", "dispatched": true, "phase": "post_dispatch"])
+                    details: ["target": ["app": app["id"] ?? "", "pid": app["pid"] ?? 0], "delivery": "launch-services", "dispatched": true, "phase": "post_dispatch", "focusRecoveryAvailable": recordFocusRecovery(app["pid"] as? Int32 ?? 0)])
             }
             if checkWindow { try await Task.sleep(nanoseconds: 50_000_000) }
             if checkWindow, let target, NSWorkspace.shared.frontmostApplication?.processIdentifier == target.app.processIdentifier {
@@ -317,7 +330,7 @@ private struct ElementTarget {
                     (before != nil && after.map { CFEqual(before! as CFTypeRef, $0 as CFTypeRef) } != true) ||
                     (before == nil && after.map { CFEqual($0 as CFTypeRef, target.ax) } == true) {
                     throw RuntimeError(code: "ISOLATION_VIOLATION", message: "Focus changed to the target after the action ran. Input was dispatched, not blocked before execution. Read getState, listWindows and observe before any further input; do not replay the action.", indeterminate: true,
-                        details: ["dispatched": true, "phase": "post_dispatch", "frontmostBefore": active?.processIdentifier ?? 0, "frontmostAfter": target.app.processIdentifier])
+                        details: ["dispatched": true, "phase": "post_dispatch", "frontmostBefore": active?.processIdentifier ?? 0, "frontmostAfter": target.app.processIdentifier, "focusRecoveryAvailable": recordFocusRecovery(target.app.processIdentifier)])
                 }
             }
             return result
@@ -351,6 +364,25 @@ private struct ElementTarget {
         switch method {
         case "getState": return ["apps": NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier != nil }.map(appJSON), "permissions": permissions(), "generation": generation, "isolation": isolation.rawValue, "directedPointer": PointerEvents.available]
         case "getApp": return appJSON(try running(required(p, "app")))
+        case "restoreUserFocus":
+            guard let recovery = focusRecovery else { throw RuntimeError(code: "FOCUS_RECOVERY_UNAVAILABLE", message: "No unexpected foreground activation was recorded in this runtime. Arbitrary activation remains disabled.") }
+            focusRecovery = nil
+            guard canRestoreUserFocus(currentPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                interruptedBy: recovery.interruptedBy, elapsed: ProcessInfo.processInfo.systemUptime - recovery.recordedAt), !recovery.app.isTerminated else {
+                return ["outcome": "observed", "restored": false, "reason": "Focus already changed, recovery expired or original app exited. No activation dispatched."]
+            }
+            guard recovery.app.activate(options: []) else { throw RuntimeError(code: "FOCUS_RECOVERY_FAILED", message: "Original foreground application refused activation.") }
+            if let ax = recovery.window {
+                if writable(ax, kAXMainAttribute) { try checked(AXUIElementSetAttributeValue(ax, kAXMainAttribute as CFString, kCFBooleanTrue), "Restore original window") }
+                if actions(ax).contains(kAXRaiseAction) { try perform(ax, kAXRaiseAction) }
+            }
+            for _ in 0..<50 {
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == recovery.app.processIdentifier {
+                    return ["outcome": "observed", "restored": true, "delivery": "focus-recovery", "target": ["pid": recovery.app.processIdentifier]]
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw RuntimeError(code: "FOCUS_RECOVERY_FAILED", message: "Could not confirm original foreground app after activation. Observe state before continuing.", indeterminate: true)
         case "launchApp", "restartApp":
             let bundle: String = try required(p, "app")
             guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { throw RuntimeError(code: "APP_TARGET", message: "Application is not installed: \(bundle).") }
@@ -686,5 +718,6 @@ private struct ElementTarget {
         accessibilityObservers.removeAll()
         accessibilityObserverStatus.removeAll()
         accessibilityModes.removeAll()
+        focusRecovery = nil
     }
 }

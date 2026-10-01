@@ -162,6 +162,7 @@ export const WORKER_SOURCE = String.raw`
     getApp:async(app)=>new App(await rpc('getApp',{app})),
     launchApp:async(app,opts={})=>new App(await rpc('launchApp',{app,...opts})),
     restartApp:async(app,opts={})=>new App(await rpc('restartApp',{app,...opts})),
+    restoreUserFocus:()=>rpc('restoreUserFocus'),
     wait:async(ms)=>{
       const call=calls.getStore();
       if (!call?.active || !Number.isFinite(ms) || ms<0 || ms>30000) throw new Error('wait requires 0..30000 ms within an active call.');

@@ -37,6 +37,8 @@ function harness(
             return [{ id: "window-1", title: "Test" }];
           case "observe":
             return observation;
+          case "restoreUserFocus":
+            return { restored: true, delivery: "focus-recovery" };
           case "keyDown":
             held.add(params.key);
             break;
@@ -136,6 +138,20 @@ test("explicit accessibility launch/restart forwards options once and returns fr
         ["restartApp", "test.app", true],
       ],
     );
+  } finally {
+    await h.session.reset();
+  }
+});
+test("explicit focus recovery is available in isolation without an arbitrary activation target or input replay", async () => {
+  const h = harness(false, "isolated-only");
+  try {
+    const result = await run(h.session, "print(await computer.restoreUserFocus('other.app'))");
+    assert.equal(result.error, undefined);
+    assert.match(result.content.at(-1)?.text ?? "", /restored: true/);
+    const requests = h.requests.filter((r) => !["beginCall", "endCall"].includes(r.method));
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.method, "restoreUserFocus");
+    assert.deepEqual(Object.keys(requests[0]!.params), ["callId"]);
   } finally {
     await h.session.reset();
   }
