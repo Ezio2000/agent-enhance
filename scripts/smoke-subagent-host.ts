@@ -10,6 +10,7 @@ import {
   SessionManager,
   SettingsManager,
   type ExtensionAPI,
+  type ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 
 if (!process.argv.includes("--live")) {
@@ -46,7 +47,7 @@ try {
               { tasks: [{ context: "只回答 1=1 是否成立，一句话。" }] },
               undefined,
               undefined,
-              ctx,
+              ctx as unknown as ExtensionToolContext,
             );
             console.log("Dispatch:", result.content);
           },

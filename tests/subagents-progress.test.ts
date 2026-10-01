@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { runSubagent } from "../packages/hosts/pi/src/subagents/runner.ts";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
 import { Subagents } from "../packages/hosts/pi/src/subagents/index.ts";
@@ -32,7 +32,7 @@ function setup(runner: typeof runSubagent) {
       getBranch: () => [{ id: "anchor" }],
     },
     hasUI: false,
-  } as unknown as ExtensionContext;
+  } as unknown as ExtensionToolContext;
   const tools = new Map(agents.tools().map((tool) => [tool.name, tool]));
   const execute = async (name: string, args: Record<string, unknown> = {}) => {
     const result = await tools.get(name)!.execute("test", args, undefined, undefined, ctx);
