@@ -10,7 +10,6 @@ import {
   SessionManager,
   SettingsManager,
   type ExtensionAPI,
-  type ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 
 if (!process.argv.includes("--live")) {
@@ -42,12 +41,15 @@ try {
           handler: async (_args, ctx) => {
             const tool = session?.getToolDefinition("call_subagents");
             if (!tool) throw new Error("call_subagents not active");
+            // The tool context type moved from ExtensionContext to ExtensionToolContext in pi
+            // 0.99. Derive it from the tool so this probe keeps compiling on the 0.86.1 floor.
+            const toolContext = ctx as unknown as Parameters<typeof tool.execute>[4];
             const result = await tool.execute(
               "probe",
               { tasks: [{ context: "只回答 1=1 是否成立，一句话。" }] },
               undefined,
               undefined,
-              ctx as unknown as ExtensionToolContext,
+              toolContext,
             );
             console.log("Dispatch:", result.content);
           },

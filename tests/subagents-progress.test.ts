@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { runSubagent } from "../packages/hosts/pi/src/subagents/runner.ts";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
 import { Subagents } from "../packages/hosts/pi/src/subagents/index.ts";
@@ -32,10 +32,14 @@ function setup(runner: typeof runSubagent) {
       getBranch: () => [{ id: "anchor" }],
     },
     hasUI: false,
-  } as unknown as ExtensionToolContext;
+  } as unknown as ExtensionContext;
   const tools = new Map(agents.tools().map((tool) => [tool.name, tool]));
   const execute = async (name: string, args: Record<string, unknown> = {}) => {
-    const result = await tools.get(name)!.execute("test", args, undefined, undefined, ctx);
+    const tool = tools.get(name)!;
+    // The tool context type moved from ExtensionContext to ExtensionToolContext in pi 0.99.
+    // Derive it from the tool so this test keeps compiling on the 0.86.1 floor.
+    const toolContext = ctx as unknown as Parameters<typeof tool.execute>[4];
+    const result = await tool.execute("test", args, undefined, undefined, toolContext);
     let json: any;
     const text = result.content.find((item) => item.type === "text")?.text;
     if (text)
