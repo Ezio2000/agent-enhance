@@ -1,6 +1,8 @@
 export const DOCUMENTATION = `# Agent Enhance native computer API
 All methods are async. JS bindings persist until task settlement/reset; prefer var for reusable bindings.
-print(value) emits text. The final expression is displayed. screenshot() emits PNG automatically.
+print(...values) emits every argument, like console.log. print('count:', observation.elements.length) is valid.
+The final expression is displayed. screenshot() emits PNG automatically. Avoid bindings named fs/os;
+Node's REPL can expose lazy built-in modules under those names. Use var app, win and observation.
 
 computer.help() returns this documentation.
 computer.showImage(savedPngPath) emits an existing PNG without any desktop action.
@@ -8,16 +10,31 @@ computer.showImage(savedPngPath) emits an existing PNG without any desktop actio
   never replay its UI actions or recapture the window just to retrieve that image.
 computer.getState() -> {apps:[{id,name,pid,active,hidden}],permissions,generation,isolation,directedPointer}
 computer.listApps(); computer.getApp(bundleId) -> App (does not launch/focus)
-computer.launchApp(bundleId,{foreground?:boolean}) -> App (background default)
+computer.launchApp(bundleId,{foreground?:boolean,accessibility?:boolean}) -> App (background default)
+computer.restartApp(bundleId,{foreground?:boolean,accessibility?:boolean}) -> App (normal quit, then relaunch)
+  accessibility:true passes Chromium/CEF's --force-renderer-accessibility at startup. It cannot reconfigure
+  an already running app; launchApp reports accessibilityLaunch:"already_running_arguments_not_applied".
+  If a CEF app remains webContent.pending and a restart is authorized, restartApp with accessibility:true.
+  Restart closes app windows; it never force-kills a refused/pending quit. Acquire new app/window handles.
+  Observe never restarts apps. Default isolation refuses restarting the user's active application.
 computer.wait(ms) (0..30000, bounded by the call deadline)
 App: {id,name,pid}; app.listWindows() -> [{id,title,bounds,minimized}]
 app.getWindow(id) -> Window. Copy exact opaque IDs.
 
 Window:
-observe({depth?:number}) -> {snapshot,window,bounds,elements,truncated,truncation,relatedWindows,accessibilityModes}
+observe({depth?:number}) -> {snapshot,window,bounds,elements,truncated,truncation,relatedWindows,accessibilityModes,accessibilityObserver,webContent}
   depth defaults to 12, maximum 60. truncation.depth means descendants exceeded the requested depth;
-  request deeper observation before concluding chat/web controls are absent. Supported application
-  accessibility modes are enabled without activation to expose Chromium/Electron web content.
+  request deeper observation before concluding chat/web controls are absent. A persistent AX observer and
+  application accessibility requests prepare Chromium/CEF content without activation. Missing embedded
+  trees get bounded read-only recovery; webContent.status reports ready/pending/depth_limited/node_limited/
+  not_detected and missing containers. Setter status alone does not prove content is ready. ready means
+  the web areas are exposed, not that an app's network content has finished loading; observe again as needed.
+  For chat reading, observe({depth:60}) and search the full elements array by title/description/value.
+  If the recipient is already in the conversation list, click its nearest ancestor supporting AXPress,
+  even when offscreen; observe again and verify the chat header. Global search can activate a modal.
+  Conversation lists can be virtualized: an absent row may need scrolling in the observed list area.
+  scroll({point,x?,y?}) uses pixel deltas; y<0 moves toward later/lower content, y>0 toward earlier/upper.
+  Verify the new rows after each scroll. Derive the window-relative point from observed list bounds.
   A modal's elements belong to that modal, not its parent. relatedWindows supplies its exact window ID;
   getWindow(relatedId) and observe that window before input. AXValue can be ignored/misapplied by web editors;
   EFFECT_MISMATCH is a real failure. Observe the partial state; explicit Window keyboard input is a different
@@ -53,6 +70,9 @@ Input without an expectation reports dispatched/effectConfirmed:false. Observe t
 The host captures an immutable isolation policy. Default isolated-only refuses foreground/HID delivery.
 Only the host can opt into shared, with AGENT_ENHANCE_COMPUTER_ISOLATION=shared before starting it.
 Code and tool arguments cannot change policy. No route falls back automatically.
+ISOLATION_VIOLATION can be detected AFTER an action ran: never treat it as an undispatched action.
+Read getState/listWindows/observe (including related modal windows) and verify completed effects first.
+For read-only tasks, do not switch shared mode or edit host configuration as an error recovery step.
 Isolated input refuses the user's active window; directed keys/pointer refuse the user's active application.
 AX semantic edits on an inactive sibling window do not select its app key window.
 Background keyboard requires options.element and a confirmed app key window/element; withKeys inherits that target.

@@ -1,6 +1,27 @@
 import XCTest
 @testable import ComputerRuntime
 final class RuntimeTests: XCTestCase {
+    func testEmbeddedWebReadinessDistinguishesMissingContentFromTraversalLimits() {
+        let shell: [[String: Any]] = [
+            ["id": "window", "role": "AXWindow"],
+            ["id": "browser", "parent": "window", "title": "BrowserUserView", "role": "AXGroup"],
+            ["id": "list", "parent": "browser", "description": "MultiWebView - messenger", "role": "AXGroup"],
+            ["id": "chat", "parent": "browser", "description": "MultiWebView - messenger-chat", "role": "AXGroup"]
+        ]
+        func inspect(_ rows: [[String: Any]], _ depth: Bool = false, _ limit: Bool = false) -> [String: Any] {
+            WebContentReadiness.inspect(rows, depthLimited: depth, nodeLimited: limit)
+        }
+        let missing = inspect(shell)
+        XCTAssertEqual(missing["status"] as? String, "pending")
+        XCTAssertEqual((missing["missing"] as? [[String: String]])?.map { $0["id"] }, ["list", "chat"])
+        XCTAssertEqual(inspect(shell, true)["status"] as? String, "depth_limited")
+        XCTAssertEqual(inspect(shell, false, true)["status"] as? String, "node_limited")
+        let listReady = shell + [["id": "list-web", "parent": "list", "role": "AXWebArea", "title": "WebView"]]
+        XCTAssertEqual((inspect(listReady)["missing"] as? [[String: String]])?.map { $0["id"] }, ["chat"])
+        XCTAssertEqual(inspect(listReady + [["id": "chat-web", "parent": "chat", "role": "AXWebArea"]])["status"] as? String, "ready")
+        XCTAssertEqual(inspect([["id": "native", "role": "AXTextField"]])["status"] as? String, "not_detected")
+        XCTAssertEqual(inspect([["id": "web", "role": "AXWebArea", "title": "WebView"]])["status"] as? String, "ready")
+    }
     func testOverlappingWindowIdentityUsesDirectNumberOrUniqueTitle() throws {
         let rect = CGRect(x: 77, y: 83, width: 1203, height: 680)
         let candidates = [
@@ -133,7 +154,7 @@ extension RuntimeTests {
         XCTAssertNoThrow(try two.acquireApplication(123)); two.releaseAll()
     }
     func testIsolationPolicyRejectsDirectNativeBypasses() throws {
-        for (method, params) in [("activate", [:]), ("typeText", ["mode": "foreground"]), ("launchApp", ["foreground": true])] as [(String,[String:Any])] {
+        for (method, params) in [("activate", [:]), ("typeText", ["mode": "foreground"]), ("launchApp", ["foreground": true]), ("restartApp", ["foreground": true])] as [(String,[String:Any])] {
             XCTAssertThrowsError(try IsolationPolicy.isolatedOnly.check(method, params))
             XCTAssertNoThrow(try IsolationPolicy.shared.check(method, params))
         }

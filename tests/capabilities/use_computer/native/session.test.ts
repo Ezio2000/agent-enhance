@@ -10,7 +10,11 @@ import type {
   NativeRuntime,
   Json,
 } from "../../../../packages/capabilities/use_computer/native/src/runtime.ts";
-function harness(failRelease = false, isolation: ComputerIsolation = "shared") {
+function harness(
+  failRelease = false,
+  isolation: ComputerIsolation = "shared",
+  observation: Json = { elements: [{ id: "element-1", title: "Button" }] },
+) {
   const requests: { method: string; params: Json }[] = [];
   let starts = 0,
     closes = 0;
@@ -26,11 +30,13 @@ function harness(failRelease = false, isolation: ComputerIsolation = "shared") {
           case "getState":
             return { apps: [{ id: "test.app", name: "Test", pid: 123 }] };
           case "getApp":
+          case "launchApp":
+          case "restartApp":
             return { id: "test.app", name: "Test", pid: 123 };
           case "listWindows":
             return [{ id: "window-1", title: "Test" }];
           case "observe":
-            return { elements: [{ id: "element-1", title: "Button" }] };
+            return observation;
           case "keyDown":
             held.add(params.key);
             break;
@@ -74,6 +80,66 @@ function harness(failRelease = false, isolation: ComputerIsolation = "shared") {
 const run = (session: ComputerSession, code: string, timeoutMs = 3000, signal?: AbortSignal) =>
   session.run({ code, timeoutMs, sessionId: "test-session", signal });
 const bind = "var app = await computer.getApp('test.app'); var win = await app.getWindow('window-1');";
+test("print retains every argument, including observation diagnostics and large arrays", async () => {
+  const h = harness();
+  try {
+    const result = await run(
+      h.session,
+      "print('count:',56,'truncated:',false); print('modes:',{AXEnhancedUserInterface:-25208}); print(); print('rows:',Array.from({length:150},(_,i)=>i));",
+    );
+    assert.equal(result.error, undefined);
+    const text = result.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+    assert.match(text, /count: 56 truncated: false/);
+    assert.match(text, /modes: \{ AXEnhancedUserInterface: -25208 \}/);
+    assert.match(text, /149/);
+    assert.doesNotMatch(text, /more items/);
+  } finally {
+    await h.session.reset();
+  }
+});
+test("incomplete embedded observations warn even when scripts print only the element array", async () => {
+  const h = harness(false, "shared", { elements: [], webContent: { status: "pending", attempts: 6 } });
+  try {
+    const result = await run(
+      h.session,
+      bind + "var observation=await win.observe({depth:60}); print(observation.elements)",
+    );
+    assert.equal(result.error, undefined);
+    assert.match(
+      result.content.map((c) => c.text ?? "").join("\n"),
+      /OBSERVATION_INCOMPLETE[\s\S]*partial tree/,
+    );
+    assert.equal(h.requests.filter((r) => r.method === "observe").length, 1);
+    assert.equal(h.requests.filter((r) => r.method === "click").length, 0);
+  } finally {
+    await h.session.reset();
+  }
+});
+test("explicit accessibility launch/restart forwards options once and returns fresh app handles", async () => {
+  const h = harness(false, "isolated-only");
+  try {
+    const result = await run(
+      h.session,
+      "var launched=await computer.launchApp('test.app',{accessibility:true}); var restarted=await computer.restartApp('test.app',{accessibility:true}); print(launched.id,restarted.id)",
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.content.at(-1)?.text, "test.app test.app");
+    assert.deepEqual(
+      h.requests
+        .filter((r) => ["launchApp", "restartApp"].includes(r.method))
+        .map((r) => [r.method, r.params.app, r.params.accessibility]),
+      [
+        ["launchApp", "test.app", true],
+        ["restartApp", "test.app", true],
+      ],
+    );
+  } finally {
+    await h.session.reset();
+  }
+});
 test("keyboard aliases normalize before dispatch and duplicate modifier scopes hold nothing", async () => {
   const h = harness();
   try {
@@ -280,12 +346,16 @@ test("isolated-only rejects foreground options and direct entry paths before nat
       "await win.click({point:{x:1,y:1}},{mode:'foreground'})",
       "await win.invoke('activate')",
       "await computer.launchApp('test.app',{foreground:true})",
+      "await computer.restartApp('test.app',{foreground:true})",
     ]) {
       const result = await run(h.session, bind + code);
       assert.equal(result.error?.code, "ISOLATION_REQUIRED");
       assert.equal(result.error?.details.dispatched, false);
     }
-    assert.equal(h.requests.filter((r) => ["activate", "click", "launchApp"].includes(r.method)).length, 0);
+    assert.equal(
+      h.requests.filter((r) => ["activate", "click", "launchApp", "restartApp"].includes(r.method)).length,
+      0,
+    );
   } finally {
     await h.session.reset();
   }

@@ -64,3 +64,28 @@ test("caught native failures produce complete diagnostics and retain cleanup wit
     await rm(root, { recursive: true, force: true });
   }
 });
+test("post-dispatch isolation failures give read-only recovery without suggesting a settings change", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ae-output-isolation-"));
+  try {
+    const error = {
+      code: "ISOLATION_VIOLATION",
+      message: "Focus changed after dispatch",
+      details: { dispatched: true, phase: "post_dispatch" },
+    };
+    const result = await new ComputerOutput(root).format("session", {
+      content: [],
+      freshRuntime: false,
+      generation: "g",
+      error,
+      operations: [{ method: "click", error }],
+    });
+    assert.match(
+      (result.content[0] as { text: string }).text,
+      /Recovery: focus changed after dispatch[\s\S]*listWindows[\s\S]*do not replay input or change global isolation/,
+    );
+    const artifact = JSON.parse(await readFile(result.details.fullOutputPath as string, "utf8"));
+    assert.equal(artifact.error.details.dispatched, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

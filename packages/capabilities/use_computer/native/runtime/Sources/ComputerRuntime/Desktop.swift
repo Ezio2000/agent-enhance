@@ -22,7 +22,8 @@ private struct ElementTarget {
     private var windows: [String: WindowTarget] = [:]
     private var elements: [String: ElementTarget] = [:]
     private var observedBounds: [String: CGRect] = [:]
-    private var accessibilityPrepared: Set<pid_t> = []
+    private var accessibilityObservers: [pid_t: AXObserver] = [:]
+    private var accessibilityObserverStatus: [pid_t: [String: Int32]] = [:]
     private var accessibilityModes: [pid_t: [String: Int32]] = [:]
     init(lockPath: String, isolation: IsolationPolicy = .isolatedOnly) {
         input = Input(lockPath: lockPath); self.isolation = isolation
@@ -85,21 +86,34 @@ private struct ElementTarget {
         AXUIElementSetMessagingTimeout(ax, 2)
         return ax
     }
-    private func prepareAccessibility(_ app: NSRunningApplication) async {
-        guard !accessibilityPrepared.contains(app.processIdentifier) else { return }
+    private func prepareAccessibility(_ app: NSRunningApplication, refresh: Bool = false) async throws {
+        let pid = app.processIdentifier
+        if accessibilityObservers[pid] != nil && !refresh { return }
         let ax = appAX(app)
-        var changed = false
+        if accessibilityObservers[pid] == nil {
+            var observer: AXObserver?
+            let result = AXObserverCreate(pid, { _, _, _, _ in }, &observer)
+            var status = ["creation": result.rawValue]
+            if let observer, result == .success {
+                for name in [kAXFocusedUIElementChangedNotification, kAXValueChangedNotification, kAXLayoutChangedNotification] {
+                    status[name] = AXObserverAddNotification(observer, ax, name as CFString, nil).rawValue
+                }
+                // Retain the AX client's run-loop source during asynchronous preparation.
+                // Setter results alone do not establish that an embedded tree is ready.
+                CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+                accessibilityObservers[pid] = observer
+            }
+            accessibilityObserverStatus[pid] = status
+        }
         var modes: [String: Int32] = [:]
         for attribute in ["AXManualAccessibility", "AXEnhancedUserInterface"] {
             // Chromium/CEF setters may accept these modes without advertising them as settable.
-            if (value(ax, attribute) as? Bool) == true { modes[attribute] = 0; continue }
+            // Reassert for this AX client, even if another client already enabled the app.
             let result = AXUIElementSetAttributeValue(ax, attribute as CFString, kCFBooleanTrue)
             modes[attribute] = result.rawValue
-            if result == .success { changed = true }
         }
-        accessibilityModes[app.processIdentifier] = modes
-        accessibilityPrepared.insert(app.processIdentifier)
-        if changed { try? await Task.sleep(nanoseconds: 100_000_000) }
+        accessibilityModes[pid] = modes
+        try await Task.sleep(nanoseconds: 100_000_000)
     }
     private func window(_ id: String) throws -> WindowTarget {
         try requireAX()
@@ -286,7 +300,7 @@ private struct ElementTarget {
     func handle(_ method: String, _ p: [String: Any]) async throws -> Any {
         let target = (p["window"] as? String).flatMap { windows[$0] }
         let checkWindow = isolation == .isolatedOnly && target != nil && !["observe", "screenshot", "keyUp", "mouseUp"].contains(method)
-        let checkLaunch = isolation == .isolatedOnly && method == "launchApp"
+        let checkLaunch = isolation == .isolatedOnly && ["launchApp", "restartApp"].contains(method)
         let active = (checkWindow || checkLaunch) ? NSWorkspace.shared.frontmostApplication : nil
         let before = checkWindow ? active.flatMap { value(appAX($0), kAXFocusedWindowAttribute) } : nil
         do {
@@ -294,7 +308,7 @@ private struct ElementTarget {
             if checkLaunch, let app = result as? [String: Any], app["active"] as? Bool == true,
                app["pid"] as? Int32 != active?.processIdentifier {
                 throw RuntimeError(code: "ISOLATION_VIOLATION", message: "The launched application activated itself. Stop and observe; no action is replayed.", indeterminate: true,
-                    details: ["target": ["app": app["id"] ?? "", "pid": app["pid"] ?? 0], "delivery": "launch-services"])
+                    details: ["target": ["app": app["id"] ?? "", "pid": app["pid"] ?? 0], "delivery": "launch-services", "dispatched": true, "phase": "post_dispatch"])
             }
             if checkWindow { try await Task.sleep(nanoseconds: 50_000_000) }
             if checkWindow, let target, NSWorkspace.shared.frontmostApplication?.processIdentifier == target.app.processIdentifier {
@@ -302,7 +316,8 @@ private struct ElementTarget {
                 if active?.processIdentifier != target.app.processIdentifier ||
                     (before != nil && after.map { CFEqual(before! as CFTypeRef, $0 as CFTypeRef) } != true) ||
                     (before == nil && after.map { CFEqual($0 as CFTypeRef, target.ax) } == true) {
-                    throw RuntimeError(code: "ISOLATION_VIOLATION", message: "The target application/window became the user's active input target. Stop and observe; completed effects are not undone.", indeterminate: true)
+                    throw RuntimeError(code: "ISOLATION_VIOLATION", message: "Focus changed to the target after the action ran. Input was dispatched, not blocked before execution. Read getState, listWindows and observe before any further input; do not replay the action.", indeterminate: true,
+                        details: ["dispatched": true, "phase": "post_dispatch", "frontmostBefore": active?.processIdentifier ?? 0, "frontmostAfter": target.app.processIdentifier])
                 }
             }
             return result
@@ -336,16 +351,38 @@ private struct ElementTarget {
         switch method {
         case "getState": return ["apps": NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier != nil }.map(appJSON), "permissions": permissions(), "generation": generation, "isolation": isolation.rawValue, "directedPointer": PointerEvents.available]
         case "getApp": return appJSON(try running(required(p, "app")))
-        case "launchApp":
+        case "launchApp", "restartApp":
             let bundle: String = try required(p, "app")
             guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { throw RuntimeError(code: "APP_TARGET", message: "Application is not installed: \(bundle).") }
+            let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).filter { !$0.isTerminated }
+            guard existing.count <= 1 else { throw RuntimeError(code: "APP_TARGET", message: "Multiple processes match \(bundle). Cannot choose an application.") }
+            if method == "restartApp", let app = existing.first {
+                if isolation == .isolatedOnly && app.isActive {
+                    throw RuntimeError(code: "ISOLATION_REQUIRED", message: "The user is using this application. Background restart is refused before quitting.", details: ["dispatched": false, "delivery": "blocked", "target": ["app": bundle, "pid": app.processIdentifier]])
+                }
+                guard app.terminate() else { throw RuntimeError(code: "APP_RESTART_REFUSED", message: "Application refused normal quit. No force kill or relaunch occurred.") }
+                for _ in 0..<100 {
+                    if app.isTerminated { break }
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
+                guard app.isTerminated else { throw RuntimeError(code: "APP_RESTART_REFUSED", message: "Normal quit is still pending, possibly awaiting an app dialog. Observe the app; no force kill or relaunch occurred.", indeterminate: true) }
+                if let observer = accessibilityObservers.removeValue(forKey: app.processIdentifier) {
+                    CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+                }
+                accessibilityModes.removeValue(forKey: app.processIdentifier)
+                accessibilityObserverStatus.removeValue(forKey: app.processIdentifier)
+            }
             let config = NSWorkspace.OpenConfiguration(); config.activates = p["foreground"] as? Bool ?? false
+            let forceAccessibility = p["accessibility"] as? Bool == true
+            if forceAccessibility { config.arguments = ["--force-renderer-accessibility"] }
             let app = try await NSWorkspace.shared.openApplication(at: url, configuration: config)
-            return appJSON(app)
+            var result = appJSON(app)
+            if forceAccessibility { result["accessibilityLaunch"] = method == "restartApp" || existing.isEmpty ? "forced" : "already_running_arguments_not_applied" }
+            return result
         case "listWindows":
             try requireAX()
             let app = try running(required(p, "app"))
-            await prepareAccessibility(app)
+            try await prepareAccessibility(app)
             var result: [[String: Any]] = []
             for ax in try read(appAX(app), kAXWindowsAttribute) as? [AXUIElement] ?? [] {
                 AXUIElementSetMessagingTimeout(ax, 2)
@@ -383,53 +420,72 @@ private struct ElementTarget {
         }
         switch method {
         case "observe":
-            await prepareAccessibility(w.app)
-            let snapshot = UUID().uuidString
-            elements = elements.filter { $0.value.window != id }
-            var rows: [[String: Any]] = [], seen: [AXUIElement] = []
-            var depthLimited = false
-            var related: [[String: Any]] = []
-            let depth = min(max(p["depth"] as? Int ?? 12, 1), 60)
-            func walk(_ ax: AXUIElement, _ level: Int, _ parent: String?) {
-                guard !seen.contains(where: { CFEqual($0, ax) }) else { return }
-                if let owner = value(ax, kAXWindowAttribute), CFGetTypeID(owner as CFTypeRef) == AXUIElementGetTypeID(), !CFEqual(owner as CFTypeRef, w.ax) {
-                    let ownerAX = owner as! AXUIElement
-                    let appWindows = value(appAX(w.app), kAXWindowsAttribute) as? [AXUIElement] ?? []
-                    if appWindows.contains(where: { CFEqual($0, ownerAX) }) {
-                        let ownerID = windows.first { $0.value.app.processIdentifier == w.app.processIdentifier && CFEqual($0.value.ax, ownerAX) }?.key ?? "w:\(generation):\(UUID().uuidString)"
-                        let title = string(ownerAX, kAXTitleAttribute) ?? ""
-                        windows[ownerID] = WindowTarget(app: w.app, ax: ownerAX, title: title)
-                        if !related.contains(where: { ($0["id"] as? String) == ownerID }) { related.append(["id": ownerID, "title": title]) }
+            try await prepareAccessibility(w.app)
+            for attempt in 1...6 {
+                let snapshot = UUID().uuidString
+                elements = elements.filter { $0.value.window != id }
+                var rows: [[String: Any]] = [], seen: [AXUIElement] = []
+                var depthLimited = false
+                var related: [[String: Any]] = []
+                let depth = min(max(p["depth"] as? Int ?? 12, 1), 60)
+                func walk(_ ax: AXUIElement, _ level: Int, _ parent: String?) {
+                    guard !seen.contains(where: { CFEqual($0, ax) }) else { return }
+                    if let owner = value(ax, kAXWindowAttribute), CFGetTypeID(owner as CFTypeRef) == AXUIElementGetTypeID(), !CFEqual(owner as CFTypeRef, w.ax) {
+                        let ownerAX = owner as! AXUIElement
+                        let appWindows = value(appAX(w.app), kAXWindowsAttribute) as? [AXUIElement] ?? []
+                        if appWindows.contains(where: { CFEqual($0, ownerAX) }) {
+                            let ownerID = windows.first { $0.value.app.processIdentifier == w.app.processIdentifier && CFEqual($0.value.ax, ownerAX) }?.key ?? "w:\(generation):\(UUID().uuidString)"
+                            let title = string(ownerAX, kAXTitleAttribute) ?? ""
+                            windows[ownerID] = WindowTarget(app: w.app, ax: ownerAX, title: title)
+                            if !related.contains(where: { ($0["id"] as? String) == ownerID }) { related.append(["id": ownerID, "title": title]) }
+                        }
+                        return
                     }
-                    return
+                    if level > depth { depthLimited = true; return }
+                    guard rows.count < 1500 else { return }
+                    seen.append(ax)
+                    let key = "e:\(snapshot):\(rows.count)"
+                    elements[key] = ElementTarget(ax: ax, window: id)
+                    var row: [String: Any] = ["id": key, "role": string(ax, kAXRoleAttribute) ?? "unknown", "actions": actions(ax), "valueWritable": writable(ax, kAXValueAttribute), "selectedRangeWritable": writable(ax, kAXSelectedTextRangeAttribute)]
+                    if let range = selectedRange(ax) { row["selectedRange"] = rangeJSON(range) }
+                    if let parent { row["parent"] = parent }
+                    for (key, attr) in [("title", kAXTitleAttribute), ("description", kAXDescriptionAttribute), ("identifier", kAXIdentifierAttribute)] {
+                        if let s = string(ax, attr), !s.isEmpty { row[key] = s }
+                    }
+                    if let v = value(ax, kAXValueAttribute), v is String || v is NSNumber { row["value"] = v }
+                    if let v = value(ax, kAXEnabledAttribute) as? Bool { row["enabled"] = v }
+                    if let v = value(ax, kAXFocusedAttribute) as? Bool { row["focused"] = v }
+                    if let r = try? bounds(ax) { row["bounds"] = rectJSON(r) }
+                    rows.append(row)
+                    for child in children(ax) { walk(child, level + 1, key) }
                 }
-                if level > depth { depthLimited = true; return }
-                guard rows.count < 1500 else { return }
-                seen.append(ax)
-                let key = "e:\(snapshot):\(rows.count)"
-                elements[key] = ElementTarget(ax: ax, window: id)
-                var row: [String: Any] = ["id": key, "role": string(ax, kAXRoleAttribute) ?? "unknown", "actions": actions(ax), "valueWritable": writable(ax, kAXValueAttribute), "selectedRangeWritable": writable(ax, kAXSelectedTextRangeAttribute)]
-                if let range = selectedRange(ax) { row["selectedRange"] = rangeJSON(range) }
-                if let parent { row["parent"] = parent }
-                for (key, attr) in [("title", kAXTitleAttribute), ("description", kAXDescriptionAttribute), ("identifier", kAXIdentifierAttribute)] {
-                    if let s = string(ax, attr), !s.isEmpty { row[key] = s }
+                walk(w.ax, 0, nil)
+                if let focused = value(appAX(w.app), kAXFocusedUIElementAttribute), CFGetTypeID(focused as CFTypeRef) == AXUIElementGetTypeID() {
+                    let ax = focused as! AXUIElement
+                    if let owner = value(ax, kAXWindowAttribute), CFEqual(owner as CFTypeRef, w.ax) { walk(ax, 0, nil) }
                 }
-                if let v = value(ax, kAXValueAttribute), v is String || v is NSNumber { row["value"] = v }
-                if let v = value(ax, kAXEnabledAttribute) as? Bool { row["enabled"] = v }
-                if let v = value(ax, kAXFocusedAttribute) as? Bool { row["focused"] = v }
-                if let r = try? bounds(ax) { row["bounds"] = rectJSON(r) }
-                rows.append(row)
-                for child in children(ax) { walk(child, level + 1, key) }
+                var webContent = WebContentReadiness.inspect(rows, depthLimited: depthLimited, nodeLimited: rows.count >= 1500)
+                webContent["attempts"] = attempt
+                if webContent["status"] as? String == "pending", attempt < 6 {
+                    if attempt == 1 {
+                        try await prepareAccessibility(w.app, refresh: true)
+                        // Chromium 131 debounces enhanced-UI requests for two seconds.
+                        // Reasserting on each poll restarts that countdown indefinitely.
+                        try await Task.sleep(nanoseconds: 2_200_000_000)
+                    } else {
+                        try await Task.sleep(nanoseconds: 250_000_000)
+                    }
+                    _ = try window(id)
+                    continue
+                }
+                let r = try bounds(w.ax); observedBounds[id] = r
+                return ["snapshot": snapshot, "window": id, "bounds": rectJSON(r), "elements": rows,
+                    "truncated": depthLimited || rows.count >= 1500, "truncation": ["depth": depthLimited, "nodeLimit": rows.count >= 1500],
+                    "accessibilityModes": accessibilityModes[w.app.processIdentifier] ?? [:],
+                    "accessibilityObserver": accessibilityObserverStatus[w.app.processIdentifier] ?? [:],
+                    "webContent": webContent, "relatedWindows": related]
             }
-            walk(w.ax, 0, nil)
-            if let focused = value(appAX(w.app), kAXFocusedUIElementAttribute), CFGetTypeID(focused as CFTypeRef) == AXUIElementGetTypeID() {
-                let ax = focused as! AXUIElement
-                if let owner = value(ax, kAXWindowAttribute), CFEqual(owner as CFTypeRef, w.ax) { walk(ax, 0, nil) }
-            }
-            let r = try bounds(w.ax); observedBounds[id] = r
-            return ["snapshot": snapshot, "window": id, "bounds": rectJSON(r), "elements": rows,
-                "truncated": depthLimited || rows.count >= 1500, "truncation": ["depth": depthLimited, "nodeLimit": rows.count >= 1500],
-                "accessibilityModes": accessibilityModes[w.app.processIdentifier] ?? [:], "relatedWindows": related]
+            throw RuntimeError(code: "AX_ERROR", message: "Observation did not complete.")
         case "screenshot":
             guard CGPreflightScreenCaptureAccess() else {
                 _ = CGRequestScreenCaptureAccess()
@@ -622,5 +678,13 @@ private struct ElementTarget {
         if let observed { result["observed"] = observed }
         return result
     }
-    func close() { activeCall = nil; input.releaseAll() }
+    func close() {
+        activeCall = nil; input.releaseAll()
+        for observer in accessibilityObservers.values {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+        accessibilityObservers.removeAll()
+        accessibilityObserverStatus.removeAll()
+        accessibilityModes.removeAll()
+    }
 }

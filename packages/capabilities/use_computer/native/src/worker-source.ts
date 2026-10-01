@@ -72,7 +72,12 @@ export const WORKER_SOURCE = String.raw`
       if(!['pressKey','typeText','keyDown','keyUp'].includes(method)) delete selected.element;
       return rpc(method,{...selected,...params,window:this.id});
     }
-    observe(opts={}) { return this.invoke('observe',opts); }
+    async observe(opts={}) {
+      const result=await this.invoke('observe',opts);
+      if(result.webContent?.status==='pending') output('OBSERVATION_INCOMPLETE: Embedded web content is still absent after bounded AX recovery. This is a partial tree, not proof that chats/controls are absent. Use screenshot to inspect the window. Some CEF apps require launch-time --force-renderer-accessibility; when a restart is authorized, use computer.restartApp(appId,{accessibility:true}), then obtain fresh app/window handles. Never change global isolation settings or automatically restart an app from an observation.');
+      if(result.webContent?.status==='depth_limited') output('OBSERVATION_DEPTH_LIMIT: Embedded web content exceeds the requested depth. Observe with depth:60 before concluding controls are absent.');
+      return result;
+    }
     async screenshot() {
       const result = await this.invoke('screenshot');
       emitPNG(result.image ?? '',result.mimeType);
@@ -135,7 +140,7 @@ export const WORKER_SOURCE = String.raw`
   }
   class App {
     constructor(info) { Object.assign(this,info); }
-    [inspect.custom]() { return {id:this.id,name:this.name,pid:this.pid}; }
+    [inspect.custom]() { return {id:this.id,name:this.name,pid:this.pid,...(this.accessibilityLaunch?{accessibilityLaunch:this.accessibilityLaunch}:{})}; }
     listWindows() { return rpc('listWindows',{app:this.id}); }
     async getWindow(id) {
       if (!(await this.listWindows()).some(window=>window.id===id)) throw new Error('Window ID does not belong to this app. List windows again.');
@@ -156,6 +161,7 @@ export const WORKER_SOURCE = String.raw`
     listApps:async()=>(await rpc('getState')).apps,
     getApp:async(app)=>new App(await rpc('getApp',{app})),
     launchApp:async(app,opts={})=>new App(await rpc('launchApp',{app,...opts})),
+    restartApp:async(app,opts={})=>new App(await rpc('restartApp',{app,...opts})),
     wait:async(ms)=>{
       const call=calls.getStore();
       if (!call?.active || !Number.isFinite(ms) || ms<0 || ms>30000) throw new Error('wait requires 0..30000 ms within an active call.');
@@ -165,8 +171,8 @@ export const WORKER_SOURCE = String.raw`
   };
   const input=new PassThrough();
   const shell=start({input,output:new Writable({write(chunk,encoding,done){done();}}),terminal:false,prompt:'',useGlobal:false});
-  const log=(...args)=>output(args.map(value=>typeof value==='string'?value:inspect(value,{depth:12,colors:false})).join(' '));
-  Object.assign(shell.context,{computer,print:output,console:{log,info:log,warn:log,error:log}});
+  const log=(...args)=>output(args.map(value=>typeof value==='string'?value:inspect(value,{depth:12,maxArrayLength:2000,maxStringLength:32000,colors:false})).join(' '));
+  Object.assign(shell.context,{computer,print:log,console:{log,info:log,warn:log,error:log}});
   // The default REPL evaluator routes thrown/await errors through its domain instead
   // of its callback. Observe that channel as well; otherwise an error hangs the call.
   let evaluationError;

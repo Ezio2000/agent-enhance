@@ -101,6 +101,9 @@ export class ComputerOutput {
             }),
           "Full diagnostics: " + fullOutputPath,
           "Actions may have partially completed. Observe before continuing; no action was replayed.",
+          failure?.code === "ISOLATION_VIOLATION"
+            ? "Recovery: focus changed after dispatch. Read getState, listWindows and observe, including related modal windows; do not replay input or change global isolation settings to recover a read-only task."
+            : "",
         ].join("\n")
       : "";
     const text = [

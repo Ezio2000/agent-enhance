@@ -12,7 +12,7 @@ enum IsolationPolicy: String {
     case isolatedOnly = "isolated-only", shared
     func check(_ method: String, _ params: [String: Any]) throws {
         if self == .isolatedOnly && (params["mode"] as? String == "foreground" || method == "activate" ||
-            (method == "launchApp" && params["foreground"] as? Bool == true)) {
+            (["launchApp", "restartApp"].contains(method) && params["foreground"] as? Bool == true)) {
             throw RuntimeError(code: "ISOLATION_REQUIRED", message: "This session is isolated-only. Foreground/HID delivery is disabled by the host; code cannot change the policy.",
                 details: ["isolation": rawValue, "dispatched": false, "delivery": "blocked", "target": ["window": params["window"] ?? "", "app": params["app"] ?? ""]])
         }

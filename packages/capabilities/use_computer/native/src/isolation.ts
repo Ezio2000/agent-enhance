@@ -10,7 +10,7 @@ export function checkIsolation(policy: ComputerIsolation, method: string, params
     policy === "isolated-only" &&
     (params.mode === "foreground" ||
       method === "activate" ||
-      (method === "launchApp" && params.foreground === true))
+      (["launchApp", "restartApp"].includes(method) && params.foreground === true))
   ) {
     throw Object.assign(
       new Error("This session is isolated-only. Shared foreground input is disabled by the host."),
