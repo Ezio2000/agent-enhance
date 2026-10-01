@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "f8378c43eb6453d4e747de677fe9063dcda8996a",
+  "revision": "7cd30381de133c3dbfac319ea24264ebf6c7bcbc",
   "repository": "Ezio2000/agent-enhance",
   "modules": [
     {
@@ -163,7 +163,7 @@
       "capability": "use_computer",
       "provider": "native",
       "kind": "tool",
-      "version": "0.4.5",
+      "version": "0.4.6",
       "platforms": [
         "darwin"
       ],
@@ -171,8 +171,8 @@
         "task-settled"
       ],
       "file": "use_computer--native.mjs",
-      "sha256": "977e16c7dd5743eb232b9d2f5483827cc12df4c4c024e0305ca3a12f5174c1d8",
-      "bytes": 1080737
+      "sha256": "ad8c4884a067d72583dcafeb9db3607b97ab351052deddc2a8869d83f55e176e",
+      "bytes": 1145664
     },
     {
       "apiVersion": 1,
