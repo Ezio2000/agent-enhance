@@ -15,7 +15,7 @@ export const USAGE = `Usage:
   /cc-enhance <provider> <capability> install|uninstall|update|status
   /cc-enhance defaults <capability> <provider>       default provider when several are enabled
   /cc-enhance updates | update --installed           compare / update installed modules to this release
-  /cc-enhance computer status|reset  manage the native computer runtime
+  /cc-enhance computer status|reset|ask|auto|revoke  manage the live use_computer bridge
   /cc-enhance login [...] | logout <provider>        provider credentials (run "login" for details)`;
 
 export interface ManageOptions {
@@ -83,7 +83,7 @@ export async function manage(args: string[], options: ManageOptions): Promise<st
       const auth = entry.auth
         ? (await credentials.resolve(entry.auth, { interactive: false })).status
         : entry.capability === "use_computer"
-          ? "native macOS runtime; no login"
+          ? "ChatGPT desktop runtime (checked on first use)"
           : "none";
       lines.push(
         `${entry.id.padEnd(22)} ${LABELS[entry.capability] ?? ""}  ${state(entry, config)}; auth: ${auth}`,

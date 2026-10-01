@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { CredentialResolver } from "./auth.ts";
 
-export type ProviderId = "openai" | "xai" | "opencode" | "minimax" | "zai" | "native";
+export type ProviderId = "openai" | "xai" | "opencode" | "minimax" | "zai";
 export interface ModelInfo {
   id: string;
   provider: string;
@@ -14,21 +14,6 @@ export type Content =
 export interface ToolResult<D = Record<string, unknown>> {
   content: Content[];
   details: D;
-}
-/** Hosts retain content and diagnostics on failure, including screenshots. */
-export class ToolExecutionError extends Error {
-  constructor(readonly toolResult: ToolResult<any>) {
-    super(
-      toolResult.content
-        .filter((c) => c.type === "text")
-        .map((c) => c.text)
-        .join("\n"),
-    );
-  }
-}
-export function toolFailureResult(error: unknown): ToolResult<any> | undefined {
-  const result = (error as { toolResult?: ToolResult<any> } | null)?.toolResult;
-  return result && Array.isArray(result.content) && result.details ? result : undefined;
 }
 export interface HistoryMessage {
   role: string;
@@ -81,8 +66,6 @@ export interface ModuleManifest {
 }
 export interface ModuleServices {
   artifactRoot: string;
-  /** Stable directory for materialized native capability runtimes. */
-  runtimeRoot?: string;
   preview?: (bytes: Uint8Array, mime: string) => Promise<{ data: string; mimeType: string } | null>;
 }
 export type LifecycleEvent = "task_settled" | "session_shutdown" | "session_tree" | "provider_change";

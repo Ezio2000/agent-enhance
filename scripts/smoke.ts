@@ -196,17 +196,17 @@ try {
   }
   if (process.argv.includes("--computer")) {
     await call("use_computer", {
-      provider: "native",
-      code: "await computer.getState()",
+      provider: "openai",
+      code: "await cua.getState()",
       title: "Read-only installation smoke test",
       timeout_seconds: 60,
     });
     await session.extensionRunner.emit({ type: "agent_settled" });
-    await session.prompt("/pi-enhance native use_computer status");
+    await session.prompt("/pi-enhance openai use_computer status");
     const last = session.messages.at(-1) as any;
     const status = JSON.parse(last.content);
     const cleanup = status.lastCleanup;
-    if (status.connected || !cleanup?.nativeStopped || !cleanup?.workerStopped) {
+    if (status.connected || !cleanup?.shutdown?.processGroupStopped) {
       failed = true;
       results.push({ key: "use_computer/cleanup", status: "failed", details: status });
     } else results.push({ key: "use_computer/cleanup", status: "passed", details: status });

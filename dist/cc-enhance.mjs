@@ -25741,12 +25741,6 @@ var ModuleManager = class {
   }
 };
 
-// packages/core/src/contracts.ts
-function toolFailureResult(error2) {
-  const result = error2?.toolResult;
-  return result && Array.isArray(result.content) && result.details ? result : void 0;
-}
-
 // packages/hosts/claude-code/src/credentials.ts
 import { readFile as readFile2 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
@@ -26290,7 +26284,7 @@ function orderSchema(schema) {
 
 // packages/hosts/claude-code/src/server.ts
 var SUPPORTED_REQUIREMENTS = /* @__PURE__ */ new Set(["approval", "task-settled"]);
-var MANAGE_ACTIONS = ["status", "reset"];
+var MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
 var SERIAL_TOOLS = /* @__PURE__ */ new Set(["use_computer"]);
 var errorText = (error2) => error2 instanceof Error ? error2.message : String(error2);
 var alive = (pid) => {
@@ -26310,12 +26304,8 @@ function removeStaleSockets() {
   } catch {
   }
 }
-function toMcp(result, isError = false) {
+function toMcp(result) {
   return {
-    ...isError ? { isError: true } : {},
-    // Claude Code prefers structuredContent over the actual text/image blocks.
-    // Keep host diagnostics in metadata so REPL output/docs/screenshots survive.
-    _meta: { agentEnhance: result.details },
     content: result.content.map(
       (part) => part.type === "image" ? { type: "image", data: part.data, mimeType: part.mimeType } : { type: "text", text: part.text }
     )
@@ -26359,7 +26349,7 @@ async function serve(options) {
       {
         name: "manage_computer",
         annotations: { title: toolTitle("manage_computer") },
-        description: "Manage the native computer runtime: status (no startup or permission prompts), reset (stop owned runtime, release held input and drop JS state).",
+        description: "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
         inputSchema: {
           type: "object",
           properties: { action: { type: "string", enum: MANAGE_ACTIONS } },
@@ -26412,7 +26402,6 @@ async function serve(options) {
         const module = await manager.load(id);
         registry2.load(module, {
           artifactRoot: artifactRoot(home, module.manifest.capability, module.manifest.provider),
-          runtimeRoot: `${home}/runtimes`,
           preview
         });
         errors.delete(id);
@@ -26480,8 +26469,6 @@ async function serve(options) {
       const ctx = await context(extra.signal);
       return toMcp(await tool.execute(String(extra.requestId), args, extra.signal, onUpdate, ctx));
     } catch (error2) {
-      const failure3 = toolFailureResult(error2);
-      if (failure3) return toMcp(failure3, true);
       return { isError: true, content: [{ type: "text", text: errorText(error2) }] };
     }
   });
@@ -26735,7 +26722,7 @@ var USAGE = `Usage:
   /cc-enhance <provider> <capability> install|uninstall|update|status
   /cc-enhance defaults <capability> <provider>       default provider when several are enabled
   /cc-enhance updates | update --installed           compare / update installed modules to this release
-  /cc-enhance computer status|reset  manage the native computer runtime
+  /cc-enhance computer status|reset|ask|auto|revoke  manage the live use_computer bridge
   /cc-enhance login [...] | logout <provider>        provider credentials (run "login" for details)`;
 function unsupportedReason(entry) {
   if (entry.kind !== "tool")
@@ -26784,7 +26771,7 @@ async function manage(args, options) {
     const credentials = new ClaudeCodeCredentialResolver(home);
     const lines = [];
     for (const entry2 of only ? [only] : catalog.modules) {
-      const auth = entry2.auth ? (await credentials.resolve(entry2.auth, { interactive: false })).status : entry2.capability === "use_computer" ? "native macOS runtime; no login" : "none";
+      const auth = entry2.auth ? (await credentials.resolve(entry2.auth, { interactive: false })).status : entry2.capability === "use_computer" ? "ChatGPT desktop runtime (checked on first use)" : "none";
       lines.push(
         `${entry2.id.padEnd(22)} ${LABELS[entry2.capability] ?? ""}  ${state(entry2, config2)}; auth: ${auth}`
       );

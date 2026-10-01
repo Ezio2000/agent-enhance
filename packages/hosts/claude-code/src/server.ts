@@ -11,7 +11,6 @@ import { CapabilityRegistry } from "../../../core/src/registry.ts";
 import { ConfigStore } from "../../../core/src/config.ts";
 import { ModuleManager, type Catalog } from "../../../core/src/modules.ts";
 import type { ExecutionContext, ToolDefinition, ToolResult } from "../../../core/src/contracts.ts";
-import { toolFailureResult } from "../../../core/src/contracts.ts";
 import { ClaudeCodeCredentialResolver } from "./credentials.ts";
 import { hostPid, listen, readSession, socketPath, type ControlRequest } from "./control.ts";
 import { transcriptHistory } from "./history.ts";
@@ -21,7 +20,7 @@ import { orderSchema, toolTitle } from "./display.ts";
 
 /** Host features this adapter provides (approval via MCP elicitation, task-settled via the Stop hook). */
 export const SUPPORTED_REQUIREMENTS = new Set(["approval", "task-settled"]);
-const MANAGE_ACTIONS = ["status", "reset"];
+const MANAGE_ACTIONS = ["status", "reset", "ask", "auto", "revoke"];
 // Claude Code runs an MCP tool concurrently only when it declares readOnlyHint; use_computer drives one shared desktop.
 const SERIAL_TOOLS = new Set(["use_computer"]);
 export interface ServeOptions {
@@ -49,12 +48,8 @@ function removeStaleSockets(): void {
     /* Nothing to clean. */
   }
 }
-function toMcp(result: ToolResult<any>, isError = false): CallToolResult {
+function toMcp(result: ToolResult<any>): CallToolResult {
   return {
-    ...(isError ? { isError: true } : {}),
-    // Claude Code prefers structuredContent over the actual text/image blocks.
-    // Keep host diagnostics in metadata so REPL output/docs/screenshots survive.
-    _meta: { agentEnhance: result.details },
     content: result.content.map((part) =>
       part.type === "image"
         ? { type: "image", data: part.data, mimeType: part.mimeType }
@@ -108,7 +103,7 @@ export async function serve(options: ServeOptions): Promise<void> {
             name: "manage_computer",
             annotations: { title: toolTitle("manage_computer") },
             description:
-              "Manage the native computer runtime: status (no startup or permission prompts), reset (stop owned runtime, release held input and drop JS state).",
+              "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
             inputSchema: {
               type: "object",
               properties: { action: { type: "string", enum: MANAGE_ACTIONS } },
@@ -163,7 +158,6 @@ export async function serve(options: ServeOptions): Promise<void> {
           const module = await manager.load(id);
           registry.load(module, {
             artifactRoot: artifactRoot(home, module.manifest.capability, module.manifest.provider),
-            runtimeRoot: `${home}/runtimes`,
             preview,
           });
           errors.delete(id);
@@ -239,8 +233,6 @@ export async function serve(options: ServeOptions): Promise<void> {
       const ctx = await context(extra.signal);
       return toMcp(await tool.execute(String(extra.requestId), args, extra.signal, onUpdate, ctx));
     } catch (error) {
-      const failure = toolFailureResult(error);
-      if (failure) return toMcp(failure, true);
       return { isError: true, content: [{ type: "text", text: errorText(error) }] };
     }
   });

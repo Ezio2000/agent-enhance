@@ -1,25 +1,22 @@
-import { join } from "node:path";
 import type { CapabilityModule, ModuleServices, ModuleInstance } from "../../../../core/src/contracts.ts";
-import { enhanceHome } from "../../../../core/src/config.ts";
 import { manifest } from "./manifest.ts";
 import { ComputerSession } from "./session.ts";
 import { ComputerOutput } from "./output.ts";
 import { computerTool } from "./tool.ts";
-export function createComputer(
-  services: ModuleServices,
-  session = new ComputerSession(services.runtimeRoot ?? join(enhanceHome(), "runtimes")),
-): ModuleInstance {
+export function createComputer(services: ModuleServices, session = new ComputerSession()): ModuleInstance {
   return {
     tool: computerTool(session, new ComputerOutput(services.artifactRoot)),
     notice: () => session.recoveryNotice(),
     status: () => session.status(),
     async lifecycle(event, isIdle) {
-      if (event === "task_settled") await session.endTurn(isIdle);
+      if (event === "task_settled") await session.endTurn(isIdle ?? (() => true));
       else await session.reset(event);
     },
     async manage(action) {
-      if (action === "reset") await session.reset(action);
-      else if (action !== "status") throw new Error("Choose status / reset.");
+      if (action === "ask" || action === "revoke") await session.setApprovalMode("ask", action);
+      else if (action === "auto") await session.setApprovalMode("auto-app", action);
+      else if (action === "reset") await session.reset(action);
+      else if (action !== "status") throw new Error("Choose status / reset / revoke / ask / auto.");
       return JSON.stringify(session.status(), null, 2);
     },
     async dispose() {

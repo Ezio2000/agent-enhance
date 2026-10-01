@@ -1,6 +1,6 @@
 // Explicit live-only probe. Three short, no-tool child Pi agents; may consume model quota.
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
 import { Subagents } from "../packages/hosts/pi/src/subagents/index.ts";
 
@@ -43,7 +43,7 @@ const ctx = {
     getBranch: () => [{ id: "probe" }],
   },
   hasUI: false,
-} as unknown as Parameters<ToolDefinition["execute"]>[4];
+} as unknown as ExtensionContext;
 try {
   const tool = subagents.tools().find((item) => item.name === "call_subagents")!;
   const result = await tool.execute(

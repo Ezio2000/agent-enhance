@@ -1,6 +1,6 @@
 ---
-description: Manage the native computer runtime (status/reset)
-argument-hint: "status | reset"
+description: Manage the use_computer bridge (status/reset/ask/auto/revoke)
+argument-hint: "status | reset | ask | auto | revoke"
 allowed-tools: Bash(node:*)
 ---
 

@@ -709,7 +709,7 @@ function registerManagement(pi, options) {
   const requirements = (entry) => [
     `${entry.id} \xB7 ${entry.version} \xB7 ${(entry.bytes / 1024).toFixed(1)} KiB`,
     `Platform: ${entry.platforms?.join(", ") ?? "all supported Node.js platforms"}`,
-    entry.auth ? `Auth: ${entry.auth.provider}/${entry.auth.channel} (${entry.auth.acceptedKinds.join("/")}); configure via /login` : entry.capability === "use_computer" ? "Bundled native runtime; macOS 14+, system permissions checked on first use; no login" : "Auth: follows the supported main-model request",
+    entry.auth ? `Auth: ${entry.auth.provider}/${entry.auth.channel} (${entry.auth.acceptedKinds.join("/")}); configure via /login` : entry.capability === "use_computer" ? "Requires compatible ChatGPT desktop runtime, local login and macOS permissions; checked on first use" : "Auth: follows the supported main-model request",
     `State: ${state(entry)}`
   ].join("\n");
   const status = async (ctx, only) => {
@@ -719,7 +719,7 @@ function registerManagement(pi, options) {
       let auth = "not checked";
       if (entry.auth)
         auth = (await credentials.resolve(entry.auth, { signal: ctx.signal, interactive: false })).status;
-      else auth = entry.capability === "use_computer" ? "local native runtime; no login" : "main-model auth";
+      else auth = entry.capability === "use_computer" ? "runtime checked on first use" : "main-model auth";
       const availability = entry.kind === "tool" ? `, tool:${registry.get(entry.id) && pi.getActiveTools().includes(entry.capability) ? "active" : "inactive (unloaded, model rule or host exclusion)"}` : "";
       lines.push(`${entry.id}: ${state(entry)}, auth:${auth}${availability}`);
       if (only && registry.get(entry.id)?.instance.status)
@@ -786,7 +786,7 @@ function registerManagement(pi, options) {
       ...installed ? ["update", "uninstall"] : [],
       ...entry.kind === "tool" ? ["set default"] : [],
       ...loaded?.instance.control ? ["settings"] : [],
-      ...loaded?.instance.manage ? ["reset"] : [],
+      ...loaded?.instance.manage ? ["ask", "auto", "reset", "revoke"] : [],
       "status"
     ];
     const action = await ctx.ui.select(
@@ -1060,7 +1060,7 @@ Enable installs only this module; no model calls. Saved control values are retai
             "update",
             "status",
             "manage",
-            ...e.kind === "request-control" ? e.capability === "verbosity" ? ["off", "low", "medium", "high"] : ["off", "on"] : e.capability === "use_computer" ? ["reset"] : []
+            ...e.kind === "request-control" ? e.capability === "verbosity" ? ["off", "low", "medium", "high"] : ["off", "on"] : e.capability === "use_computer" ? ["ask", "auto", "reset", "revoke"] : []
           ].map((a) => `${e.provider} ${e.capability}${a ? ` ${a}` : ""}`)
         ),
         ...manager.catalog.modules.filter((e) => e.kind === "tool").map((e) => `defaults ${e.capability} ${e.provider}`)
@@ -2071,7 +2071,6 @@ function createPiEnhance(pi, options) {
     const manifest = module.manifest, id = manifest.id;
     registry.load(module, {
       artifactRoot: join4(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
-      runtimeRoot: join4(options.home, "runtimes"),
       preview: (bytes, mime) => resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 })
     });
     try {

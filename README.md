@@ -11,7 +11,7 @@
 - `packages/hosts/claude-code`：Claude Code 插件（单一 MCP server、`/cc-enhance` 命令、hooks、独立凭据）。
 - `dist/core.mjs`：可脱离宿主导入的自包含基座；`dist/cc-enhance.mjs`：自包含 Claude Code 宿主。
 
-实现提供方 ID 为 `openai`、`xai`、`opencode`、`minimax`、`zai`，本地原生能力使用 `native`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
+供应商 ID 为 `openai`、`xai`、`opencode`、`minimax`、`zai`。Codex／Go 是渠道，Grok／Muse 是模型，不作为供应商目录。
 
 ## 安装与迁移
 
@@ -93,7 +93,7 @@ pi remove https://github.com/Ezio2000/openai-codex-enhance
 | `view_pdf`     | opencode             | Muse Spark 查看本地 PDF                                                                                                                                  |
 | `view_video`   | opencode             | Muse Spark 查看本地视频；不支持音频                                                                                                                      |
 | `search_web`   | openai、zai          | 搜索、浏览、图片查询、天气／金融等；zai 走 GLM Coding Plan 工具 API（search_query/open 公共命令，openai 独有命令与 zai 独有参数分列 options.<provider>） |
-| `use_computer` | native               | macOS 原生 Computer Use                                                                                                                                  |
+| `use_computer` | openai               | macOS 原生 Computer Use                                                                                                                                  |
 | `view_image`   | zai                  | GLM 视觉看图／看视频（OCR、UI 转代码、报错诊断、图表理解等 8 类任务）；仅在当前模型不能直接读图时注册，消耗 Coding Plan 额度                             |
 | `fast`         | openai               | 请求增强，不注册工具                                                                                                                                     |
 | `verbosity`    | openai               | 请求增强，不注册工具                                                                                                                                     |
@@ -195,7 +195,7 @@ claude plugin marketplace update agent-enhance && claude plugin update cc-enhanc
 - 所有功能由一个 MCP server `x` 提供（每会话一个进程），调用显示为 `plugin:cc-enhance:x - 图片生成 gen_image · openai (MCP)(prompt: …)`，工具 ID 为 `mcp__plugin_cc-enhance_x__<功能>`。多供应商合并、`provider` 参数与默认路由与 Pi 相同。
 - 新安装不启用任何能力。`/cc-enhance <provider> <capability> enable` 安装（与 Pi 共享 `~/.agent-enhance/packages`）并写入 `hosts/claude-code.json`；运行中的会话监听配置并通过 `tools/list_changed` 即时增减工具，无需重启。
 - 凭据：openai/codex 读取 Codex CLI 登录（`~/.codex/auth.json`，过期前加锁刷新）；其余保存在 `~/.agent-enhance/credentials.json`（明文）。`/cc-enhance login` 查看状态与引导：`login xai`（设备码登录，后台保存）、`login opencode|minimax|zai <key>`（`--global`／`--cn` 选择站点）、`login import-pi`（复制 Pi 中的 API Key；xAI OAuth 不共享）。
-- 生命周期：`UserPromptSubmit` hook 记录会话 ID／transcript（search_web 的 `include_context` 从 transcript 取 user/assistant 文本）并注入恢复提示；`Stop` hook 即任务结束（use_computer 释放运行时）。`/cc-enhance computer status|reset` 或 `manage_computer` 工具管理原生运行时；桌面操作只使用 macOS 系统权限。
+- 生命周期：`UserPromptSubmit` hook 记录会话 ID／transcript（search_web 的 `include_context` 从 transcript 取 user/assistant 文本）并注入恢复提示；`Stop` hook 即任务结束（use_computer 释放运行时）。审批通过 MCP elicitation；`/cc-enhance computer ask|auto|revoke|reset|status` 或 `manage_computer` 工具管理桌面桥。
 - 不支持请求拦截，`fast`／`verbosity`／`image_detail` 在 Claude Code 中拒绝启用。宿主拿不到主模型，`view_image` 始终暴露。图片预览用 macOS `sips` 生成。
 - 长任务建议在 `settings.json` 设置 `MCP_TOOL_TIMEOUT=600000`。产物位于 `~/.agent-enhance/artifacts/claude-code/`。
 
@@ -215,52 +215,23 @@ claude plugin marketplace update agent-enhance && claude plugin update cc-enhanc
 
 zai 渠道面向 GLM Coding Plan 订阅：search_web/zai 与 view_image/zai 使用订阅额度，计费入口按实测区分 —— 联网搜索走套餐 MCP 端点（`/api/mcp/web_search_prime`，按次计费，与官方 MCP 同口径）；网页阅读走 coding REST（`/api/coding/paas/v4/reader`，也计入套餐次数）；view_image 走多模态 `chat/completions`（glm-5.3-flash，按 token）。注意 coding REST 下的 `web_search` 不计套餐额度（无按量余额时报 1113），搜索必须走 MCP 端点。仅限个人编码场景交互式使用；密钥严禁共享或转售。view_image 的任务提示词来自官方 `@z_ai/mcp-server`（Apache-2.0），原样内置并保留署名。
 
-Muse contributor 模型涉及上游数据使用政策，勿上传机密。Computer Use 使用本项目自有原生运行时，不需要云 API 凭据或订阅登录。
+Muse contributor 模型涉及上游数据使用政策，勿上传机密。Computer Use 使用外部官方运行时，其本地登录／系统权限检查与本项目的云 API 凭据接口分开。
 
 ## Computer Use
 
-支持 macOS 14+（Apple Silicon 与 Intel）。能力模块内置 universal Swift 原生运行时，用户无需安装 ChatGPT、Codex、Swift 或额外自动化工具。首次真正需要时请求 macOS 辅助功能、屏幕录制或事件合成权限；安装、加载和 status 不启动进程或弹授权。
+仅 macOS。需安装兼容 ChatGPT 桌面版，至少启用过一次 Computer Use，使其物化官方插件和签名原生服务，并满足官方本地登录、辅助功能及屏幕录制要求。本项目不下载、复制或绕过官方程序与权限。运行时布局／政策变化可能导致兼容性失败。
 
 ```text
-/pi-enhance native use_computer enable
-/pi-enhance native use_computer status
-/pi-enhance native use_computer reset
-# Claude Code
-/cc-enhance native use_computer enable
-/cc-enhance computer status
+/pi-enhance openai use_computer install
+/pi-enhance openai use_computer load --save
+/pi-enhance openai use_computer status
+/pi-enhance openai use_computer ask
+/pi-enhance openai use_computer revoke
 ```
 
-工具执行 JavaScript，入口为 `computer`，`print(value)` 输出文本，最后一个表达式也会显示。首次执行返回完整本地 API 文档，可随时用 `computer.help()` 查看。先读桌面与窗口列表，再使用返回的准确 ID：
+工具首次执行必须只调用 `await cua.getState()` 或 `await cua.getApp('bundle.id')`，读取返回 API 与确认策略后再操作。只启用原生应用 API，不启用浏览器 Tab API。
 
-```javascript
-var app = await computer.getApp("com.apple.TextEdit");
-print(await app.listWindows());
-// 下一次调用，使用列表中的 ID
-var win = await app.getWindow("复制返回的窗口 ID");
-print(await win.observe());
-```
-
-默认 `isolated-only`：拒绝前台激活及 HID 输入，后台定向键鼠也拒绝用户正在使用的应用。AX 语义编辑可操作该应用的非活动兄弟窗口；用户当前窗口拒绝写入。后台键盘需要观测中的元素和已确认的应用内焦点；坐标点击、按键保持、鼠标移动、滚动、拖拽和修饰键组合支持定向后台投递，使用独立逻辑光标与自身修饰键，不移动真实光标、不暗加 Command。部分非活动控件仍会忽略事件，投递成功不能证明效果。宿主仅在启动前显式设置 `AGENT_ENHANCE_COMPUTER_ISOLATION=shared` 时开放 `{mode: "foreground"}`；不自动回退。
-
-```javascript
-await win.withKeys(
-  ["shift"],
-  async () => {
-    await win.drag({ from: { x: 40, y: 80 }, to: { x: 220, y: 80 } });
-  },
-  { element: "观测中可聚焦的文本元素 ID" },
-);
-```
-
-文本编辑优先使用 `replaceText`、`selectAll`、`selectText`，选区按 UTF-16 计数并拒绝拆分 emoji。可用 `expect: {element, value, selectedRange, timeout_ms}` 检查实际效果；不匹配报 `EFFECT_MISMATCH`，停止后续 awaited 动作。原始 Command+A 保持字面语义，不假装选中成功。
-
-截图采用窗口独立捕获，返回 PNG、窗口逻辑坐标和像素缩放；坐标输入前须观测或截图。元素 ID 在新观测后失效，窗口几何变化会使旧坐标观测失效。浏览器通过原生 UI 操作，没有 DOM/Tab API。
-
-JS 变量保留到任务完全结束，自动续跑期间保留；新任务、reset、会话／分支／模型提供方切换和卸载时清理。组合输入按提交顺序执行，同一应用的 CU 操作有跨进程互斥；共享前台另外互斥。每个上下文记录逻辑光标、按键／按钮及原始 PID／窗口／通道，每次调用结束沿原路径释放，保持状态不跨调用。取消或超时可中断正在等待的原生动作并丢弃队列，不撤销已发生效果，也不自动重放。失败摘要置于输出开头，完整诊断、截图、投递路径及释放结果保存在本地产物中；捕获原生异常也不会抹去失败记录。Claude Code 会将失败返回中的图片折叠为文字；后续用 `computer.showImage(已保存的PNG路径)` 展示原截图，无需重放操作或重新截图。管理只支持 status/reset，无按应用审批模式。
-
-原生服务通过 LaunchServices 后台启动，断链退出，不注册常驻服务。原生包复用固定自签证书和稳定签名要求；从旧版 ad-hoc 签名迁移需重新授权一次，后续同证书升级可延续授权。每台新电脑仍需首次授权；这不等于 Apple 公证。`ModuleServices.runtimeRoot` 可指定物化目录，默认位于 Agent Enhance 根目录的 `runtimes/`。
-
-旧 `use_computer/openai` 实现已移除，不映射旧配置；使用新模块身份显式启用。原有安装缓存和历史产物不主动删除。
+使用独立 Sky 私有实例；任务完全结束才清理，自动续跑前保持 JS 状态。新任务必须重新初始化。`auto-app` 默认只自动允许普通应用访问，绝不授权发送、删除、付款等敏感操作；未知请求和无交互条件下的敏感请求拒绝。`ask` 切回应用询问模式，`revoke` 撤销会话授权并切回 ask。权限和 JS 状态不跨会话／宿主共享，任何失败不自动重放操作。
 
 ## 配置与产物
 

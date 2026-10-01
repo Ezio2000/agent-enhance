@@ -9,7 +9,6 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
-  wrapRegisteredTool,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 
@@ -39,18 +38,15 @@ try {
       (pi: ExtensionAPI) => {
         pi.registerCommand("probe-subagents", {
           description: "Live integration probe",
-          handler: async () => {
-            if (!session) throw new Error("Parent session not ready");
-            const registered = session.extensionRunner
-              .getAllRegisteredTools()
-              .find((tool) => tool.definition.name === "call_subagents");
-            if (!registered) throw new Error("call_subagents not active");
-            const tool = wrapRegisteredTool(registered, session.extensionRunner);
+          handler: async (_args, ctx) => {
+            const tool = session?.getToolDefinition("call_subagents");
+            if (!tool) throw new Error("call_subagents not active");
             const result = await tool.execute(
               "probe",
               { tasks: [{ context: "只回答 1=1 是否成立，一句话。" }] },
               undefined,
               undefined,
+              ctx,
             );
             console.log("Dispatch:", result.content);
           },

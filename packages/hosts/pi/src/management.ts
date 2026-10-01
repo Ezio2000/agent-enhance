@@ -63,7 +63,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       entry.auth
         ? `Auth: ${entry.auth.provider}/${entry.auth.channel} (${entry.auth.acceptedKinds.join("/")}); configure via /login`
         : entry.capability === "use_computer"
-          ? "Bundled native runtime; macOS 14+, system permissions checked on first use; no login"
+          ? "Requires compatible ChatGPT desktop runtime, local login and macOS permissions; checked on first use"
           : "Auth: follows the supported main-model request",
       `State: ${state(entry)}`,
     ].join("\n");
@@ -74,7 +74,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       let auth = "not checked";
       if (entry.auth)
         auth = (await credentials.resolve(entry.auth, { signal: ctx.signal, interactive: false })).status;
-      else auth = entry.capability === "use_computer" ? "local native runtime; no login" : "main-model auth";
+      else auth = entry.capability === "use_computer" ? "runtime checked on first use" : "main-model auth";
       const availability =
         entry.kind === "tool"
           ? `, tool:${registry.get(entry.id) && pi.getActiveTools().includes(entry.capability) ? "active" : "inactive (unloaded, model rule or host exclusion)"}`
@@ -148,7 +148,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
       ...(installed ? ["update", "uninstall"] : []),
       ...(entry.kind === "tool" ? ["set default"] : []),
       ...(loaded?.instance.control ? ["settings"] : []),
-      ...(loaded?.instance.manage ? ["reset"] : []),
+      ...(loaded?.instance.manage ? ["ask", "auto", "reset", "revoke"] : []),
       "status",
     ];
     const action = await ctx.ui.select(
@@ -442,7 +442,7 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
                 ? ["off", "low", "medium", "high"]
                 : ["off", "on"]
               : e.capability === "use_computer"
-                ? ["reset"]
+                ? ["ask", "auto", "reset", "revoke"]
                 : []),
           ].map((a) => `${e.provider} ${e.capability}${a ? ` ${a}` : ""}`),
         ),

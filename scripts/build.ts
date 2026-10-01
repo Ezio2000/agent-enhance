@@ -3,22 +3,7 @@ import { readdir, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { Catalog } from "../packages/core/src/modules.ts";
-import { gunzipSync } from "node:zlib";
-import { nativeSourceHash } from "./build-computer-native.ts";
-import { computerCertificateSha1, computerRequirement } from "./computer-signing.ts";
 const root = process.cwd();
-const nativePayload = await readFile("dist/native/computer-runtime.json.gz");
-const nativeArchive = JSON.parse(gunzipSync(nativePayload).toString());
-if (nativeArchive.sourceHash !== (await nativeSourceHash()))
-  throw new Error(
-    "Native runtime sources changed. Run npm run build:computer-native on macOS before building modules.",
-  );
-if (
-  nativeArchive.signing?.type !== "self-signed" ||
-  nativeArchive.signing.certificateSha1 !== computerCertificateSha1 ||
-  nativeArchive.signing.requirement !== computerRequirement(computerCertificateSha1)
-)
-  throw new Error("Native payload does not carry the published fixed signing identity.");
 await mkdir("dist/modules", { recursive: true });
 let revision = process.env.MODULE_REVISION ?? "development";
 try {
@@ -42,17 +27,6 @@ for (const capability of (await readdir("packages/capabilities")).sort()) {
       target: "node22",
       minify: false,
       legalComments: "inline",
-      plugins: [
-        {
-          name: "embedded-native-runtime",
-          setup(builder) {
-            builder.onLoad({ filter: /use_computer\/native\/src\/payload\.ts$/ }, () => ({
-              contents: `export async function nativePayload() { return Buffer.from(${JSON.stringify(nativePayload.toString("base64"))}, "base64"); }`,
-              loader: "js",
-            }));
-          },
-        },
-      ],
     });
     const bytes = await readFile(join("dist/modules", file));
     catalog.modules.push({
