@@ -1,11 +1,7 @@
 import type { ModuleManifest } from "../../../../core/src/contracts.ts";
-export const manifest = {
-  apiVersion: 1,
-  id: "use_computer/openai",
-  capability: "use_computer",
+export const requirements = {
   provider: "openai",
-  kind: "tool",
-  version: "0.2.0",
+  runtime: "chatgpt-desktop",
   platforms: ["darwin"],
   requires: ["approval", "task-settled"],
-} satisfies ModuleManifest;
+} satisfies Omit<ModuleManifest, "apiVersion" | "id" | "capability">;

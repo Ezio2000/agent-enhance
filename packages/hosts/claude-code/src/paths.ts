@@ -11,7 +11,6 @@ export function distDirectory(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return existsSync(join(here, "catalog.json")) ? here : join(here, "../../../../dist");
 }
-export const credentialsPath = (home: string) => join(home, "credentials.json");
 /** Unix socket paths are length-limited (104 bytes on macOS), so runtime state lives under the temp dir. */
 export function runDirectory(): string {
   return process.env.CC_ENHANCE_RUN_DIR ?? join(tmpdir(), `cc-enhance-${userInfo().uid}`);

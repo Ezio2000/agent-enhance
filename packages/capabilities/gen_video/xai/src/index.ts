@@ -1,15 +1,13 @@
-import type { CapabilityModule } from "../../../../core/src/contracts.ts";
-import { manifest } from "./manifest.ts";
+import { requirements } from "./manifest.ts";
+import { definition } from "../../definition.ts";
+import { defineModule } from "../../../../core/src/module.ts";
 import { VideoClient } from "./client.ts";
 import { VideoArtifactStore } from "./artifacts.ts";
 import { videoTool } from "./tool.ts";
 import { resolveGrokAuth } from "../../../../transports/xai/src/auth.ts";
-export default {
-  manifest,
-  create: (services) => ({
-    tool: videoTool({
-      artifacts: new VideoArtifactStore(services.artifactRoot),
-      client: (ctx) => new VideoClient(() => resolveGrokAuth(ctx)),
-    }),
+export default defineModule(definition, requirements, (services) => ({
+  tool: videoTool({
+    artifacts: new VideoArtifactStore(services.artifactRoot),
+    client: (ctx) => new VideoClient(() => resolveGrokAuth(ctx)),
   }),
-} satisfies CapabilityModule;
+}));

@@ -1,65 +1,60 @@
 {
-  "version": 1,
-  "revision": "6df4376d7d08c9df7a169e7861a5aea7227669af",
-  "repository": "Ezio2000/agent-enhance",
+  "version": 2,
+  "release": "0.3.0",
   "modules": [
     {
-      "apiVersion": 1,
-      "id": "fast/openai",
-      "capability": "fast",
-      "provider": "openai",
-      "kind": "request-control",
-      "version": "0.2.0",
-      "requires": [
-        "request-interception"
-      ],
-      "file": "fast--openai.mjs",
-      "sha256": "0648db6c06f30bc95c58ec576ccf3590ca7f4d43556200f98d51b76fc54d92b7",
-      "bytes": 2700
-    },
-    {
-      "apiVersion": 1,
+      "provider": "minimax",
+      "auth": {
+        "provider": "minimax",
+        "channel": "token-plan",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "apiVersion": 2,
       "id": "gen_image/minimax",
       "capability": "gen_image",
-      "provider": "minimax",
-      "kind": "tool",
-      "version": "0.2.0",
-      "auth": {
-        "provider": "minimax",
-        "channel": "token-plan",
-        "acceptedKinds": [
-          "api_key"
-        ]
-      },
       "file": "gen_image--minimax.mjs",
-      "sha256": "923818b4363c1e9c960015d99858c84de94f83a733f01546ed50805a7472172d",
-      "bytes": 397503
+      "bytes": 400796,
+      "label": "图片生成",
+      "group": "Images"
     },
     {
-      "apiVersion": 1,
+      "provider": "openai",
+      "auth": {
+        "provider": "openai",
+        "channel": "codex",
+        "acceptedKinds": [
+          "oauth"
+        ]
+      },
+      "apiVersion": 2,
       "id": "gen_image/openai",
       "capability": "gen_image",
-      "provider": "openai",
-      "kind": "tool",
-      "version": "0.2.0",
+      "file": "gen_image--openai.mjs",
+      "bytes": 414974,
+      "label": "图片生成",
+      "group": "Images"
+    },
+    {
+      "provider": "xai",
       "auth": {
-        "provider": "openai",
-        "channel": "codex",
+        "provider": "xai",
+        "channel": "imagine",
         "acceptedKinds": [
           "oauth"
         ]
       },
-      "file": "gen_image--openai.mjs",
-      "sha256": "de67bac4e5bd759ddac459be318d6ea2cce11f771c323cc69fd39da12fa7e0a9",
-      "bytes": 411680
-    },
-    {
-      "apiVersion": 1,
+      "apiVersion": 2,
       "id": "gen_image/xai",
       "capability": "gen_image",
+      "file": "gen_image--xai.mjs",
+      "bytes": 395691,
+      "label": "图片生成",
+      "group": "Images"
+    },
+    {
       "provider": "xai",
-      "kind": "tool",
-      "version": "0.2.0",
       "auth": {
         "provider": "xai",
         "channel": "imagine",
@@ -67,35 +62,16 @@
           "oauth"
         ]
       },
-      "file": "gen_image--xai.mjs",
-      "sha256": "02f4b6deb4652d647322d8eed6ee36ca2c5fd186c5328645b2e8a7fef349674c",
-      "bytes": 392373
-    },
-    {
-      "apiVersion": 1,
+      "apiVersion": 2,
       "id": "gen_video/xai",
       "capability": "gen_video",
-      "provider": "xai",
-      "kind": "tool",
-      "version": "0.2.0",
-      "auth": {
-        "provider": "xai",
-        "channel": "imagine",
-        "acceptedKinds": [
-          "oauth"
-        ]
-      },
       "file": "gen_video--xai.mjs",
-      "sha256": "97e56ff3877c6db23a0669636ee4af3868e8da73b4eeab099a0be82b3fa8f850",
-      "bytes": 401572
+      "bytes": 403926,
+      "label": "视频生成",
+      "group": "Video"
     },
     {
-      "apiVersion": 1,
-      "id": "gen_voice/minimax",
-      "capability": "gen_voice",
       "provider": "minimax",
-      "kind": "tool",
-      "version": "0.2.0",
       "auth": {
         "provider": "minimax",
         "channel": "token-plan",
@@ -103,31 +79,16 @@
           "api_key"
         ]
       },
+      "apiVersion": 2,
+      "id": "gen_voice/minimax",
+      "capability": "gen_voice",
       "file": "gen_voice--minimax.mjs",
-      "sha256": "5d127c8058250d2207ab9231effe066eac03dde21617c5f92e14f5bc191f87a9",
-      "bytes": 396170
+      "bytes": 398520,
+      "label": "语音合成",
+      "group": "Voice"
     },
     {
-      "apiVersion": 1,
-      "id": "image_detail/openai",
-      "capability": "image_detail",
       "provider": "openai",
-      "kind": "request-control",
-      "version": "0.2.0",
-      "requires": [
-        "request-interception"
-      ],
-      "file": "image_detail--openai.mjs",
-      "sha256": "eaff0026cdd316d21654ec6b25299c75af522827d993a0ac7d83b483f84079ab",
-      "bytes": 3286
-    },
-    {
-      "apiVersion": 1,
-      "id": "search_web/openai",
-      "capability": "search_web",
-      "provider": "openai",
-      "kind": "tool",
-      "version": "0.2.0",
       "auth": {
         "provider": "openai",
         "channel": "codex",
@@ -135,17 +96,16 @@
           "oauth"
         ]
       },
+      "apiVersion": 2,
+      "id": "search_web/openai",
+      "capability": "search_web",
       "file": "search_web--openai.mjs",
-      "sha256": "0f6a172d03521ae3fad432175c146af3450e347ea501f441ce5538f4486c74dc",
-      "bytes": 401746
+      "bytes": 404140,
+      "label": "联网搜索",
+      "group": "Search"
     },
     {
-      "apiVersion": 1,
-      "id": "search_web/zai",
-      "capability": "search_web",
       "provider": "zai",
-      "kind": "tool",
-      "version": "0.2.0",
       "auth": {
         "provider": "zai",
         "channel": "coding-plan",
@@ -153,17 +113,17 @@
           "api_key"
         ]
       },
+      "apiVersion": 2,
+      "id": "search_web/zai",
+      "capability": "search_web",
       "file": "search_web--zai.mjs",
-      "sha256": "3455aa645ef07f391ffc830d2d7583dd7304327541a73b789f5fbe2160900020",
-      "bytes": 397836
+      "bytes": 400186,
+      "label": "联网搜索",
+      "group": "Search"
     },
     {
-      "apiVersion": 1,
-      "id": "use_computer/openai",
-      "capability": "use_computer",
       "provider": "openai",
-      "kind": "tool",
-      "version": "0.2.0",
+      "runtime": "chatgpt-desktop",
       "platforms": [
         "darwin"
       ],
@@ -171,31 +131,16 @@
         "approval",
         "task-settled"
       ],
+      "apiVersion": 2,
+      "id": "use_computer/openai",
+      "capability": "use_computer",
       "file": "use_computer--openai.mjs",
-      "sha256": "8f8fe51775a0606cc056d138a6dd86d10dcd1fe270409060c7d9bffc216cb0ae",
-      "bytes": 418006
+      "bytes": 420370,
+      "label": "桌面操作",
+      "group": "Computer use"
     },
     {
-      "apiVersion": 1,
-      "id": "verbosity/openai",
-      "capability": "verbosity",
-      "provider": "openai",
-      "kind": "request-control",
-      "version": "0.2.0",
-      "requires": [
-        "request-interception"
-      ],
-      "file": "verbosity--openai.mjs",
-      "sha256": "0c837619d48e7ffedd9d213a6ad37250358ea8edec62d0cc0c9c6734ba81adca",
-      "bytes": 2455
-    },
-    {
-      "apiVersion": 1,
-      "id": "view_image/zai",
-      "capability": "view_image",
       "provider": "zai",
-      "kind": "tool",
-      "version": "0.2.0",
       "auth": {
         "provider": "zai",
         "channel": "coding-plan",
@@ -206,35 +151,33 @@
       "modelInputExcludes": [
         "image"
       ],
+      "apiVersion": 2,
+      "id": "view_image/zai",
+      "capability": "view_image",
       "file": "view_image--zai.mjs",
-      "sha256": "00fad642fa5b06a4203e7cdd6b7adedb7e573519b82c5bb25d9cb64ab4d1f218",
-      "bytes": 451247
+      "bytes": 453616,
+      "label": "图片理解",
+      "group": "File understanding"
     },
     {
-      "apiVersion": 1,
+      "provider": "opencode",
+      "auth": {
+        "provider": "opencode",
+        "channel": "go",
+        "acceptedKinds": [
+          "api_key"
+        ]
+      },
+      "apiVersion": 2,
       "id": "view_pdf/opencode",
       "capability": "view_pdf",
-      "provider": "opencode",
-      "kind": "tool",
-      "version": "0.2.0",
-      "auth": {
-        "provider": "opencode",
-        "channel": "go",
-        "acceptedKinds": [
-          "api_key"
-        ]
-      },
       "file": "view_pdf--opencode.mjs",
-      "sha256": "a017f58e2a2eb71a79a81a008ea2e040a994b32188a65bd3d76f959a22602259",
-      "bytes": 385002
+      "bytes": 387370,
+      "label": "PDF 理解",
+      "group": "File understanding"
     },
     {
-      "apiVersion": 1,
-      "id": "view_video/opencode",
-      "capability": "view_video",
       "provider": "opencode",
-      "kind": "tool",
-      "version": "0.2.0",
       "auth": {
         "provider": "opencode",
         "channel": "go",
@@ -242,9 +185,13 @@
           "api_key"
         ]
       },
+      "apiVersion": 2,
+      "id": "view_video/opencode",
+      "capability": "view_video",
       "file": "view_video--opencode.mjs",
-      "sha256": "242f003f4d002396b487d0f5d74825d13a43a4ec8d8ec54dd48792cece625c8c",
-      "bytes": 385315
+      "bytes": 387691,
+      "label": "视频理解",
+      "group": "File understanding"
     }
   ]
 }

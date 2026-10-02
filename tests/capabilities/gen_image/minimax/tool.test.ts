@@ -87,7 +87,7 @@ test("three providers merge into one tool; minimax options route and native limi
   const tools = registry.tools();
   assert.equal(tools.length, 1);
   const tool = tools[0]!;
-  assert.deepEqual(tool.parameters.properties.provider.enum, ["openai", "xai", "minimax"]);
+  assert.deepEqual(tool.parameters.properties.provider.enum, ["minimax", "openai", "xai"]);
   assert.ok(tool.parameters.properties.model.enum.includes("image-01"));
   assert.ok(tool.parameters.properties.model.enum.includes("gpt-image-2.5-flare"));
   assert.deepEqual(Object.keys(tool.parameters.properties.options.properties).sort(), [

@@ -8,12 +8,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import {
-  ClaudeCodeCredentialResolver,
-  CredentialStore,
-} from "../packages/hosts/claude-code/src/credentials.ts";
 import { claudeHistory } from "../packages/hosts/claude-code/src/history.ts";
-import { importPi } from "../packages/hosts/claude-code/src/login.ts";
 
 const bundle = resolve("dist/cc-enhance.mjs");
 async function sandbox() {
@@ -24,167 +19,14 @@ async function sandbox() {
     AGENT_ENHANCE_HOME: join(root, "home"),
     CODEX_HOME: join(root, "codex"),
     PI_CODING_AGENT_DIR: join(root, "pi"),
+    XDG_DATA_HOME: join(root, "data"),
+    OPENAI_CODEX_COMPUTER_APP: join(root, "NoChatGPT.app"),
     CC_ENHANCE_RUN_DIR: join(root, "run"),
   };
   const cli = async (...args: string[]) =>
     (await promisify(execFile)(process.execPath, [bundle, "cli", ...args], { env, timeout: 20_000 })).stdout;
   return { root, env, cli, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
-
-test("claude-code CLI enables tool modules and refuses request controls", async () => {
-  const box = await sandbox();
-  try {
-    assert.match(
-      await box.cli("openai", "gen_image", "enable"),
-      /Enabled gen_image\/openai[\s\S]*codex login/,
-    );
-    assert.match(await box.cli("openai", "fast", "enable").catch((e) => e.stdout), /request interception/);
-    const status = await box.cli("status");
-    assert.match(status, /gen_image\/openai\s+\S+\s+enabled, installed; auth: missing/);
-    assert.match(status, /fast\/openai.*unsupported/);
-    const config = JSON.parse(
-      await readFile(join(box.env.AGENT_ENHANCE_HOME, "hosts", "claude-code.json"), "utf8"),
-    );
-    assert.deepEqual(config.autoload, ["gen_image/openai"]);
-    assert.match(await box.cli("openai", "gen_image", "disable"), /Disabled/);
-  } finally {
-    await box.cleanup();
-  }
-});
-
-test("claude-code MCP server hot-loads enabled providers and bridges hooks", async () => {
-  const box = await sandbox();
-  const client = new Client({ name: "test", version: "1" });
-  try {
-    await client.connect(
-      new StdioClientTransport({
-        command: process.execPath,
-        args: [bundle, "serve"],
-        env: box.env,
-      }),
-    );
-    assert.deepEqual((await client.listTools()).tools, []);
-    const changed = new Promise<void>((done) =>
-      client.setNotificationHandler(ToolListChangedNotificationSchema, async () => done()),
-    );
-    await box.cli("opencode", "view_pdf", "enable");
-    await changed;
-    const tools = (await client.listTools()).tools;
-    assert.deepEqual(
-      tools.map((t) => t.name),
-      ["view_pdf"],
-    );
-    assert.equal(tools[0]!.annotations?.title, "PDF 理解 view_pdf · opencode");
-    const keys = Object.keys(tools[0]!.inputSchema.properties as Record<string, unknown>);
-    assert.equal(keys[0], "prompt");
-    assert.equal(keys.at(-1), "provider");
-    const pdf = join(box.root, "a.pdf");
-    await writeFile(pdf, "%PDF-1.4\n%%EOF\n");
-    const result = await client.callTool({ name: "view_pdf", arguments: { path: pdf, prompt: "x" } });
-    assert.equal(result.isError, true);
-    assert.match(JSON.stringify(result.content), /login opencode/);
-
-    // Hooks spawned by the same parent process find this server's control socket.
-    const hook = spawn(process.execPath, [bundle, "hook", "stop"], {
-      env: box.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    hook.stdin.end(JSON.stringify({ session_id: "s-1", transcript_path: "/nonexistent", cwd: box.root }));
-    assert.equal(await new Promise((done) => hook.on("exit", done)), 0);
-    const session = JSON.parse(
-      await readFile(join(box.env.CC_ENHANCE_RUN_DIR, `${process.pid}.session.json`), "utf8"),
-    );
-    assert.equal(session.sessionId, "s-1");
-    assert.match(await box.cli("status"), /loaded: view_pdf\/opencode/);
-  } finally {
-    await client.close();
-    await box.cleanup();
-  }
-});
-
-test("claude-code tool descriptions fit Claude Code's 2048-character MCP limit with every provider loaded", async () => {
-  const box = await sandbox();
-  const client = new Client({ name: "test", version: "1" });
-  try {
-    const catalog = JSON.parse(await readFile(resolve("dist/catalog.json"), "utf8"));
-    for (const m of catalog.modules.filter((m: { kind: string }) => m.kind === "tool"))
-      await box.cli(m.provider, m.capability, "enable");
-    await client.connect(
-      new StdioClientTransport({ command: process.execPath, args: [bundle, "serve"], env: box.env }),
-    );
-    const tools = (await client.listTools()).tools;
-    assert.ok(tools.some((t) => t.name === "gen_image"));
-    // Claude Code cuts longer descriptions, so text past the limit never reaches the model.
-    for (const tool of tools)
-      assert.ok(
-        tool.description!.length <= 2048,
-        `${tool.name} description is ${tool.description!.length} characters`,
-      );
-  } finally {
-    await client.close();
-    await box.cleanup();
-  }
-});
-
-test("claude-code credentials: stored API keys, Pi import, Codex auth file", async () => {
-  const box = await sandbox();
-  const saved = { ...process.env };
-  Object.assign(process.env, box.env);
-  try {
-    const home = box.env.AGENT_ENHANCE_HOME;
-    const resolver = new ClaudeCodeCredentialResolver(home);
-    const request = { provider: "zai", channel: "coding-plan", acceptedKinds: ["api_key"] } as const;
-    assert.equal((await resolver.resolve(request, { interactive: false })).status, "missing");
-    assert.match(await box.cli("login", "zai", "k-1", "--cn"), /Saved zai\/coding-plan/);
-    const ready = await resolver.resolve(request, { interactive: false });
-    assert.equal(ready.status, "ready");
-    assert.deepEqual(ready.status === "ready" && ready.credential, {
-      kind: "api_key",
-      secret: "k-1",
-      baseUrl: "https://open.bigmodel.cn",
-    });
-
-    await mkdir(box.env.PI_CODING_AGENT_DIR, { recursive: true });
-    await writeFile(
-      join(box.env.PI_CODING_AGENT_DIR, "auth.json"),
-      JSON.stringify({
-        "opencode-go": { type: "api_key", key: "oc-1" },
-        "minimax-cn": { type: "api_key", key: "sk-cp-1" },
-        xai: { type: "oauth", access: "a", refresh: "r", expires: 0 },
-      }),
-    );
-    const report = await importPi(home);
-    assert.match(report, /opencode-go → opencode\/go/);
-    assert.match(report, /xai \(OAuth is not shared/);
-    const file = await new CredentialStore(home).read();
-    assert.deepEqual(file.credentials["minimax/token-plan"], {
-      kind: "api_key",
-      key: "sk-cp-1",
-      baseUrl: "https://api.minimaxi.com",
-    });
-    assert.equal(file.credentials["zai/coding-plan"]?.kind, "api_key"); // untouched
-
-    const payload = Buffer.from(
-      JSON.stringify({
-        exp: Date.now() / 1000 + 3600,
-        "https://api.openai.com/auth": { chatgpt_account_id: "acc" },
-      }),
-    ).toString("base64url");
-    await mkdir(box.env.CODEX_HOME, { recursive: true });
-    await writeFile(
-      join(box.env.CODEX_HOME, "auth.json"),
-      JSON.stringify({ tokens: { access_token: `h.${payload}.s`, refresh_token: "r" } }),
-    );
-    const codex = await resolver.resolve(
-      { provider: "openai", channel: "codex", acceptedKinds: ["oauth"] },
-      { interactive: false },
-    );
-    assert.equal(codex.status === "ready" && codex.credential.accountId, "acc");
-  } finally {
-    process.env = saved;
-    await box.cleanup();
-  }
-});
 
 test("claude-code transcript history keeps only user/assistant text", () => {
   const lines = [
@@ -211,4 +53,143 @@ test("claude-code transcript history keeps only user/assistant text", () => {
     { role: "user", content: "find cats" },
     { role: "assistant", content: "sure" },
   ]);
+});
+
+const waitForChange = (client: Client) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("MCP tools/list_changed not received")), 5000);
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+const writePi = async (box: Awaited<ReturnType<typeof sandbox>>, credentials: Record<string, unknown>) => {
+  await mkdir(box.env.PI_CODING_AGENT_DIR, { recursive: true });
+  await writeFile(join(box.env.PI_CODING_AGENT_DIR, "auth.json"), JSON.stringify(credentials));
+};
+
+test("Claude Code discovers existing credentials and stores only optional preferences", async () => {
+  const box = await sandbox();
+  try {
+    assert.match(await box.cli("services"), /No service connections/);
+    await writePi(box, { "opencode-go": { type: "api_key", key: "fixture" } });
+    assert.match(await box.cli("services"), /pi:opencode-go/);
+    assert.match(await box.cli("status"), /view_pdf\/opencode @ pi:opencode-go: available/);
+    assert.match(await box.cli("prefer", "view_pdf", "pi:opencode-go"), /Preferred/);
+    assert.match(await box.cli("exclude", "view_pdf"), /Excluded/);
+    const preferences = JSON.parse(
+      await readFile(join(box.env.AGENT_ENHANCE_HOME, "preferences", "claude-code.json"), "utf8"),
+    );
+    assert.deepEqual(preferences, {
+      version: 1,
+      preferred: { view_pdf: "pi:opencode-go" },
+      excluded: ["view_pdf"],
+    });
+    assert.match(await box.cli("status"), /view_pdf\/opencode @ pi:opencode-go: excluded/);
+    assert.match(await box.cli("include", "view_pdf"), /Included/);
+    assert.match(await box.cli("login", "import-pi"), /services.*status/);
+    assert.match(await box.cli("openai", "gen_image", "enable"), /services.*status/);
+  } finally {
+    await box.cleanup();
+  }
+});
+
+test(
+  "Claude Code observes login/logout and exclusions live and preserves session hooks",
+  { timeout: 20_000 },
+  async () => {
+    const box = await sandbox(),
+      client = new Client({ name: "test", version: "1" });
+    try {
+      await client.connect(
+        new StdioClientTransport({ command: process.execPath, args: [bundle, "serve"], env: box.env }),
+      );
+      assert.deepEqual((await client.listTools()).tools, []);
+      const added = waitForChange(client);
+      await writePi(box, { "opencode-go": { type: "api_key", key: "fixture" } });
+      await added;
+      let tools = (await client.listTools()).tools;
+      assert.deepEqual(
+        tools.map((t) => t.name),
+        ["view_pdf", "view_video"],
+      );
+      assert.equal(tools[0]!.annotations?.title, "PDF 理解 view_pdf · opencode");
+      const keys = Object.keys(tools[0]!.inputSchema.properties as Record<string, unknown>);
+      assert.equal(keys[0], "prompt");
+      assert.ok(keys.indexOf("service") > keys.indexOf("path"));
+      const result = await client.callTool({
+        name: "view_pdf",
+        arguments: { path: "not-a-file", prompt: "x", provider: "xai" },
+      });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /INVALID_ARGUMENTS/);
+      const excluded = waitForChange(client);
+      await box.cli("exclude", "view_pdf");
+      await excluded;
+      assert.deepEqual(
+        (await client.listTools()).tools.map((t) => t.name),
+        ["view_video"],
+      );
+      const included = waitForChange(client);
+      await box.cli("include", "view_pdf");
+      await included;
+      assert.equal((await client.listTools()).tools.length, 2);
+      const hook = spawn(process.execPath, [bundle, "hook", "stop"], {
+        env: box.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      hook.stdin.end(JSON.stringify({ session_id: "s-1", transcript_path: "/nonexistent", cwd: box.root }));
+      assert.equal(await new Promise((done) => hook.on("exit", done)), 0);
+      const session = JSON.parse(
+        await readFile(join(box.env.CC_ENHANCE_RUN_DIR, `${process.pid}.session.json`), "utf8"),
+      );
+      assert.equal(session.sessionId, "s-1");
+      assert.match(await box.cli("status"), /loaded: .*view_pdf\/opencode@pi:opencode-go/);
+      const removed = waitForChange(client);
+      await writePi(box, {});
+      await removed;
+      assert.deepEqual((await client.listTools()).tools, []);
+    } finally {
+      await client.close();
+      await box.cleanup();
+    }
+  },
+);
+
+test("Claude Code exposes discovered providers once and descriptions fit its MCP limit", async () => {
+  const box = await sandbox(),
+    client = new Client({ name: "test", version: "1" });
+  try {
+    await writePi(box, {
+      "openai-codex": { type: "oauth", access: "fixture", refresh: "r", expires: Date.now() + 3600000 },
+      xai: { type: "oauth", access: "fixture", refresh: "r", expires: Date.now() + 3600000 },
+      "opencode-go": { type: "api_key", key: "fixture" },
+      "minimax-cn": { type: "api_key", key: "sk-cp-fixture" },
+      minimax: { type: "api_key", key: "sk-cp-fixture-global" },
+      zai: { type: "api_key", key: "fixture" },
+      "zai-coding-cn": { type: "api_key", key: "fixture-cn" },
+    });
+    await client.connect(
+      new StdioClientTransport({ command: process.execPath, args: [bundle, "serve"], env: box.env }),
+    );
+    const tools = (await client.listTools()).tools;
+    const image = tools.filter((t) => t.name === "gen_image");
+    assert.equal(image.length, 1);
+    assert.deepEqual((image[0]!.inputSchema.properties!.provider as any).enum, ["minimax", "openai", "xai"]);
+    for (const tool of tools)
+      assert.ok(tool.description!.length <= 2048, `${tool.name}: ${tool.description!.length}`);
+    assert.ok(!tools.some((t) => ["fast", "verbosity", "image_detail"].includes(t.name)));
+  } finally {
+    await client.close();
+    await box.cleanup();
+  }
+});
+
+test("Claude Code plugin declares existing commands and one MCP server", async () => {
+  const manifest = JSON.parse(await readFile(".claude-plugin/plugin.json", "utf8"));
+  assert.equal(manifest.commands.length, 2);
+  for (const path of [...manifest.commands, manifest.hooks, manifest.mcpServers])
+    assert.ok((await readFile(path, "utf8")).length);
+  const mcp = JSON.parse(await readFile(manifest.mcpServers, "utf8"));
+  assert.deepEqual(Object.keys(mcp.mcpServers), ["x"]);
 });

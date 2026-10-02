@@ -1,38 +1,19 @@
-# Acceptance — 0.2.0
+# Acceptance — 0.3.0
 
-Verified locally on macOS with Pi 0.86.1 on 2026-09-21.
+Verified locally on macOS with Pi 0.86.1 on 2026-10-02. The full check passed 171 tests, the offline packed-release probe, strict types, formatting and dependency boundaries. Claude Code plugin validation passed (the manifest intentionally has no fixed plugin version).
 
-## Automated
+The automated acceptance target is `npm run check`. It exercises the service-discovery architecture with isolated stores and synthetic credentials; no real model or desktop calls are required.
 
-- 101 tests pass, including 84 migrated protocol/runtime regressions.
-- Strict TypeScript, uniform Prettier formatting and host dependency boundaries pass.
-- A clean-directory Node process imports the standalone base and both image bundles without Pi/node_modules; exactly one merged `gen_image` is exposed.
-- Real Pi SDK tests execute install/load/unload commands and dynamic schema refresh, preserve excluded tools, and do not call a model.
-- Production dependency audit reports no known vulnerabilities at acceptance time.
+| Area         | Required behavior                                                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boundaries   | Core has no configuration/discovery readers; discovery has no host SDK dependency; Claude Code has no Pi SDK dependency                                                 |
+| Discovery    | Original sources, domestic/global connections, expired-but-refreshable OAuth and environment values are recognized without network, Key commands or copied credentials  |
+| Refresh      | Rotating OAuth refresh serializes and writes only to the original source, preserving unrelated entries                                                                  |
+| Routing      | Multiple services share one tool; exact connection selection binds the matching resolver; ambiguity, unavailable preferences and cross-provider options fail explicitly |
+| Lifecycle    | Busy exclusions reject new calls; completion permits disposal; stale handles cannot execute during unload                                                               |
+| Pi           | Real SDK registration, dynamic schemas, native tool exclusions, model-derived vision availability, request settings and subagent controls remain functional             |
+| Claude Code  | Existing credentials produce tools automatically; login/logout and preferences update MCP tools live; hooks retain session state; descriptions fit the host limit       |
+| SDK          | Standalone Core and provider bundles execute without Pi, discovery or node_modules                                                                                      |
+| Distribution | Unpacked release includes all modules and discovers synthetic credentials without downloading code or invoking models                                                   |
 
-## Installed extension trial
-
-The three previous Pi package entries were replaced by the new local Agent Enhance package. Prior settings were backed up, old source directories and artifacts retained, and all 10 previous capabilities were installed/loaded with saved Pi preferences. Image generation defaults to OpenAI; explicit xAI remains available through the same tool.
-
-Real tool calls through the installed Pi extension passed:
-
-| Operation               | Result                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------- |
-| `search_web` / OpenAI   | Search returned source-bearing text                                                   |
-| `view_pdf` / OpenCode   | Synthetic PDF verification code returned correctly                                    |
-| `view_video` / OpenCode | Synthetic video returned a nonempty color answer                                      |
-| `gen_image` / OpenAI    | One original PNG saved                                                                |
-| `gen_image` / xAI       | One original JPEG saved                                                               |
-| `gen_video` / xAI       | One six-second-request MP4 saved                                                      |
-| `use_computer` / OpenAI | Read-only `cua.getState()` completed                                                  |
-| Desktop cleanup         | Hook OK; process group stopped; workspace removed; disconnected; no cached app grants |
-
-A further actual Pi CLI model run (OpenAI main model, only `view_pdf` enabled, OpenCode tool backend) returned `BLUE-42` from the fixture. This validates the model-to-registered-tool path in addition to direct SDK execution. No clicks, sends, deletions, payments or permission changes were performed in the desktop trial.
-
-Detailed reports and generated media remain under ignored local `artifacts/smoke/` and the user's Agent Enhance artifact directory. No account information or desktop observations are committed.
-
-## Distribution
-
-The Pi package includes only the host bundle, module catalog and documentation; optional capability bundles are excluded from its tarball. Source/Git installation necessarily clones the full repository. The release catalog is pinned to an immutable commit with SHA-256/length checks for each independently downloadable module. Actual HTTPS downloads of both image modules, their merged registration, and fresh-process Pi install/load from the roughly 24 KB minimal tarball all passed. Linux and macOS GitHub Actions also passed.
-
-Existing running Pi sessions retain their old extension runtime until the native `/reload` command or a restart. Fresh sessions load the replacement immediately.
+Live protocol/media trials from earlier releases do not establish acceptance of the discovery refactor. A new live trial must be explicitly requested and reported separately from these offline checks. Local verification does not imply the remote CI or installed release has been updated.

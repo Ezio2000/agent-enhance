@@ -1,12 +1,1625 @@
+import { createRequire as __piRequire } from "node:module"; const require = __piRequire(import.meta.url);
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+var __commonJS = (cb, mod) => function __require2() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+
+// node_modules/graceful-fs/polyfills.js
+var require_polyfills = __commonJS({
+  "node_modules/graceful-fs/polyfills.js"(exports, module) {
+    var constants2 = __require("constants");
+    var origCwd = process.cwd;
+    var cwd = null;
+    var platform = process.env.GRACEFUL_FS_PLATFORM || process.platform;
+    process.cwd = function() {
+      if (!cwd)
+        cwd = origCwd.call(process);
+      return cwd;
+    };
+    try {
+      process.cwd();
+    } catch (er) {
+    }
+    if (typeof process.chdir === "function") {
+      chdir = process.chdir;
+      process.chdir = function(d) {
+        cwd = null;
+        chdir.call(process, d);
+      };
+      if (Object.setPrototypeOf) Object.setPrototypeOf(process.chdir, chdir);
+    }
+    var chdir;
+    module.exports = patch;
+    function patch(fs) {
+      if (constants2.hasOwnProperty("O_SYMLINK") && process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
+        patchLchmod(fs);
+      }
+      if (!fs.lutimes) {
+        patchLutimes(fs);
+      }
+      fs.chown = chownFix(fs.chown);
+      fs.fchown = chownFix(fs.fchown);
+      fs.lchown = chownFix(fs.lchown);
+      fs.chmod = chmodFix(fs.chmod);
+      fs.fchmod = chmodFix(fs.fchmod);
+      fs.lchmod = chmodFix(fs.lchmod);
+      fs.chownSync = chownFixSync(fs.chownSync);
+      fs.fchownSync = chownFixSync(fs.fchownSync);
+      fs.lchownSync = chownFixSync(fs.lchownSync);
+      fs.chmodSync = chmodFixSync(fs.chmodSync);
+      fs.fchmodSync = chmodFixSync(fs.fchmodSync);
+      fs.lchmodSync = chmodFixSync(fs.lchmodSync);
+      fs.stat = statFix(fs.stat);
+      fs.fstat = statFix(fs.fstat);
+      fs.lstat = statFix(fs.lstat);
+      fs.statSync = statFixSync(fs.statSync);
+      fs.fstatSync = statFixSync(fs.fstatSync);
+      fs.lstatSync = statFixSync(fs.lstatSync);
+      if (fs.chmod && !fs.lchmod) {
+        fs.lchmod = function(path, mode, cb) {
+          if (cb) process.nextTick(cb);
+        };
+        fs.lchmodSync = function() {
+        };
+      }
+      if (fs.chown && !fs.lchown) {
+        fs.lchown = function(path, uid, gid, cb) {
+          if (cb) process.nextTick(cb);
+        };
+        fs.lchownSync = function() {
+        };
+      }
+      if (platform === "win32") {
+        fs.rename = typeof fs.rename !== "function" ? fs.rename : (function(fs$rename) {
+          function rename2(from, to, cb) {
+            var start = Date.now();
+            var backoff = 0;
+            fs$rename(from, to, function CB(er) {
+              if (er && (er.code === "EACCES" || er.code === "EPERM" || er.code === "EBUSY") && Date.now() - start < 6e4) {
+                setTimeout(function() {
+                  fs.stat(to, function(stater, st) {
+                    if (stater && stater.code === "ENOENT")
+                      fs$rename(from, to, CB);
+                    else
+                      cb(er);
+                  });
+                }, backoff);
+                if (backoff < 100)
+                  backoff += 10;
+                return;
+              }
+              if (cb) cb(er);
+            });
+          }
+          if (Object.setPrototypeOf) Object.setPrototypeOf(rename2, fs$rename);
+          return rename2;
+        })(fs.rename);
+      }
+      fs.read = typeof fs.read !== "function" ? fs.read : (function(fs$read) {
+        function read(fd, buffer, offset, length, position, callback_) {
+          var callback;
+          if (callback_ && typeof callback_ === "function") {
+            var eagCounter = 0;
+            callback = function(er, _, __) {
+              if (er && er.code === "EAGAIN" && eagCounter < 10) {
+                eagCounter++;
+                return fs$read.call(fs, fd, buffer, offset, length, position, callback);
+              }
+              callback_.apply(this, arguments);
+            };
+          }
+          return fs$read.call(fs, fd, buffer, offset, length, position, callback);
+        }
+        if (Object.setPrototypeOf) Object.setPrototypeOf(read, fs$read);
+        return read;
+      })(fs.read);
+      fs.readSync = typeof fs.readSync !== "function" ? fs.readSync : /* @__PURE__ */ (function(fs$readSync) {
+        return function(fd, buffer, offset, length, position) {
+          var eagCounter = 0;
+          while (true) {
+            try {
+              return fs$readSync.call(fs, fd, buffer, offset, length, position);
+            } catch (er) {
+              if (er.code === "EAGAIN" && eagCounter < 10) {
+                eagCounter++;
+                continue;
+              }
+              throw er;
+            }
+          }
+        };
+      })(fs.readSync);
+      function patchLchmod(fs2) {
+        fs2.lchmod = function(path, mode, callback) {
+          fs2.open(
+            path,
+            constants2.O_WRONLY | constants2.O_SYMLINK,
+            mode,
+            function(err, fd) {
+              if (err) {
+                if (callback) callback(err);
+                return;
+              }
+              fs2.fchmod(fd, mode, function(err2) {
+                fs2.close(fd, function(err22) {
+                  if (callback) callback(err2 || err22);
+                });
+              });
+            }
+          );
+        };
+        fs2.lchmodSync = function(path, mode) {
+          var fd = fs2.openSync(path, constants2.O_WRONLY | constants2.O_SYMLINK, mode);
+          var threw = true;
+          var ret;
+          try {
+            ret = fs2.fchmodSync(fd, mode);
+            threw = false;
+          } finally {
+            if (threw) {
+              try {
+                fs2.closeSync(fd);
+              } catch (er) {
+              }
+            } else {
+              fs2.closeSync(fd);
+            }
+          }
+          return ret;
+        };
+      }
+      function patchLutimes(fs2) {
+        if (constants2.hasOwnProperty("O_SYMLINK") && fs2.futimes) {
+          fs2.lutimes = function(path, at, mt, cb) {
+            fs2.open(path, constants2.O_SYMLINK, function(er, fd) {
+              if (er) {
+                if (cb) cb(er);
+                return;
+              }
+              fs2.futimes(fd, at, mt, function(er2) {
+                fs2.close(fd, function(er22) {
+                  if (cb) cb(er2 || er22);
+                });
+              });
+            });
+          };
+          fs2.lutimesSync = function(path, at, mt) {
+            var fd = fs2.openSync(path, constants2.O_SYMLINK);
+            var ret;
+            var threw = true;
+            try {
+              ret = fs2.futimesSync(fd, at, mt);
+              threw = false;
+            } finally {
+              if (threw) {
+                try {
+                  fs2.closeSync(fd);
+                } catch (er) {
+                }
+              } else {
+                fs2.closeSync(fd);
+              }
+            }
+            return ret;
+          };
+        } else if (fs2.futimes) {
+          fs2.lutimes = function(_a, _b, _c, cb) {
+            if (cb) process.nextTick(cb);
+          };
+          fs2.lutimesSync = function() {
+          };
+        }
+      }
+      function chmodFix(orig) {
+        if (!orig) return orig;
+        return function(target, mode, cb) {
+          return orig.call(fs, target, mode, function(er) {
+            if (chownErOk(er)) er = null;
+            if (cb) cb.apply(this, arguments);
+          });
+        };
+      }
+      function chmodFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, mode) {
+          try {
+            return orig.call(fs, target, mode);
+          } catch (er) {
+            if (!chownErOk(er)) throw er;
+          }
+        };
+      }
+      function chownFix(orig) {
+        if (!orig) return orig;
+        return function(target, uid, gid, cb) {
+          return orig.call(fs, target, uid, gid, function(er) {
+            if (chownErOk(er)) er = null;
+            if (cb) cb.apply(this, arguments);
+          });
+        };
+      }
+      function chownFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, uid, gid) {
+          try {
+            return orig.call(fs, target, uid, gid);
+          } catch (er) {
+            if (!chownErOk(er)) throw er;
+          }
+        };
+      }
+      function statFix(orig) {
+        if (!orig) return orig;
+        return function(target, options, cb) {
+          if (typeof options === "function") {
+            cb = options;
+            options = null;
+          }
+          function callback(er, stats) {
+            if (stats) {
+              if (stats.uid < 0) stats.uid += 4294967296;
+              if (stats.gid < 0) stats.gid += 4294967296;
+            }
+            if (cb) cb.apply(this, arguments);
+          }
+          return options ? orig.call(fs, target, options, callback) : orig.call(fs, target, callback);
+        };
+      }
+      function statFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, options) {
+          var stats = options ? orig.call(fs, target, options) : orig.call(fs, target);
+          if (stats) {
+            if (stats.uid < 0) stats.uid += 4294967296;
+            if (stats.gid < 0) stats.gid += 4294967296;
+          }
+          return stats;
+        };
+      }
+      function chownErOk(er) {
+        if (!er)
+          return true;
+        if (er.code === "ENOSYS")
+          return true;
+        var nonroot = !process.getuid || process.getuid() !== 0;
+        if (nonroot) {
+          if (er.code === "EINVAL" || er.code === "EPERM")
+            return true;
+        }
+        return false;
+      }
+    }
+  }
+});
+
+// node_modules/graceful-fs/legacy-streams.js
+var require_legacy_streams = __commonJS({
+  "node_modules/graceful-fs/legacy-streams.js"(exports, module) {
+    var Stream = __require("stream").Stream;
+    module.exports = legacy;
+    function legacy(fs) {
+      return {
+        ReadStream,
+        WriteStream
+      };
+      function ReadStream(path, options) {
+        if (!(this instanceof ReadStream)) return new ReadStream(path, options);
+        Stream.call(this);
+        var self = this;
+        this.path = path;
+        this.fd = null;
+        this.readable = true;
+        this.paused = false;
+        this.flags = "r";
+        this.mode = 438;
+        this.bufferSize = 64 * 1024;
+        options = options || {};
+        var keys = Object.keys(options);
+        for (var index = 0, length = keys.length; index < length; index++) {
+          var key = keys[index];
+          this[key] = options[key];
+        }
+        if (this.encoding) this.setEncoding(this.encoding);
+        if (this.start !== void 0) {
+          if ("number" !== typeof this.start) {
+            throw TypeError("start must be a Number");
+          }
+          if (this.end === void 0) {
+            this.end = Infinity;
+          } else if ("number" !== typeof this.end) {
+            throw TypeError("end must be a Number");
+          }
+          if (this.start > this.end) {
+            throw new Error("start must be <= end");
+          }
+          this.pos = this.start;
+        }
+        if (this.fd !== null) {
+          process.nextTick(function() {
+            self._read();
+          });
+          return;
+        }
+        fs.open(this.path, this.flags, this.mode, function(err, fd) {
+          if (err) {
+            self.emit("error", err);
+            self.readable = false;
+            return;
+          }
+          self.fd = fd;
+          self.emit("open", fd);
+          self._read();
+        });
+      }
+      function WriteStream(path, options) {
+        if (!(this instanceof WriteStream)) return new WriteStream(path, options);
+        Stream.call(this);
+        this.path = path;
+        this.fd = null;
+        this.writable = true;
+        this.flags = "w";
+        this.encoding = "binary";
+        this.mode = 438;
+        this.bytesWritten = 0;
+        options = options || {};
+        var keys = Object.keys(options);
+        for (var index = 0, length = keys.length; index < length; index++) {
+          var key = keys[index];
+          this[key] = options[key];
+        }
+        if (this.start !== void 0) {
+          if ("number" !== typeof this.start) {
+            throw TypeError("start must be a Number");
+          }
+          if (this.start < 0) {
+            throw new Error("start must be >= zero");
+          }
+          this.pos = this.start;
+        }
+        this.busy = false;
+        this._queue = [];
+        if (this.fd === null) {
+          this._open = fs.open;
+          this._queue.push([this._open, this.path, this.flags, this.mode, void 0]);
+          this.flush();
+        }
+      }
+    }
+  }
+});
+
+// node_modules/graceful-fs/clone.js
+var require_clone = __commonJS({
+  "node_modules/graceful-fs/clone.js"(exports, module) {
+    "use strict";
+    module.exports = clone;
+    var getPrototypeOf = Object.getPrototypeOf || function(obj) {
+      return obj.__proto__;
+    };
+    function clone(obj) {
+      if (obj === null || typeof obj !== "object")
+        return obj;
+      if (obj instanceof Object)
+        var copy = { __proto__: getPrototypeOf(obj) };
+      else
+        var copy = /* @__PURE__ */ Object.create(null);
+      Object.getOwnPropertyNames(obj).forEach(function(key) {
+        Object.defineProperty(copy, key, Object.getOwnPropertyDescriptor(obj, key));
+      });
+      return copy;
+    }
+  }
+});
+
+// node_modules/graceful-fs/graceful-fs.js
+var require_graceful_fs = __commonJS({
+  "node_modules/graceful-fs/graceful-fs.js"(exports, module) {
+    var fs = __require("fs");
+    var polyfills = require_polyfills();
+    var legacy = require_legacy_streams();
+    var clone = require_clone();
+    var util = __require("util");
+    var gracefulQueue;
+    var previousSymbol;
+    if (typeof Symbol === "function" && typeof Symbol.for === "function") {
+      gracefulQueue = Symbol.for("graceful-fs.queue");
+      previousSymbol = Symbol.for("graceful-fs.previous");
+    } else {
+      gracefulQueue = "___graceful-fs.queue";
+      previousSymbol = "___graceful-fs.previous";
+    }
+    function noop() {
+    }
+    function publishQueue(context, queue2) {
+      Object.defineProperty(context, gracefulQueue, {
+        get: function() {
+          return queue2;
+        }
+      });
+    }
+    var debug = noop;
+    if (util.debuglog)
+      debug = util.debuglog("gfs4");
+    else if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || ""))
+      debug = function() {
+        var m = util.format.apply(util, arguments);
+        m = "GFS4: " + m.split(/\n/).join("\nGFS4: ");
+        console.error(m);
+      };
+    if (!fs[gracefulQueue]) {
+      queue = global[gracefulQueue] || [];
+      publishQueue(fs, queue);
+      fs.close = (function(fs$close) {
+        function close(fd, cb) {
+          return fs$close.call(fs, fd, function(err) {
+            if (!err) {
+              resetQueue();
+            }
+            if (typeof cb === "function")
+              cb.apply(this, arguments);
+          });
+        }
+        Object.defineProperty(close, previousSymbol, {
+          value: fs$close
+        });
+        return close;
+      })(fs.close);
+      fs.closeSync = (function(fs$closeSync) {
+        function closeSync2(fd) {
+          fs$closeSync.apply(fs, arguments);
+          resetQueue();
+        }
+        Object.defineProperty(closeSync2, previousSymbol, {
+          value: fs$closeSync
+        });
+        return closeSync2;
+      })(fs.closeSync);
+      if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
+        process.on("exit", function() {
+          debug(fs[gracefulQueue]);
+          __require("assert").equal(fs[gracefulQueue].length, 0);
+        });
+      }
+    }
+    var queue;
+    if (!global[gracefulQueue]) {
+      publishQueue(global, fs[gracefulQueue]);
+    }
+    module.exports = patch(clone(fs));
+    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs.__patched) {
+      module.exports = patch(fs);
+      fs.__patched = true;
+    }
+    function patch(fs2) {
+      polyfills(fs2);
+      fs2.gracefulify = patch;
+      fs2.createReadStream = createReadStream;
+      fs2.createWriteStream = createWriteStream;
+      var fs$readFile = fs2.readFile;
+      fs2.readFile = readFile3;
+      function readFile3(path, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$readFile(path, options, cb);
+        function go$readFile(path2, options2, cb2, startTime) {
+          return fs$readFile(path2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$readFile, [path2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$writeFile = fs2.writeFile;
+      fs2.writeFile = writeFile;
+      function writeFile(path, data, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$writeFile(path, data, options, cb);
+        function go$writeFile(path2, data2, options2, cb2, startTime) {
+          return fs$writeFile(path2, data2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$writeFile, [path2, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$appendFile = fs2.appendFile;
+      if (fs$appendFile)
+        fs2.appendFile = appendFile;
+      function appendFile(path, data, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$appendFile(path, data, options, cb);
+        function go$appendFile(path2, data2, options2, cb2, startTime) {
+          return fs$appendFile(path2, data2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$appendFile, [path2, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$copyFile = fs2.copyFile;
+      if (fs$copyFile)
+        fs2.copyFile = copyFile;
+      function copyFile(src, dest, flags, cb) {
+        if (typeof flags === "function") {
+          cb = flags;
+          flags = 0;
+        }
+        return go$copyFile(src, dest, flags, cb);
+        function go$copyFile(src2, dest2, flags2, cb2, startTime) {
+          return fs$copyFile(src2, dest2, flags2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$copyFile, [src2, dest2, flags2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$readdir = fs2.readdir;
+      fs2.readdir = readdir;
+      var noReaddirOptionVersions = /^v[0-5]\./;
+      function readdir(path, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path2, options2, cb2, startTime) {
+          return fs$readdir(path2, fs$readdirCallback(
+            path2,
+            options2,
+            cb2,
+            startTime
+          ));
+        } : function go$readdir2(path2, options2, cb2, startTime) {
+          return fs$readdir(path2, options2, fs$readdirCallback(
+            path2,
+            options2,
+            cb2,
+            startTime
+          ));
+        };
+        return go$readdir(path, options, cb);
+        function fs$readdirCallback(path2, options2, cb2, startTime) {
+          return function(err, files) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([
+                go$readdir,
+                [path2, options2, cb2],
+                err,
+                startTime || Date.now(),
+                Date.now()
+              ]);
+            else {
+              if (files && files.sort)
+                files.sort();
+              if (typeof cb2 === "function")
+                cb2.call(this, err, files);
+            }
+          };
+        }
+      }
+      if (process.version.substr(0, 4) === "v0.8") {
+        var legStreams = legacy(fs2);
+        ReadStream = legStreams.ReadStream;
+        WriteStream = legStreams.WriteStream;
+      }
+      var fs$ReadStream = fs2.ReadStream;
+      if (fs$ReadStream) {
+        ReadStream.prototype = Object.create(fs$ReadStream.prototype);
+        ReadStream.prototype.open = ReadStream$open;
+      }
+      var fs$WriteStream = fs2.WriteStream;
+      if (fs$WriteStream) {
+        WriteStream.prototype = Object.create(fs$WriteStream.prototype);
+        WriteStream.prototype.open = WriteStream$open;
+      }
+      Object.defineProperty(fs2, "ReadStream", {
+        get: function() {
+          return ReadStream;
+        },
+        set: function(val) {
+          ReadStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      Object.defineProperty(fs2, "WriteStream", {
+        get: function() {
+          return WriteStream;
+        },
+        set: function(val) {
+          WriteStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      var FileReadStream = ReadStream;
+      Object.defineProperty(fs2, "FileReadStream", {
+        get: function() {
+          return FileReadStream;
+        },
+        set: function(val) {
+          FileReadStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      var FileWriteStream = WriteStream;
+      Object.defineProperty(fs2, "FileWriteStream", {
+        get: function() {
+          return FileWriteStream;
+        },
+        set: function(val) {
+          FileWriteStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      function ReadStream(path, options) {
+        if (this instanceof ReadStream)
+          return fs$ReadStream.apply(this, arguments), this;
+        else
+          return ReadStream.apply(Object.create(ReadStream.prototype), arguments);
+      }
+      function ReadStream$open() {
+        var that = this;
+        open2(that.path, that.flags, that.mode, function(err, fd) {
+          if (err) {
+            if (that.autoClose)
+              that.destroy();
+            that.emit("error", err);
+          } else {
+            that.fd = fd;
+            that.emit("open", fd);
+            that.read();
+          }
+        });
+      }
+      function WriteStream(path, options) {
+        if (this instanceof WriteStream)
+          return fs$WriteStream.apply(this, arguments), this;
+        else
+          return WriteStream.apply(Object.create(WriteStream.prototype), arguments);
+      }
+      function WriteStream$open() {
+        var that = this;
+        open2(that.path, that.flags, that.mode, function(err, fd) {
+          if (err) {
+            that.destroy();
+            that.emit("error", err);
+          } else {
+            that.fd = fd;
+            that.emit("open", fd);
+          }
+        });
+      }
+      function createReadStream(path, options) {
+        return new fs2.ReadStream(path, options);
+      }
+      function createWriteStream(path, options) {
+        return new fs2.WriteStream(path, options);
+      }
+      var fs$open = fs2.open;
+      fs2.open = open2;
+      function open2(path, flags, mode, cb) {
+        if (typeof mode === "function")
+          cb = mode, mode = null;
+        return go$open(path, flags, mode, cb);
+        function go$open(path2, flags2, mode2, cb2, startTime) {
+          return fs$open(path2, flags2, mode2, function(err, fd) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$open, [path2, flags2, mode2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      return fs2;
+    }
+    function enqueue(elem) {
+      debug("ENQUEUE", elem[0].name, elem[1]);
+      fs[gracefulQueue].push(elem);
+      retry();
+    }
+    var retryTimer;
+    function resetQueue() {
+      var now = Date.now();
+      for (var i = 0; i < fs[gracefulQueue].length; ++i) {
+        if (fs[gracefulQueue][i].length > 2) {
+          fs[gracefulQueue][i][3] = now;
+          fs[gracefulQueue][i][4] = now;
+        }
+      }
+      retry();
+    }
+    function retry() {
+      clearTimeout(retryTimer);
+      retryTimer = void 0;
+      if (fs[gracefulQueue].length === 0)
+        return;
+      var elem = fs[gracefulQueue].shift();
+      var fn = elem[0];
+      var args = elem[1];
+      var err = elem[2];
+      var startTime = elem[3];
+      var lastTime = elem[4];
+      if (startTime === void 0) {
+        debug("RETRY", fn.name, args);
+        fn.apply(null, args);
+      } else if (Date.now() - startTime >= 6e4) {
+        debug("TIMEOUT", fn.name, args);
+        var cb = args.pop();
+        if (typeof cb === "function")
+          cb.call(null, err);
+      } else {
+        var sinceAttempt = Date.now() - lastTime;
+        var sinceStart = Math.max(lastTime - startTime, 1);
+        var desiredDelay = Math.min(sinceStart * 1.2, 100);
+        if (sinceAttempt >= desiredDelay) {
+          debug("RETRY", fn.name, args);
+          fn.apply(null, args.concat([startTime]));
+        } else {
+          fs[gracefulQueue].push(elem);
+        }
+      }
+      if (retryTimer === void 0) {
+        retryTimer = setTimeout(retry, 0);
+      }
+    }
+  }
+});
+
+// node_modules/retry/lib/retry_operation.js
+var require_retry_operation = __commonJS({
+  "node_modules/retry/lib/retry_operation.js"(exports, module) {
+    function RetryOperation(timeouts, options) {
+      if (typeof options === "boolean") {
+        options = { forever: options };
+      }
+      this._originalTimeouts = JSON.parse(JSON.stringify(timeouts));
+      this._timeouts = timeouts;
+      this._options = options || {};
+      this._maxRetryTime = options && options.maxRetryTime || Infinity;
+      this._fn = null;
+      this._errors = [];
+      this._attempts = 1;
+      this._operationTimeout = null;
+      this._operationTimeoutCb = null;
+      this._timeout = null;
+      this._operationStart = null;
+      if (this._options.forever) {
+        this._cachedTimeouts = this._timeouts.slice(0);
+      }
+    }
+    module.exports = RetryOperation;
+    RetryOperation.prototype.reset = function() {
+      this._attempts = 1;
+      this._timeouts = this._originalTimeouts;
+    };
+    RetryOperation.prototype.stop = function() {
+      if (this._timeout) {
+        clearTimeout(this._timeout);
+      }
+      this._timeouts = [];
+      this._cachedTimeouts = null;
+    };
+    RetryOperation.prototype.retry = function(err) {
+      if (this._timeout) {
+        clearTimeout(this._timeout);
+      }
+      if (!err) {
+        return false;
+      }
+      var currentTime = (/* @__PURE__ */ new Date()).getTime();
+      if (err && currentTime - this._operationStart >= this._maxRetryTime) {
+        this._errors.unshift(new Error("RetryOperation timeout occurred"));
+        return false;
+      }
+      this._errors.push(err);
+      var timeout = this._timeouts.shift();
+      if (timeout === void 0) {
+        if (this._cachedTimeouts) {
+          this._errors.splice(this._errors.length - 1, this._errors.length);
+          this._timeouts = this._cachedTimeouts.slice(0);
+          timeout = this._timeouts.shift();
+        } else {
+          return false;
+        }
+      }
+      var self = this;
+      var timer = setTimeout(function() {
+        self._attempts++;
+        if (self._operationTimeoutCb) {
+          self._timeout = setTimeout(function() {
+            self._operationTimeoutCb(self._attempts);
+          }, self._operationTimeout);
+          if (self._options.unref) {
+            self._timeout.unref();
+          }
+        }
+        self._fn(self._attempts);
+      }, timeout);
+      if (this._options.unref) {
+        timer.unref();
+      }
+      return true;
+    };
+    RetryOperation.prototype.attempt = function(fn, timeoutOps) {
+      this._fn = fn;
+      if (timeoutOps) {
+        if (timeoutOps.timeout) {
+          this._operationTimeout = timeoutOps.timeout;
+        }
+        if (timeoutOps.cb) {
+          this._operationTimeoutCb = timeoutOps.cb;
+        }
+      }
+      var self = this;
+      if (this._operationTimeoutCb) {
+        this._timeout = setTimeout(function() {
+          self._operationTimeoutCb();
+        }, self._operationTimeout);
+      }
+      this._operationStart = (/* @__PURE__ */ new Date()).getTime();
+      this._fn(this._attempts);
+    };
+    RetryOperation.prototype.try = function(fn) {
+      console.log("Using RetryOperation.try() is deprecated");
+      this.attempt(fn);
+    };
+    RetryOperation.prototype.start = function(fn) {
+      console.log("Using RetryOperation.start() is deprecated");
+      this.attempt(fn);
+    };
+    RetryOperation.prototype.start = RetryOperation.prototype.try;
+    RetryOperation.prototype.errors = function() {
+      return this._errors;
+    };
+    RetryOperation.prototype.attempts = function() {
+      return this._attempts;
+    };
+    RetryOperation.prototype.mainError = function() {
+      if (this._errors.length === 0) {
+        return null;
+      }
+      var counts = {};
+      var mainError = null;
+      var mainErrorCount = 0;
+      for (var i = 0; i < this._errors.length; i++) {
+        var error = this._errors[i];
+        var message = error.message;
+        var count = (counts[message] || 0) + 1;
+        counts[message] = count;
+        if (count >= mainErrorCount) {
+          mainError = error;
+          mainErrorCount = count;
+        }
+      }
+      return mainError;
+    };
+  }
+});
+
+// node_modules/retry/lib/retry.js
+var require_retry = __commonJS({
+  "node_modules/retry/lib/retry.js"(exports) {
+    var RetryOperation = require_retry_operation();
+    exports.operation = function(options) {
+      var timeouts = exports.timeouts(options);
+      return new RetryOperation(timeouts, {
+        forever: options && options.forever,
+        unref: options && options.unref,
+        maxRetryTime: options && options.maxRetryTime
+      });
+    };
+    exports.timeouts = function(options) {
+      if (options instanceof Array) {
+        return [].concat(options);
+      }
+      var opts = {
+        retries: 10,
+        factor: 2,
+        minTimeout: 1 * 1e3,
+        maxTimeout: Infinity,
+        randomize: false
+      };
+      for (var key in options) {
+        opts[key] = options[key];
+      }
+      if (opts.minTimeout > opts.maxTimeout) {
+        throw new Error("minTimeout is greater than maxTimeout");
+      }
+      var timeouts = [];
+      for (var i = 0; i < opts.retries; i++) {
+        timeouts.push(this.createTimeout(i, opts));
+      }
+      if (options && options.forever && !timeouts.length) {
+        timeouts.push(this.createTimeout(i, opts));
+      }
+      timeouts.sort(function(a, b) {
+        return a - b;
+      });
+      return timeouts;
+    };
+    exports.createTimeout = function(attempt, opts) {
+      var random = opts.randomize ? Math.random() + 1 : 1;
+      var timeout = Math.round(random * opts.minTimeout * Math.pow(opts.factor, attempt));
+      timeout = Math.min(timeout, opts.maxTimeout);
+      return timeout;
+    };
+    exports.wrap = function(obj, options, methods) {
+      if (options instanceof Array) {
+        methods = options;
+        options = null;
+      }
+      if (!methods) {
+        methods = [];
+        for (var key in obj) {
+          if (typeof obj[key] === "function") {
+            methods.push(key);
+          }
+        }
+      }
+      for (var i = 0; i < methods.length; i++) {
+        var method = methods[i];
+        var original = obj[method];
+        obj[method] = function retryWrapper(original2) {
+          var op = exports.operation(options);
+          var args = Array.prototype.slice.call(arguments, 1);
+          var callback = args.pop();
+          args.push(function(err) {
+            if (op.retry(err)) {
+              return;
+            }
+            if (err) {
+              arguments[0] = op.mainError();
+            }
+            callback.apply(this, arguments);
+          });
+          op.attempt(function() {
+            original2.apply(obj, args);
+          });
+        }.bind(obj, original);
+        obj[method].options = options;
+      }
+    };
+  }
+});
+
+// node_modules/retry/index.js
+var require_retry2 = __commonJS({
+  "node_modules/retry/index.js"(exports, module) {
+    module.exports = require_retry();
+  }
+});
+
+// node_modules/signal-exit/signals.js
+var require_signals = __commonJS({
+  "node_modules/signal-exit/signals.js"(exports, module) {
+    module.exports = [
+      "SIGABRT",
+      "SIGALRM",
+      "SIGHUP",
+      "SIGINT",
+      "SIGTERM"
+    ];
+    if (process.platform !== "win32") {
+      module.exports.push(
+        "SIGVTALRM",
+        "SIGXCPU",
+        "SIGXFSZ",
+        "SIGUSR2",
+        "SIGTRAP",
+        "SIGSYS",
+        "SIGQUIT",
+        "SIGIOT"
+        // should detect profiler and enable/disable accordingly.
+        // see #21
+        // 'SIGPROF'
+      );
+    }
+    if (process.platform === "linux") {
+      module.exports.push(
+        "SIGIO",
+        "SIGPOLL",
+        "SIGPWR",
+        "SIGSTKFLT",
+        "SIGUNUSED"
+      );
+    }
+  }
+});
+
+// node_modules/signal-exit/index.js
+var require_signal_exit = __commonJS({
+  "node_modules/signal-exit/index.js"(exports, module) {
+    var process2 = global.process;
+    var processOk = function(process3) {
+      return process3 && typeof process3 === "object" && typeof process3.removeListener === "function" && typeof process3.emit === "function" && typeof process3.reallyExit === "function" && typeof process3.listeners === "function" && typeof process3.kill === "function" && typeof process3.pid === "number" && typeof process3.on === "function";
+    };
+    if (!processOk(process2)) {
+      module.exports = function() {
+        return function() {
+        };
+      };
+    } else {
+      assert = __require("assert");
+      signals = require_signals();
+      isWin = /^win/i.test(process2.platform);
+      EE = __require("events");
+      if (typeof EE !== "function") {
+        EE = EE.EventEmitter;
+      }
+      if (process2.__signal_exit_emitter__) {
+        emitter = process2.__signal_exit_emitter__;
+      } else {
+        emitter = process2.__signal_exit_emitter__ = new EE();
+        emitter.count = 0;
+        emitter.emitted = {};
+      }
+      if (!emitter.infinite) {
+        emitter.setMaxListeners(Infinity);
+        emitter.infinite = true;
+      }
+      module.exports = function(cb, opts) {
+        if (!processOk(global.process)) {
+          return function() {
+          };
+        }
+        assert.equal(typeof cb, "function", "a callback must be provided for exit handler");
+        if (loaded === false) {
+          load();
+        }
+        var ev = "exit";
+        if (opts && opts.alwaysLast) {
+          ev = "afterexit";
+        }
+        var remove = function() {
+          emitter.removeListener(ev, cb);
+          if (emitter.listeners("exit").length === 0 && emitter.listeners("afterexit").length === 0) {
+            unload();
+          }
+        };
+        emitter.on(ev, cb);
+        return remove;
+      };
+      unload = function unload2() {
+        if (!loaded || !processOk(global.process)) {
+          return;
+        }
+        loaded = false;
+        signals.forEach(function(sig) {
+          try {
+            process2.removeListener(sig, sigListeners[sig]);
+          } catch (er) {
+          }
+        });
+        process2.emit = originalProcessEmit;
+        process2.reallyExit = originalProcessReallyExit;
+        emitter.count -= 1;
+      };
+      module.exports.unload = unload;
+      emit = function emit2(event, code, signal) {
+        if (emitter.emitted[event]) {
+          return;
+        }
+        emitter.emitted[event] = true;
+        emitter.emit(event, code, signal);
+      };
+      sigListeners = {};
+      signals.forEach(function(sig) {
+        sigListeners[sig] = function listener() {
+          if (!processOk(global.process)) {
+            return;
+          }
+          var listeners = process2.listeners(sig);
+          if (listeners.length === emitter.count) {
+            unload();
+            emit("exit", null, sig);
+            emit("afterexit", null, sig);
+            if (isWin && sig === "SIGHUP") {
+              sig = "SIGINT";
+            }
+            process2.kill(process2.pid, sig);
+          }
+        };
+      });
+      module.exports.signals = function() {
+        return signals;
+      };
+      loaded = false;
+      load = function load2() {
+        if (loaded || !processOk(global.process)) {
+          return;
+        }
+        loaded = true;
+        emitter.count += 1;
+        signals = signals.filter(function(sig) {
+          try {
+            process2.on(sig, sigListeners[sig]);
+            return true;
+          } catch (er) {
+            return false;
+          }
+        });
+        process2.emit = processEmit;
+        process2.reallyExit = processReallyExit;
+      };
+      module.exports.load = load;
+      originalProcessReallyExit = process2.reallyExit;
+      processReallyExit = function processReallyExit2(code) {
+        if (!processOk(global.process)) {
+          return;
+        }
+        process2.exitCode = code || /* istanbul ignore next */
+        0;
+        emit("exit", process2.exitCode, null);
+        emit("afterexit", process2.exitCode, null);
+        originalProcessReallyExit.call(process2, process2.exitCode);
+      };
+      originalProcessEmit = process2.emit;
+      processEmit = function processEmit2(ev, arg) {
+        if (ev === "exit" && processOk(global.process)) {
+          if (arg !== void 0) {
+            process2.exitCode = arg;
+          }
+          var ret = originalProcessEmit.apply(this, arguments);
+          emit("exit", process2.exitCode, null);
+          emit("afterexit", process2.exitCode, null);
+          return ret;
+        } else {
+          return originalProcessEmit.apply(this, arguments);
+        }
+      };
+    }
+    var assert;
+    var signals;
+    var isWin;
+    var EE;
+    var emitter;
+    var unload;
+    var emit;
+    var sigListeners;
+    var loaded;
+    var load;
+    var originalProcessReallyExit;
+    var processReallyExit;
+    var originalProcessEmit;
+    var processEmit;
+  }
+});
+
+// node_modules/proper-lockfile/lib/mtime-precision.js
+var require_mtime_precision = __commonJS({
+  "node_modules/proper-lockfile/lib/mtime-precision.js"(exports, module) {
+    "use strict";
+    var cacheSymbol = Symbol();
+    function probe(file, fs, callback) {
+      const cachedPrecision = fs[cacheSymbol];
+      if (cachedPrecision) {
+        return fs.stat(file, (err, stat2) => {
+          if (err) {
+            return callback(err);
+          }
+          callback(null, stat2.mtime, cachedPrecision);
+        });
+      }
+      const mtime = new Date(Math.ceil(Date.now() / 1e3) * 1e3 + 5);
+      fs.utimes(file, mtime, mtime, (err) => {
+        if (err) {
+          return callback(err);
+        }
+        fs.stat(file, (err2, stat2) => {
+          if (err2) {
+            return callback(err2);
+          }
+          const precision = stat2.mtime.getTime() % 1e3 === 0 ? "s" : "ms";
+          Object.defineProperty(fs, cacheSymbol, { value: precision });
+          callback(null, stat2.mtime, precision);
+        });
+      });
+    }
+    function getMtime(precision) {
+      let now = Date.now();
+      if (precision === "s") {
+        now = Math.ceil(now / 1e3) * 1e3;
+      }
+      return new Date(now);
+    }
+    module.exports.probe = probe;
+    module.exports.getMtime = getMtime;
+  }
+});
+
+// node_modules/proper-lockfile/lib/lockfile.js
+var require_lockfile = __commonJS({
+  "node_modules/proper-lockfile/lib/lockfile.js"(exports, module) {
+    "use strict";
+    var path = __require("path");
+    var fs = require_graceful_fs();
+    var retry = require_retry2();
+    var onExit = require_signal_exit();
+    var mtimePrecision = require_mtime_precision();
+    var locks = {};
+    function getLockFile(file, options) {
+      return options.lockfilePath || `${file}.lock`;
+    }
+    function resolveCanonicalPath(file, options, callback) {
+      if (!options.realpath) {
+        return callback(null, path.resolve(file));
+      }
+      options.fs.realpath(file, callback);
+    }
+    function acquireLock(file, options, callback) {
+      const lockfilePath = getLockFile(file, options);
+      options.fs.mkdir(lockfilePath, (err) => {
+        if (!err) {
+          return mtimePrecision.probe(lockfilePath, options.fs, (err2, mtime, mtimePrecision2) => {
+            if (err2) {
+              options.fs.rmdir(lockfilePath, () => {
+              });
+              return callback(err2);
+            }
+            callback(null, mtime, mtimePrecision2);
+          });
+        }
+        if (err.code !== "EEXIST") {
+          return callback(err);
+        }
+        if (options.stale <= 0) {
+          return callback(Object.assign(new Error("Lock file is already being held"), { code: "ELOCKED", file }));
+        }
+        options.fs.stat(lockfilePath, (err2, stat2) => {
+          if (err2) {
+            if (err2.code === "ENOENT") {
+              return acquireLock(file, { ...options, stale: 0 }, callback);
+            }
+            return callback(err2);
+          }
+          if (!isLockStale(stat2, options)) {
+            return callback(Object.assign(new Error("Lock file is already being held"), { code: "ELOCKED", file }));
+          }
+          removeLock(file, options, (err3) => {
+            if (err3) {
+              return callback(err3);
+            }
+            acquireLock(file, { ...options, stale: 0 }, callback);
+          });
+        });
+      });
+    }
+    function isLockStale(stat2, options) {
+      return stat2.mtime.getTime() < Date.now() - options.stale;
+    }
+    function removeLock(file, options, callback) {
+      options.fs.rmdir(getLockFile(file, options), (err) => {
+        if (err && err.code !== "ENOENT") {
+          return callback(err);
+        }
+        callback();
+      });
+    }
+    function updateLock(file, options) {
+      const lock2 = locks[file];
+      if (lock2.updateTimeout) {
+        return;
+      }
+      lock2.updateDelay = lock2.updateDelay || options.update;
+      lock2.updateTimeout = setTimeout(() => {
+        lock2.updateTimeout = null;
+        options.fs.stat(lock2.lockfilePath, (err, stat2) => {
+          const isOverThreshold = lock2.lastUpdate + options.stale < Date.now();
+          if (err) {
+            if (err.code === "ENOENT" || isOverThreshold) {
+              return setLockAsCompromised(file, lock2, Object.assign(err, { code: "ECOMPROMISED" }));
+            }
+            lock2.updateDelay = 1e3;
+            return updateLock(file, options);
+          }
+          const isMtimeOurs = lock2.mtime.getTime() === stat2.mtime.getTime();
+          if (!isMtimeOurs) {
+            return setLockAsCompromised(
+              file,
+              lock2,
+              Object.assign(
+                new Error("Unable to update lock within the stale threshold"),
+                { code: "ECOMPROMISED" }
+              )
+            );
+          }
+          const mtime = mtimePrecision.getMtime(lock2.mtimePrecision);
+          options.fs.utimes(lock2.lockfilePath, mtime, mtime, (err2) => {
+            const isOverThreshold2 = lock2.lastUpdate + options.stale < Date.now();
+            if (lock2.released) {
+              return;
+            }
+            if (err2) {
+              if (err2.code === "ENOENT" || isOverThreshold2) {
+                return setLockAsCompromised(file, lock2, Object.assign(err2, { code: "ECOMPROMISED" }));
+              }
+              lock2.updateDelay = 1e3;
+              return updateLock(file, options);
+            }
+            lock2.mtime = mtime;
+            lock2.lastUpdate = Date.now();
+            lock2.updateDelay = null;
+            updateLock(file, options);
+          });
+        });
+      }, lock2.updateDelay);
+      if (lock2.updateTimeout.unref) {
+        lock2.updateTimeout.unref();
+      }
+    }
+    function setLockAsCompromised(file, lock2, err) {
+      lock2.released = true;
+      if (lock2.updateTimeout) {
+        clearTimeout(lock2.updateTimeout);
+      }
+      if (locks[file] === lock2) {
+        delete locks[file];
+      }
+      lock2.options.onCompromised(err);
+    }
+    function lock(file, options, callback) {
+      options = {
+        stale: 1e4,
+        update: null,
+        realpath: true,
+        retries: 0,
+        fs,
+        onCompromised: (err) => {
+          throw err;
+        },
+        ...options
+      };
+      options.retries = options.retries || 0;
+      options.retries = typeof options.retries === "number" ? { retries: options.retries } : options.retries;
+      options.stale = Math.max(options.stale || 0, 2e3);
+      options.update = options.update == null ? options.stale / 2 : options.update || 0;
+      options.update = Math.max(Math.min(options.update, options.stale / 2), 1e3);
+      resolveCanonicalPath(file, options, (err, file2) => {
+        if (err) {
+          return callback(err);
+        }
+        const operation = retry.operation(options.retries);
+        operation.attempt(() => {
+          acquireLock(file2, options, (err2, mtime, mtimePrecision2) => {
+            if (operation.retry(err2)) {
+              return;
+            }
+            if (err2) {
+              return callback(operation.mainError());
+            }
+            const lock2 = locks[file2] = {
+              lockfilePath: getLockFile(file2, options),
+              mtime,
+              mtimePrecision: mtimePrecision2,
+              options,
+              lastUpdate: Date.now()
+            };
+            updateLock(file2, options);
+            callback(null, (releasedCallback) => {
+              if (lock2.released) {
+                return releasedCallback && releasedCallback(Object.assign(new Error("Lock is already released"), { code: "ERELEASED" }));
+              }
+              unlock(file2, { ...options, realpath: false }, releasedCallback);
+            });
+          });
+        });
+      });
+    }
+    function unlock(file, options, callback) {
+      options = {
+        fs,
+        realpath: true,
+        ...options
+      };
+      resolveCanonicalPath(file, options, (err, file2) => {
+        if (err) {
+          return callback(err);
+        }
+        const lock2 = locks[file2];
+        if (!lock2) {
+          return callback(Object.assign(new Error("Lock is not acquired/owned by you"), { code: "ENOTACQUIRED" }));
+        }
+        lock2.updateTimeout && clearTimeout(lock2.updateTimeout);
+        lock2.released = true;
+        delete locks[file2];
+        removeLock(file2, options, callback);
+      });
+    }
+    function check(file, options, callback) {
+      options = {
+        stale: 1e4,
+        realpath: true,
+        fs,
+        ...options
+      };
+      options.stale = Math.max(options.stale || 0, 2e3);
+      resolveCanonicalPath(file, options, (err, file2) => {
+        if (err) {
+          return callback(err);
+        }
+        options.fs.stat(getLockFile(file2, options), (err2, stat2) => {
+          if (err2) {
+            return err2.code === "ENOENT" ? callback(null, false) : callback(err2);
+          }
+          return callback(null, !isLockStale(stat2, options));
+        });
+      });
+    }
+    function getLocks() {
+      return locks;
+    }
+    onExit(() => {
+      for (const file in locks) {
+        const options = locks[file].options;
+        try {
+          options.fs.rmdirSync(getLockFile(file, options));
+        } catch (e) {
+        }
+      }
+    });
+    module.exports.lock = lock;
+    module.exports.unlock = unlock;
+    module.exports.check = check;
+    module.exports.getLocks = getLocks;
+  }
+});
+
+// node_modules/proper-lockfile/lib/adapter.js
+var require_adapter = __commonJS({
+  "node_modules/proper-lockfile/lib/adapter.js"(exports, module) {
+    "use strict";
+    var fs = require_graceful_fs();
+    function createSyncFs(fs2) {
+      const methods = ["mkdir", "realpath", "stat", "rmdir", "utimes"];
+      const newFs = { ...fs2 };
+      methods.forEach((method) => {
+        newFs[method] = (...args) => {
+          const callback = args.pop();
+          let ret;
+          try {
+            ret = fs2[`${method}Sync`](...args);
+          } catch (err) {
+            return callback(err);
+          }
+          callback(null, ret);
+        };
+      });
+      return newFs;
+    }
+    function toPromise(method) {
+      return (...args) => new Promise((resolve3, reject) => {
+        args.push((err, result) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve3(result);
+          }
+        });
+        method(...args);
+      });
+    }
+    function toSync(method) {
+      return (...args) => {
+        let err;
+        let result;
+        args.push((_err, _result) => {
+          err = _err;
+          result = _result;
+        });
+        method(...args);
+        if (err) {
+          throw err;
+        }
+        return result;
+      };
+    }
+    function toSyncOptions(options) {
+      options = { ...options };
+      options.fs = createSyncFs(options.fs || fs);
+      if (typeof options.retries === "number" && options.retries > 0 || options.retries && typeof options.retries.retries === "number" && options.retries.retries > 0) {
+        throw Object.assign(new Error("Cannot use retries with the sync api"), { code: "ESYNC" });
+      }
+      return options;
+    }
+    module.exports = {
+      toPromise,
+      toSync,
+      toSyncOptions
+    };
+  }
+});
+
+// node_modules/proper-lockfile/index.js
+var require_proper_lockfile = __commonJS({
+  "node_modules/proper-lockfile/index.js"(exports, module) {
+    "use strict";
+    var lockfile2 = require_lockfile();
+    var { toPromise, toSync, toSyncOptions } = require_adapter();
+    async function lock(file, options) {
+      const release = await toPromise(lockfile2.lock)(file, options);
+      return toPromise(release);
+    }
+    function lockSync(file, options) {
+      const release = toSync(lockfile2.lock)(file, toSyncOptions(options));
+      return toSync(release);
+    }
+    function unlock(file, options) {
+      return toPromise(lockfile2.unlock)(file, options);
+    }
+    function unlockSync(file, options) {
+      return toSync(lockfile2.unlock)(file, toSyncOptions(options));
+    }
+    function check(file, options) {
+      return toPromise(lockfile2.check)(file, options);
+    }
+    function checkSync(file, options) {
+      return toSync(lockfile2.check)(file, toSyncOptions(options));
+    }
+    module.exports = lock;
+    module.exports.lock = lock;
+    module.exports.unlock = unlock;
+    module.exports.lockSync = lockSync;
+    module.exports.unlockSync = unlockSync;
+    module.exports.check = check;
+    module.exports.checkSync = checkSync;
+  }
+});
+
 // packages/hosts/pi/src/index.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname2, join as join4 } from "node:path";
+import { existsSync as existsSync5, readFileSync as readFileSync3 } from "node:fs";
+import { dirname as dirname4, join as join8 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resizeImage } from "@earendil-works/pi-coding-agent";
 
 // packages/core/src/registry.ts
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
 
 // packages/core/src/auth.ts
 var EnhanceError = class extends Error {
@@ -16,20 +1629,32 @@ var EnhanceError = class extends Error {
     this.name = "EnhanceError";
   }
 };
+var StaticCredentialResolver = class {
+  constructor(credentials) {
+    this.credentials = credentials;
+  }
+  async resolve(request) {
+    const credential = this.credentials[`${request.provider}/${request.channel}`];
+    return credential ? { status: "ready", credential } : {
+      status: "missing",
+      guidance: `Configure ${request.provider}/${request.channel} credentials in this host.`
+    };
+  }
+};
 
 // packages/core/src/registry.ts
-var COMMON_FIELDS = {
-  gen_image: ["prompt", "images", "model", "timeout_seconds"],
-  search_web: ["search_query", "open"]
-};
 var strings = (values) => Type.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 var CapabilityRegistry = class {
   entries = /* @__PURE__ */ new Map();
-  pending = /* @__PURE__ */ new Set();
-  defaults;
-  constructor(defaults = {}) {
-    this.defaults = { ...defaults };
+  pending = /* @__PURE__ */ new Map();
+  suspended = /* @__PURE__ */ new Set();
+  preferred;
+  constructor(preferred = {}) {
+    this.preferred = { ...preferred };
+  }
+  setPreferred(preferred) {
+    this.preferred = { ...preferred };
   }
   list() {
     return [...this.entries.values()];
@@ -37,17 +1662,30 @@ var CapabilityRegistry = class {
   get(id) {
     return this.entries.get(id);
   }
-  load(module, services) {
+  load(module, services, binding) {
     const { manifest } = module;
-    if (manifest.apiVersion !== 1 || manifest.id !== `${manifest.capability}/${manifest.provider}` || !/^[a-z][a-z0-9_]*$/.test(manifest.capability))
+    if (manifest.apiVersion !== MODULE_API_VERSION || module.definition.id !== manifest.capability || manifest.id !== `${manifest.capability}/${manifest.provider}` || !/^[a-z][a-z0-9_]*$/.test(manifest.capability))
       throw new EnhanceError("MODULE_CONTRACT", "Invalid module identity or API version.");
-    if (this.entries.has(manifest.id)) return;
+    const id = binding ? `${manifest.id}@${binding.id}` : manifest.id;
+    if (this.entries.has(id)) return;
     if (manifest.platforms && !manifest.platforms.includes(process.platform))
       throw new EnhanceError("PLATFORM", `Module requires ${manifest.platforms.join(", ")}.`);
     const instance = module.create(services);
-    if (manifest.kind === "tool" && (!instance.tool || instance.tool.name !== manifest.capability))
+    if (!instance.tool || instance.tool.name !== manifest.capability)
       throw new EnhanceError("MODULE_CONTRACT", "Tool name must match capability.");
-    this.entries.set(manifest.id, { module, instance });
+    this.entries.set(id, { id, module, instance, binding });
+  }
+  setBinding(id, binding) {
+    const entry = this.entries.get(id);
+    if (!entry || entry.binding?.id !== binding.id)
+      throw new EnhanceError("MODULE_CONTRACT", "Binding identity cannot change.");
+    entry.binding = binding;
+  }
+  suspend(id) {
+    this.suspended.add(id);
+  }
+  resume(id) {
+    this.suspended.delete(id);
   }
   assertIdle(id) {
     if (this.pending.has(id))
@@ -56,8 +1694,10 @@ var CapabilityRegistry = class {
   async unload(id) {
     this.assertIdle(id);
     const entry = this.entries.get(id);
+    this.suspend(id);
     await entry?.instance.dispose?.();
     this.entries.delete(id);
+    this.suspended.delete(id);
   }
   async lifecycle(event, isIdle) {
     const results = await Promise.allSettled(this.list().map((e) => e.instance.lifecycle?.(event, isIdle)));
@@ -69,8 +1709,10 @@ var CapabilityRegistry = class {
       );
   }
   async dispose() {
+    for (const id of this.entries.keys()) this.suspend(id);
     const results = await Promise.allSettled(this.list().map((e) => e.instance.dispose?.()));
     this.entries.clear();
+    this.suspended.clear();
     const errors = results.filter((r) => r.status === "rejected");
     if (errors.length)
       throw new AggregateError(
@@ -79,25 +1721,44 @@ var CapabilityRegistry = class {
       );
   }
   tools() {
-    const groups2 = /* @__PURE__ */ new Map();
+    const groups = /* @__PURE__ */ new Map();
     for (const entry of this.list())
-      if (entry.instance.tool) {
+      if (entry.instance.tool && !this.suspended.has(entry.id)) {
         const cap = entry.module.manifest.capability;
-        groups2.set(cap, [...groups2.get(cap) ?? [], entry]);
+        groups.set(cap, [...groups.get(cap) ?? [], entry]);
       }
-    return [...groups2].sort(([a], [b]) => a.localeCompare(b)).map(([cap, entries]) => this.merge(cap, entries));
+    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(
+      ([cap, entries]) => this.merge(
+        cap,
+        entries.sort(
+          (a, b) => a.module.manifest.provider.localeCompare(b.module.manifest.provider) || (a.binding?.id ?? "").localeCompare(b.binding?.id ?? "")
+        )
+      )
+    );
   }
   merge(capability, entries) {
-    const providers = entries.map((e) => e.module.manifest.provider);
+    const implementations = [...new Map(entries.map((e) => [e.module.manifest.provider, e])).values()];
+    const providers = implementations.map((e) => e.module.manifest.provider);
+    const definition = entries[0].module.definition;
     const first = entries[0].instance.tool;
     const properties = { provider: Type.Optional(strings(providers)) };
+    if (entries.some((e) => e.binding))
+      properties.service = Type.Optional(
+        Type.Unsafe({
+          type: "string",
+          enum: [...new Set(entries.map((e) => e.binding?.id ?? e.module.manifest.provider))],
+          description: "Select an exact service connection: " + entries.map(
+            (e) => `${e.binding?.id ?? e.module.manifest.provider} (${e.binding?.label ?? e.module.manifest.provider})`
+          ).join(", ")
+        })
+      );
     const options = {};
-    for (const { module, instance } of entries) {
+    for (const { module, instance } of implementations) {
       const schema = instance.tool.parameters;
       const specific = {};
       const required = schema.required ?? [];
       for (const [key, field] of Object.entries(schema.properties)) {
-        const common = COMMON_FIELDS[capability];
+        const common = definition.commonFields;
         if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : Type.Optional(field);
         else if (!properties[key]) properties[key] = required.includes(key) ? field : Type.Optional(field);
@@ -107,39 +1768,18 @@ var CapabilityRegistry = class {
           Type.Object(specific, { additionalProperties: false })
         );
     }
-    if (capability === "gen_image") {
-      properties.images = Type.Optional(
-        Type.Array(
-          Type.Object(
-            {
-              path: Type.Optional(Type.String({ minLength: 1 })),
-              image_url: Type.Optional(Type.String({ minLength: 1 }))
-            },
-            { additionalProperties: false }
-          ),
-          {
-            minItems: 1,
-            // A provider without reference-image support (e.g. minimax) contributes a floor of 1.
-            maxItems: Math.max(
-              ...entries.map(
-                (e) => e.instance.tool.parameters.properties.images?.maxItems ?? 1
-              )
-            )
-          }
-        )
-      );
-      properties.model = Type.Optional(
-        strings(entries.flatMap((e) => e.instance.tool.parameters.properties.model?.enum ?? []))
-      );
-    }
+    Object.assign(
+      properties,
+      definition.composeParameters?.(implementations.map((e) => e.instance.tool.parameters))
+    );
     if (Object.keys(options).length)
       properties.options = Type.Optional(Type.Object(options, { additionalProperties: false }));
     const parameters = Type.Object(properties, { additionalProperties: false });
     return {
       name: capability,
-      label: capability,
-      description: `Providers: ${providers.join(", ")}. Set provider or omit it for the configured default; a failed call never falls back to another provider.${COMMON_FIELDS[capability] ? ` Provider-specific parameters go in options.<provider>.` : ""}
-` + entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
+      label: definition.label,
+      description: `Providers: ${providers.join(", ")}. Choose provider/service when several connections are available; a saved preference or a sole connection can be used implicitly. Failed calls never fall back.${definition.commonFields ? ` Provider-specific parameters go in options.<provider>.` : ""}
+` + implementations.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool.promptGuidelines ?? []))],
       parameters,
@@ -151,17 +1791,23 @@ var CapabilityRegistry = class {
             "Arguments do not match the current loaded capability schema."
           );
         const args = raw;
-        const provider = args.provider ?? this.defaults[capability] ?? (providers.length === 1 ? providers[0] : void 0);
-        const entry = entries.find((e) => e.module.manifest.provider === provider);
-        if (!entry)
+        const candidates = entries.filter(
+          (e) => !args.provider || e.module.manifest.provider === args.provider
+        );
+        const service = args.service ?? this.preferred[capability];
+        const matches = service ? candidates.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === service) : candidates;
+        const selectable = !args.service && args.provider && !matches.length ? candidates : matches;
+        if (selectable.length !== 1)
           throw new EnhanceError(
             "PROVIDER_SELECTION",
-            `Choose a loaded provider for ${capability}: ${providers.join(", ")}.`
+            `Choose an exact provider/service for ${capability}; ${selectable.length ? "several connections match" : "selected connection is unavailable"}.`
           );
-        const id = entry.module.manifest.id;
-        if (this.entries.get(id) !== entry)
+        const entry = selectable[0];
+        const provider = entry.module.manifest.provider;
+        const id = entry.id;
+        if (this.entries.get(id) !== entry || this.suspended.has(id))
           throw new EnhanceError("STALE_TOOL", "Capability changed; use the refreshed tool schema.");
-        const { provider: ignored, options: rawOptions, ...common } = args;
+        const { provider: ignored, service: ignoredService, options: rawOptions, ...common } = args;
         const selectedOptions = object(rawOptions) ? rawOptions : {};
         if (Object.keys(selectedOptions).some((key) => key !== provider))
           throw new EnhanceError("PROVIDER_OPTIONS", "Only options for the selected provider are accepted.");
@@ -172,12 +1818,21 @@ var CapabilityRegistry = class {
             "PROVIDER_ARGUMENTS",
             `Arguments are unsupported by ${provider}; check model and input limits.`
           );
-        const activeContext = { ...context, signal };
-        this.pending.add(`${id}:${callId}`);
-        this.pending.add(id);
+        const activeContext = {
+          ...context,
+          signal,
+          credentials: entry.binding?.credentials ?? context.credentials
+        };
+        this.pending.set(id, (this.pending.get(id) ?? 0) + 1);
         const normalize = (result) => ({
           ...result,
-          details: { ...result.details, version: 1, capability, provider }
+          details: {
+            ...result.details,
+            version: 1,
+            capability,
+            provider,
+            ...entry.binding ? { service: entry.binding.id } : {}
+          }
         });
         try {
           return normalize(
@@ -190,15 +1845,33 @@ var CapabilityRegistry = class {
             )
           );
         } finally {
-          this.pending.delete(`${id}:${callId}`);
-          if (![...this.pending].some((key) => key.startsWith(`${id}:`))) this.pending.delete(id);
+          const remaining = (this.pending.get(id) ?? 1) - 1;
+          if (remaining) this.pending.set(id, remaining);
+          else this.pending.delete(id);
         }
       }
     };
   }
 };
 
-// packages/core/src/config.ts
+// packages/core/src/controls.ts
+function transformControlledRequest(payload, model, controls, state) {
+  if (!model) return payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  let result = payload;
+  for (const control of controls) {
+    const value = state[control.id] ?? "off";
+    if (value !== "off" && control.choices.includes(value) && control.supported(model))
+      result = control.transform(result, value, model);
+  }
+  return result;
+}
+
+// packages/integrations/services/src/preferences.ts
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// packages/integrations/services/src/json.ts
 import {
   closeSync,
   constants,
@@ -211,13 +1884,8 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-function enhanceHome() {
-  return process.env.AGENT_ENHANCE_HOME ?? join(homedir(), ".agent-enhance");
-}
-var emptyConfig = () => ({ version: 1, autoload: [], defaults: {}, controls: {} });
 function readJson(path, fallback) {
   if (!existsSync(path)) return fallback();
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -256,225 +1924,930 @@ function updateJson(path, fallback, update) {
     unlinkSync(lockPath);
   }
 }
-function validate(config) {
-  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string") || config.subagents !== void 0 && typeof config.subagents !== "boolean" || config.subagentModel !== void 0 && (typeof config.subagentModel !== "string" || !/^[^\s/]+\/\S+$/.test(config.subagentModel)))
-    throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
-  return config;
-}
-var ConfigStore = class {
-  path;
-  constructor(home, host) {
-    if (!/^[a-z][a-z0-9-]*$/.test(host)) throw new Error("Invalid host ID");
-    this.path = join(home, "hosts", `${host}.json`);
+
+// packages/integrations/services/src/preferences.ts
+var enhanceHome = () => process.env.AGENT_ENHANCE_HOME ?? join(homedir(), ".agent-enhance");
+var emptyPreferences = () => ({ version: 1, preferred: {}, excluded: [] });
+var emptyPiPreferences = () => ({
+  ...emptyPreferences(),
+  requests: {},
+  subagents: { enabled: false }
+});
+var record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+function validate(value, pi) {
+  if (!record(value) || value.version !== 1 || !record(value.preferred) || Object.values(value.preferred).some((v) => typeof v !== "string" || !v) || !Array.isArray(value.excluded) || value.excluded.some((v) => typeof v !== "string" || !v) || Object.keys(value).some(
+    (k) => !["version", "preferred", "excluded", ...pi ? ["requests", "subagents"] : []].includes(k)
+  ))
+    throw new EnhanceError("CONFIG_INVALID", "Invalid service preferences; original file was not changed.");
+  if (pi) {
+    const p = value;
+    if (!record(p.requests) || Object.values(p.requests).some((v) => typeof v !== "string") || !record(p.subagents) || typeof p.subagents.enabled !== "boolean" || Object.keys(p.subagents).some((k) => !["enabled", "model"].includes(k)) || p.subagents.model !== void 0 && (typeof p.subagents.model !== "string" || !/^[^\s/]+\/\S+$/.test(p.subagents.model)))
+      throw new EnhanceError("CONFIG_INVALID", "Invalid Pi preferences; original file was not changed.");
   }
+  return value;
+}
+var PreferenceStore = class {
+  constructor(home, host, empty, verifySettings) {
+    this.host = host;
+    this.empty = empty;
+    this.verifySettings = verifySettings;
+    this.path = join(home, "preferences", `${host}.json`);
+  }
+  path;
   load() {
-    return validate(readJson(this.path, emptyConfig));
+    const value = validate(readJson(this.path, this.empty), this.host === "pi");
+    this.verifySettings?.(value);
+    return value;
   }
   update(update) {
-    return updateJson(this.path, emptyConfig, (c) => validate(update(validate(c))));
+    return updateJson(this.path, this.empty, (current) => {
+      const before = validate(current, this.host === "pi");
+      this.verifySettings?.(before);
+      const after = validate(update(before), this.host === "pi");
+      this.verifySettings?.(after);
+      return after;
+    });
   }
 };
 
-// packages/core/src/modules.ts
-import { createHash, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+// packages/integrations/services/src/catalog.ts
 import { join as join2 } from "node:path";
 import { pathToFileURL } from "node:url";
-var emptyLock = () => ({ version: 1, modules: {} });
-var moduleId = /^[a-z_]+\/[a-z]+$/;
-var hash = /^[a-f0-9]{64}$/;
-function validateLock(lock) {
-  if (lock?.version !== 1 || !lock.modules || typeof lock.modules !== "object" || Array.isArray(lock.modules) || Object.entries(lock.modules).some(
-    ([id, entry]) => !moduleId.test(id) || !entry || typeof entry.version !== "string" || !hash.test(entry.sha256) || entry.file !== `${id.replace("/", "--")}.mjs`
-  ))
-    throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
-  return lock;
-}
-var sameInstallation = (a, b) => a?.sha256 === b?.sha256 && a?.version === b?.version && a?.file === b?.file;
-var ModuleManager = class {
-  constructor(home, catalog, bundledDirectory, fetchImpl = fetch) {
-    this.home = home;
+var CATALOG_VERSION = 2;
+var ModuleCatalog = class {
+  constructor(catalog, directory) {
     this.catalog = catalog;
-    this.bundledDirectory = bundledDirectory;
-    this.fetchImpl = fetchImpl;
-    this.lockPath = join2(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance" || !Array.isArray(catalog.modules))
-      throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
+    this.directory = directory;
+    if (catalog.version !== CATALOG_VERSION || !Array.isArray(catalog.modules))
+      throw new Error("Invalid module catalog.");
     const ids = /* @__PURE__ */ new Set();
     for (const entry of catalog.modules) {
-      if (!moduleId.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.apiVersion !== 1 || typeof entry.version !== "string" || entry.file !== `${entry.id.replace("/", "--")}.mjs` || !hash.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > 25 * 1024 * 1024 || ids.has(entry.id))
-        throw new EnhanceError("CATALOG_INVALID", "Invalid module entry.");
+      if (entry.apiVersion !== MODULE_API_VERSION || !/^[a-z][a-z0-9_]*\/[a-z][a-z0-9-]*$/.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.file !== `${entry.capability}--${entry.provider}.mjs` || ids.has(entry.id))
+        throw new Error("Invalid module catalog entry.");
       ids.add(entry.id);
     }
   }
-  lockPath;
   find(id) {
     const entry = this.catalog.modules.find((e) => e.id === id);
-    if (!entry) throw new EnhanceError("MODULE_UNKNOWN", `Unknown capability/provider: ${id}`);
+    if (!entry) throw new Error(`Unknown capability/provider: ${id}`);
     return entry;
   }
-  readLock() {
-    return validateLock(readJson(this.lockPath, emptyLock));
-  }
-  installed(id) {
-    return this.readLock().modules[id];
-  }
-  /** Local catalog comparison only: no network, imports, or authentication. */
-  updates() {
-    const lock = this.readLock();
-    return this.catalog.modules.filter((e) => lock.modules[e.id] && lock.modules[e.id].sha256 !== e.sha256);
-  }
-  path(entry) {
-    return join2(this.home, "packages", `${entry.sha256}-${entry.file}`);
-  }
-  verify(bytes, entry) {
-    if (bytes.byteLength !== entry.bytes || createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
-      throw new EnhanceError("MODULE_INTEGRITY", `Integrity verification failed: ${entry.id}`);
-  }
-  /** Stage verified bytes without changing installation records or executing the module. */
-  async stage(entry, signal) {
-    signal?.throwIfAborted();
-    try {
-      this.verify(await readFile(this.path(entry), { signal }), entry);
-      return;
-    } catch (error) {
-      if (error.code !== "ENOENT" && !(error instanceof EnhanceError && error.code === "MODULE_INTEGRITY"))
-        throw error;
-    }
-    let bytes;
-    if (this.bundledDirectory) {
-      try {
-        bytes = await readFile(join2(this.bundledDirectory, entry.file), { signal });
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
-    if (!bytes) {
-      if (!/^[a-f0-9]{40}$/.test(this.catalog.revision))
-        throw new EnhanceError(
-          "MODULE_SOURCE",
-          "This development catalog has no immutable download revision. Build locally first."
-        );
-      const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(6e4)]) : AbortSignal.timeout(6e4);
-      const url = `https://raw.githubusercontent.com/${this.catalog.repository}/${this.catalog.revision}/dist/modules/${entry.file}`;
-      const response = await this.fetchImpl(url, { redirect: "error", signal: requestSignal });
-      if (!response.ok || !response.body)
-        throw new EnhanceError("MODULE_DOWNLOAD", `Module download returned HTTP ${response.status}.`);
-      const chunks = [];
-      let size = 0;
-      for await (const chunk of response.body) {
-        requestSignal.throwIfAborted();
-        size += chunk.byteLength;
-        if (size > entry.bytes)
-          throw new EnhanceError("MODULE_INTEGRITY", "Downloaded module exceeds its declared size.");
-        chunks.push(chunk);
-      }
-      bytes = Buffer.concat(chunks);
-    }
-    this.verify(bytes, entry);
-    signal?.throwIfAborted();
-    await mkdir(join2(this.home, "packages"), { recursive: true, mode: 448 });
-    const target = this.path(entry), temp = `${target}.${randomUUID2()}.tmp`;
-    try {
-      await writeFile(temp, bytes, { mode: 384, flag: "wx", signal });
-      await rename(temp, target);
-    } finally {
-      await rm(temp, { force: true });
-    }
-  }
-  async commit(entries, before, signal) {
-    if (!entries.length) return;
-    for (const entry of entries) await this.stage(entry, signal);
-    signal?.throwIfAborted();
-    updateJson(this.lockPath, emptyLock, (raw) => {
-      const current = validateLock(raw);
-      for (const entry of entries)
-        if (!sameInstallation(current.modules[entry.id], before.modules[entry.id]))
-          throw new EnhanceError(
-            "MODULE_CONFLICT",
-            `Installation changed during download: ${entry.id}. Retry explicitly.`
-          );
-      const modules = { ...current.modules };
-      for (const entry of entries)
-        modules[entry.id] = { version: entry.version, sha256: entry.sha256, file: entry.file };
-      return { version: 1, modules };
-    });
-  }
-  async install(id, signal) {
-    await this.commit([this.find(id)], this.readLock(), signal);
-  }
-  /** Updates installed modules only; loaded instances remain untouched until a later load. */
-  async update(ids, signal) {
-    const before = this.readLock();
-    const entries = [
-      ...new Set(ids ?? this.catalog.modules.filter((e) => before.modules[e.id]).map((e) => e.id))
-    ].map((id) => {
-      const entry = this.find(id);
-      if (!before.modules[id])
-        throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before updating.`);
-      return entry;
-    }).filter((entry) => before.modules[entry.id].sha256 !== entry.sha256);
-    await this.commit(entries, before, signal);
-    return entries.map((e) => e.id);
-  }
   async load(id) {
-    const entry = this.find(id), installed = this.installed(id);
-    if (!installed)
-      throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before loading.`);
-    if (installed.sha256 !== entry.sha256)
-      throw new EnhanceError("MODULE_VERSION", `Update or reinstall ${id} to match this host catalog.`);
-    this.verify(await readFile(this.path(entry)), entry);
-    const loaded = (await import(pathToFileURL(this.path(entry)).href)).default;
-    if (JSON.stringify(loaded?.manifest) !== JSON.stringify(
-      Object.fromEntries(
-        Object.entries(entry).filter(([key]) => !["file", "sha256", "bytes"].includes(key))
-      )
-    ))
-      throw new EnhanceError("MODULE_CONTRACT", "Downloaded manifest does not match catalog.");
-    return loaded;
-  }
-  uninstall(id) {
-    this.find(id);
-    updateJson(this.lockPath, emptyLock, (raw) => {
-      const modules = { ...validateLock(raw).modules };
-      delete modules[id];
-      return { version: 1, modules };
-    });
+    const entry = this.find(id);
+    const module = (await import(pathToFileURL(join2(this.directory, entry.file)).href)).default;
+    const { file: _file, bytes: _bytes, label: _label, group: _group, ...manifest } = entry;
+    if (JSON.stringify(module.manifest) !== JSON.stringify(manifest) || module.definition.id !== entry.capability)
+      throw new Error(`Module contract does not match this release: ${id}`);
+    return module;
   }
 };
 
-// packages/core/src/controls.ts
-function transformControlledRequest(payload, model, controls, state) {
-  if (!model || model.provider !== "openai" || model.channel !== "codex" || model.api !== "codex-responses")
-    return payload;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
-  let result = payload;
-  if (!Array.isArray(result.input) || result.model !== model.id) return payload;
-  for (const control of controls) {
-    const value = state[control.id] ?? "off";
-    if (value !== "off" && control.choices.includes(value) && control.supported(model))
-      result = control.transform(result, value);
+// packages/integrations/services/src/contracts.ts
+async function discoverServices(sources) {
+  const results = await Promise.allSettled(sources.map((source) => source.discover()));
+  const connections = /* @__PURE__ */ new Map();
+  const errors = {};
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      errors[sources[index].id] = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      return;
+    }
+    for (const connection2 of result.value) {
+      if (connections.has(connection2.id)) throw new Error(`Duplicate service connection: ${connection2.id}`);
+      connections.set(connection2.id, connection2);
+    }
+  });
+  return { connections: [...connections.values()], errors };
+}
+
+// packages/integrations/services/src/runtime.ts
+var ServiceRuntime = class {
+  constructor(options) {
+    this.options = options;
   }
-  return result;
+  snapshot = { connections: [], errors: {} };
+  states = [];
+  syncing = Promise.resolve();
+  stopped = false;
+  synchronize(sources, preferences, host, signal) {
+    const operation = this.syncing.catch(() => {
+    }).then(async () => {
+      if (this.stopped) return;
+      signal?.throwIfAborted();
+      const discovered = await discoverServices(sources);
+      signal?.throwIfAborted();
+      if (this.stopped) return;
+      const failed = new Set(Object.keys(discovered.errors));
+      const known = new Set(discovered.connections.map((c) => c.id));
+      for (const connection2 of this.snapshot.connections)
+        if (failed.has(connection2.source) && !known.has(connection2.id))
+          discovered.connections.push(connection2);
+      this.snapshot = discovered;
+      const wanted = /* @__PURE__ */ new Map();
+      const states = [];
+      for (const entry of this.options.modules.catalog.modules) {
+        const unsupported = entry.platforms && !entry.platforms.includes(host.platform ?? process.platform) ? `Requires ${entry.platforms.join("/")}` : entry.requires?.filter((feature) => !host.features.has(feature)).join(", ");
+        if (unsupported) {
+          states.push({ module: entry.id, status: "unsupported", reason: unsupported });
+          continue;
+        }
+        const connections = discovered.connections.filter(
+          (connection2) => connection2.provider === entry.provider && (entry.auth ? connection2.channel === entry.auth.channel && connection2.kind !== "runtime" && entry.auth.acceptedKinds.includes(connection2.kind) : connection2.kind === "runtime" && connection2.channel === entry.runtime)
+        );
+        if (!connections.length) {
+          states.push({ module: entry.id, status: "missing", reason: "No matching service connection" });
+          continue;
+        }
+        for (const connection2 of connections) {
+          const state = { module: entry.id, service: connection2.id, status: "available" };
+          if (preferences.excluded.some(
+            (key) => [entry.capability, entry.id, `${entry.capability}@${connection2.id}`].includes(key)
+          )) {
+            state.status = "excluded";
+          } else if (entry.modelInputExcludes?.some((input) => host.model?.input?.includes(input))) {
+            state.status = "hidden";
+            state.reason = "Current model already accepts this input";
+          } else wanted.set(`${entry.id}@${connection2.id}`, { entry, connection: connection2 });
+          states.push(state);
+        }
+      }
+      const registry = this.options.registry;
+      registry.setPreferred(preferences.preferred);
+      for (const loaded of registry.list()) {
+        if (wanted.has(loaded.id)) {
+          registry.resume(loaded.id);
+          continue;
+        }
+        registry.suspend(loaded.id);
+        try {
+          await registry.unload(loaded.id);
+        } catch (error) {
+          states.push({
+            module: loaded.module.manifest.id,
+            service: loaded.binding?.id,
+            status: error instanceof EnhanceError && error.code === "MODULE_BUSY" ? "busy" : "error",
+            reason: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      for (const [id, { entry, connection: connection2 }] of wanted) {
+        if (registry.get(id)) {
+          registry.setBinding(id, {
+            id: connection2.id,
+            label: connection2.label,
+            credentials: connection2.credentials
+          });
+          continue;
+        }
+        try {
+          const module = await this.options.modules.load(entry.id);
+          signal?.throwIfAborted();
+          if (this.stopped) return;
+          registry.load(module, this.options.services(entry, connection2), {
+            id: connection2.id,
+            label: connection2.label,
+            credentials: connection2.credentials
+          });
+        } catch (error) {
+          signal?.throwIfAborted();
+          const state = states.find((s) => s.module === entry.id && s.service === connection2.id);
+          state.status = "error";
+          state.reason = error instanceof Error ? error.message : String(error);
+        }
+      }
+      this.states = states;
+    });
+    this.syncing = operation;
+    return operation;
+  }
+  async dispose() {
+    this.stopped = true;
+    await this.syncing.catch(() => {
+    });
+    await this.options.registry.dispose();
+  }
+  describe() {
+    return [
+      ...this.snapshot.connections.map((c) => `${c.id} \xB7 ${c.label} \xB7 configured`),
+      ...Object.entries(this.snapshot.errors).map(
+        ([source, error]) => `${source}: discovery error: ${error}`
+      ),
+      ...this.states.map(
+        (s) => `${s.module}${s.service ? ` @ ${s.service}` : ""}: ${s.status}${s.reason ? ` (${s.reason})` : ""}`
+      )
+    ].join("\n");
+  }
+};
+
+// packages/integrations/services/src/sources/files.ts
+var import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
+import { readFile as readFile2 } from "node:fs/promises";
+import { existsSync as existsSync2 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join4 } from "node:path";
+
+// packages/integrations/services/src/sources/config-value.ts
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+function interpolateConfigValue(value, env) {
+  let missing = false;
+  const resolved = value.replace(/\$(\$|!|\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*)/g, (match, reference) => {
+    if (reference === "$" || reference === "!") return reference;
+    const name = reference.startsWith("{") ? reference.slice(1, -1) : reference;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return match;
+    const replacement = env[name];
+    if (!replacement) {
+      missing = true;
+      return "";
+    }
+    return replacement;
+  });
+  return missing ? void 0 : resolved;
+}
+function sourceEnvironment(env, extra) {
+  return { ...env, ...Object.fromEntries(Object.entries(extra ?? {}).filter(([, value]) => !!value)) };
+}
+function isConfiguredValue(value, env) {
+  return typeof value === "string" && (value.startsWith("!") ? !!value.slice(1).trim() : !!interpolateConfigValue(value, env));
+}
+async function resolveConfiguredValue(value, env, signal) {
+  if (!value.startsWith("!")) return interpolateConfigValue(value, env) ?? "";
+  const result = await promisify(exec)(value.slice(1), {
+    env,
+    signal,
+    timeout: 15e3,
+    maxBuffer: 1024 * 1024
+  });
+  return result.stdout.trim();
+}
+
+// packages/integrations/services/src/sources/channels.ts
+var channels = {
+  "openai-codex": { provider: "openai", channel: "codex", kind: "oauth" },
+  xai: { provider: "xai", channel: "imagine", kind: "oauth" },
+  "opencode-go": {
+    provider: "opencode",
+    channel: "go",
+    kind: "api_key",
+    env: "OPENCODE_API_KEY",
+    baseUrl: "https://opencode.ai/zen/go/v1/"
+  },
+  "minimax-cn": {
+    provider: "minimax",
+    channel: "token-plan",
+    kind: "api_key",
+    env: "MINIMAX_CN_API_KEY",
+    baseUrl: "https://api.minimaxi.com"
+  },
+  minimax: {
+    provider: "minimax",
+    channel: "token-plan",
+    kind: "api_key",
+    env: "MINIMAX_API_KEY",
+    baseUrl: "https://api.minimax.io"
+  },
+  zai: {
+    provider: "zai",
+    channel: "coding-plan",
+    kind: "api_key",
+    env: "ZAI_API_KEY",
+    baseUrl: "https://api.z.ai"
+  },
+  "zai-coding-cn": {
+    provider: "zai",
+    channel: "coding-plan",
+    kind: "api_key",
+    env: "ZAI_CODING_CN_API_KEY",
+    baseUrl: "https://open.bigmodel.cn"
+  }
+};
+
+// packages/integrations/services/src/sources/codex.ts
+import { readFile } from "node:fs/promises";
+import { homedir as homedir2 } from "node:os";
+import { join as join3 } from "node:path";
+
+// packages/integrations/services/src/sources/lock.ts
+import { open, rename, rm, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
+import { dirname as dirname2 } from "node:path";
+import { randomUUID as randomUUID2 } from "node:crypto";
+var STALE_MS = 3e4;
+async function withFileLock(path, fn, timeoutMs = 15e3) {
+  const lockPath = `${path}.lock`;
+  await mkdir(dirname2(path), { recursive: true, mode: 448 });
+  const deadline = Date.now() + timeoutMs;
+  for (; ; ) {
+    const file = await open(lockPath, "wx", 384).catch(
+      (error) => error.code === "EEXIST" ? void 0 : error
+    );
+    if (file instanceof Error) throw file;
+    if (file) {
+      try {
+        await file.writeFile(`${process.pid}
+`, "utf8");
+      } finally {
+        await file.close();
+      }
+      try {
+        return await fn();
+      } finally {
+        await rm(lockPath, { force: true });
+      }
+    }
+    try {
+      if (Date.now() - (await stat(lockPath)).mtimeMs > STALE_MS) {
+        await rm(lockPath, { force: true });
+        continue;
+      }
+    } catch {
+    }
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for lock ${lockPath}`);
+    await new Promise((resolve3) => setTimeout(resolve3, 100));
+  }
+}
+async function writeFileAtomic(path, text) {
+  await mkdir(dirname2(path), { recursive: true, mode: 448 });
+  const temp = `${path}.${randomUUID2()}.tmp`;
+  const file = await open(temp, "wx", 384);
+  try {
+    await file.writeFile(text, "utf8");
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  try {
+    await rename(temp, path);
+  } finally {
+    await rm(temp, { force: true });
+  }
+}
+
+// packages/integrations/services/src/sources/codex.ts
+var CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+var CODEX_MARGIN_MS = 12e4;
+var codexAuthPath = (env = process.env) => join3(env.CODEX_HOME ?? join3(homedir2(), ".codex"), "auth.json");
+function jwtPayload(token) {
+  try {
+    return JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
+  } catch {
+    return void 0;
+  }
+}
+var jwtExpiry = (token) => {
+  const exp = jwtPayload(token)?.exp;
+  return typeof exp === "number" ? exp * 1e3 : void 0;
+};
+var jwtAccount = (token) => {
+  const auth = jwtPayload(token)?.["https://api.openai.com/auth"];
+  return typeof auth?.chatgpt_account_id === "string" ? auth.chatgpt_account_id : void 0;
+};
+var fresh = (expires, margin) => expires === void 0 || expires - margin > Date.now();
+function codexConfigured(auth) {
+  return !!(auth?.tokens?.refresh_token || auth?.tokens?.access_token && fresh(jwtExpiry(auth.tokens.access_token), CODEX_MARGIN_MS));
+}
+async function readCodex(path = codexAuthPath()) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return void 0;
+    throw new Error(`${path} is unreadable; run \`codex login\` again.`);
+  }
+}
+async function codexCredential(signal, path = codexAuthPath()) {
+  const quick = await readCodex(path);
+  const token = quick?.tokens?.access_token;
+  if (token && fresh(jwtExpiry(token), CODEX_MARGIN_MS))
+    return {
+      kind: "oauth",
+      secret: token,
+      accountId: quick.tokens?.account_id ?? jwtAccount(token),
+      expiresAt: jwtExpiry(token)
+    };
+  if (!quick?.tokens?.refresh_token) return void 0;
+  return withFileLock(path, async () => {
+    const auth = await readCodex(path);
+    const current = auth?.tokens?.access_token;
+    if (current && fresh(jwtExpiry(current), CODEX_MARGIN_MS))
+      return {
+        kind: "oauth",
+        secret: current,
+        accountId: auth.tokens?.account_id ?? jwtAccount(current),
+        expiresAt: jwtExpiry(current)
+      };
+    const refresh = auth?.tokens?.refresh_token;
+    if (!refresh) return void 0;
+    const data = await requestRefresh(refresh, signal);
+    const accountId = auth.tokens?.account_id ?? jwtAccount(data.access_token);
+    await writeFileAtomic(
+      path,
+      JSON.stringify(
+        {
+          ...auth,
+          tokens: {
+            ...auth.tokens,
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+            ...typeof data.id_token === "string" ? { id_token: data.id_token } : {},
+            ...accountId ? { account_id: accountId } : {}
+          },
+          last_refresh: (/* @__PURE__ */ new Date()).toISOString()
+        },
+        null,
+        2
+      )
+    );
+    return { kind: "oauth", secret: data.access_token, accountId, expiresAt: jwtExpiry(data.access_token) };
+  });
+}
+async function requestRefresh(refresh, signal) {
+  const response = await fetch("https://auth.openai.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: refresh,
+      client_id: CODEX_CLIENT_ID
+    }),
+    redirect: "error",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3e4)]) : AbortSignal.timeout(3e4)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || typeof data.access_token !== "string" || typeof data.refresh_token !== "string")
+    throw new Error(`Codex token refresh failed (HTTP ${response.status}); run \`codex login\` again.`);
+  return data;
+}
+async function refreshCodex(refresh, signal) {
+  const data = await requestRefresh(refresh, signal);
+  return {
+    access: data.access_token,
+    refresh: data.refresh_token,
+    expires: Date.now() + (typeof data.expires_in === "number" ? data.expires_in * 1e3 : 36e5) - CODEX_MARGIN_MS
+  };
+}
+
+// packages/integrations/services/src/sources/xai.ts
+var CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
+var TOKEN_URL = "https://auth.x.ai/oauth2/token";
+var REFRESH_SKEW_MS = 5 * 60 * 1e3;
+async function postForm(url, fields, signal) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+    redirect: "error",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3e4)]) : AbortSignal.timeout(3e4)
+  });
+  const body = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, body };
+}
+var failure = (action, r) => new Error(
+  `xAI OAuth ${action} failed (HTTP ${r.status})${typeof r.body.error === "string" ? `: ${r.body.error}` : ""}`
+);
+function tokens(body, previousRefresh) {
+  const access = body.access_token;
+  const refresh = body.refresh_token ?? previousRefresh;
+  if (typeof access !== "string" || !access || typeof refresh !== "string" || !refresh)
+    throw new Error("xAI OAuth returned no usable tokens.");
+  const lifetime = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 3600;
+  return { kind: "oauth", access, refresh, expires: Date.now() + lifetime * 1e3 - REFRESH_SKEW_MS };
+}
+async function refreshXai(refresh, signal) {
+  const r = await postForm(
+    TOKEN_URL,
+    { grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: refresh },
+    signal
+  );
+  if (!r.ok) throw failure("token refresh", r);
+  return tokens(r.body, refresh);
+}
+
+// packages/integrations/services/src/sources/files.ts
+function sourcePaths(options) {
+  const env = options.env ?? process.env, root = options.userHome ?? homedir3();
+  return [
+    join4(env.CODEX_HOME ?? join4(root, ".codex"), "auth.json"),
+    join4(env.PI_CODING_AGENT_DIR ?? join4(root, ".pi", "agent"), "auth.json"),
+    join4(env.XDG_DATA_HOME ?? join4(root, ".local", "share"), "opencode", "auth.json"),
+    join4(options.home, "credentials.json"),
+    env.OPENAI_CODEX_COMPUTER_APP ?? "/Applications/ChatGPT.app"
+  ];
+}
+async function readObject(path) {
+  try {
+    const value = JSON.parse(await readFile2(path, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Expected a JSON object");
+    return value;
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw new Error(
+      `Cannot discover services from ${path}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+function resolver(def, resolve3, guidance) {
+  return {
+    async resolve(request, context) {
+      context.signal?.throwIfAborted();
+      if (request.provider !== def.provider || request.channel !== def.channel || !request.acceptedKinds.includes(def.kind))
+        return {
+          status: "unsupported",
+          guidance: "Selected service does not support this authentication channel."
+        };
+      try {
+        const credential = await resolve3(context.signal);
+        context.signal?.throwIfAborted();
+        if (!credential?.secret) return { status: "missing", guidance };
+        return { status: "ready", credential };
+      } catch (error) {
+        context.signal?.throwIfAborted();
+        return {
+          status: "login_required",
+          guidance: `${error instanceof Error ? error.message : String(error)} ${guidance}`
+        };
+      }
+    }
+  };
+}
+function connection(id, source, def, credentials) {
+  return {
+    id,
+    source: source === "Agent Enhance" ? "agent-enhance" : source.toLowerCase(),
+    label: `${def.provider} \xB7 ${def.channel} \xB7 ${source}${def.baseUrl ? ` \xB7 ${new URL(def.baseUrl).hostname}` : ""}`,
+    ...def,
+    credentials
+  };
+}
+var oauthConfigured = (entry) => !!(entry.refresh || entry.access && (entry.expires === void 0 || entry.expires > Date.now()));
+async function piCredential(path, provider, def, env, signal) {
+  const entry = (await readObject(path))[provider];
+  if (!entry) return;
+  if (def.kind === "api_key") {
+    if (entry.type !== "api_key" || typeof entry.key !== "string") return;
+    return {
+      kind: "api_key",
+      secret: await resolveConfiguredValue(entry.key, sourceEnvironment(env, entry.env), signal),
+      baseUrl: def.baseUrl
+    };
+  }
+  if (entry.type !== "oauth") return;
+  const current = (value) => ({
+    kind: "oauth",
+    secret: value.access,
+    accountId: value.accountId ?? jwtAccount(value.access),
+    expiresAt: value.expires
+  });
+  if (entry.access && (entry.expires === void 0 || entry.expires > Date.now())) return current(entry);
+  if (!entry.refresh) return;
+  const release = await import_proper_lockfile.default.lock(path, {
+    realpath: false,
+    stale: 3e4,
+    retries: { retries: 15, factor: 1, minTimeout: 1e3, maxTimeout: 1e3 }
+  });
+  try {
+    signal?.throwIfAborted();
+    const file = await readObject(path), latest = file[provider];
+    if (!latest || latest.type !== "oauth") return;
+    if (latest.access && (latest.expires === void 0 || latest.expires > Date.now()))
+      return current(latest);
+    const refreshed = provider === "xai" ? await refreshXai(latest.refresh, signal) : await refreshCodex(latest.refresh, signal);
+    file[provider] = {
+      ...latest,
+      access: refreshed.access,
+      refresh: refreshed.refresh,
+      expires: refreshed.expires
+    };
+    await writeFileAtomic(path, JSON.stringify(file, null, 2) + "\n");
+    return current(file[provider]);
+  } finally {
+    await release();
+  }
+}
+function fileSources(options) {
+  const env = options.env ?? process.env;
+  const [codexPath, piPath, opencodePath, ownPath, desktopPath] = sourcePaths(options);
+  const sources = [
+    {
+      id: "codex",
+      async discover() {
+        const auth = await readCodex(codexPath), tokens2 = auth?.tokens;
+        if (!codexConfigured(auth)) return [];
+        const def = channels["openai-codex"];
+        return [
+          connection(
+            "codex:openai-codex",
+            "Codex",
+            def,
+            resolver(
+              def,
+              (signal) => codexCredential(signal, codexPath),
+              "Run codex login, then refresh services."
+            )
+          )
+        ];
+      }
+    },
+    {
+      id: "opencode",
+      async discover() {
+        const content = () => env.OPENCODE_AUTH_CONTENT ? Promise.resolve(JSON.parse(env.OPENCODE_AUTH_CONTENT)) : readObject(opencodePath);
+        const file = await content(), def = channels["opencode-go"];
+        const entry = file["opencode-go"];
+        if (entry?.type !== "api" || !entry.key) return [];
+        return [
+          connection(
+            "opencode:opencode-go",
+            "OpenCode",
+            def,
+            resolver(
+              def,
+              async () => {
+                const latest = (await content())["opencode-go"];
+                return latest?.type === "api" ? { kind: "api_key", secret: latest.key, baseUrl: def.baseUrl } : void 0;
+              },
+              "Configure the OpenCode Go connection in OpenCode."
+            )
+          )
+        ];
+      }
+    },
+    {
+      id: "agent-enhance",
+      async discover() {
+        const file = await readObject(ownPath);
+        if (!Object.keys(file).length) return [];
+        if (file.version !== 1 || !file.credentials || typeof file.credentials !== "object")
+          throw new Error(`Invalid credential source: ${ownPath}`);
+        const result = [];
+        for (const [channel, entry] of Object.entries(file.credentials)) {
+          const def = Object.values(channels).find(
+            (c) => `${c.provider}/${c.channel}` === channel && c.kind === entry.kind
+          );
+          if (!def || (entry.kind === "oauth" ? !oauthConfigured(entry) : !isConfiguredValue(entry.key, sourceEnvironment(env, entry.env))))
+            continue;
+          const selected = { ...def, baseUrl: entry.baseUrl ?? def.baseUrl };
+          result.push(
+            connection(
+              `agent-enhance:${channel}`,
+              "Agent Enhance",
+              selected,
+              resolver(
+                def,
+                async (signal) => {
+                  const latest = (await readObject(ownPath)).credentials?.[channel];
+                  if (!latest || latest.kind !== def.kind) return;
+                  if (latest.kind === "api_key")
+                    return {
+                      kind: "api_key",
+                      secret: await resolveConfiguredValue(
+                        latest.key,
+                        sourceEnvironment(env, latest.env),
+                        signal
+                      ),
+                      baseUrl: latest.baseUrl ?? def.baseUrl
+                    };
+                  if (latest.expires === void 0 || latest.expires > Date.now())
+                    return { kind: "oauth", secret: latest.access, expiresAt: latest.expires };
+                  if (def.provider !== "xai")
+                    throw new Error(`No OAuth refresh implementation for ${channel}`);
+                  return withFileLock(ownPath, async () => {
+                    const file2 = await readObject(ownPath), now = file2.credentials?.[channel];
+                    if (!now || now.kind !== "oauth") return;
+                    if (now.expires <= Date.now()) {
+                      file2.credentials[channel] = { ...now, ...await refreshXai(now.refresh, signal) };
+                      await writeFileAtomic(ownPath, JSON.stringify(file2, null, 2) + "\n");
+                    }
+                    const token = file2.credentials[channel];
+                    return { kind: "oauth", secret: token.access, expiresAt: token.expires };
+                  });
+                },
+                `Authenticate ${def.provider} in its original account source.`
+              )
+            )
+          );
+        }
+        return result;
+      }
+    },
+    {
+      id: "desktop",
+      async discover() {
+        return (options.platform ?? process.platform) === "darwin" && existsSync2(desktopPath) ? [
+          {
+            id: "local:chatgpt-desktop",
+            source: "desktop",
+            label: "ChatGPT desktop runtime",
+            provider: "openai",
+            channel: "chatgpt-desktop",
+            kind: "runtime",
+            credentials: new StaticCredentialResolver({})
+          }
+        ] : [];
+      }
+    }
+  ];
+  if (!options.nativePi)
+    sources.push(
+      {
+        id: "pi",
+        async discover() {
+          const file = await readObject(piPath), result = [];
+          for (const [provider, def] of Object.entries(channels)) {
+            const entry = file[provider];
+            if (!entry || (def.kind === "oauth" ? entry.type !== "oauth" || !oauthConfigured(entry) : entry.type !== "api_key" || !isConfiguredValue(entry.key, sourceEnvironment(env, entry.env))))
+              continue;
+            result.push(
+              connection(
+                `pi:${provider}`,
+                "Pi",
+                def,
+                resolver(
+                  def,
+                  (signal) => piCredential(piPath, provider, def, env, signal),
+                  `Authenticate ${provider} using Pi /login.`
+                )
+              )
+            );
+          }
+          return result;
+        }
+      },
+      {
+        id: "environment",
+        async discover() {
+          return Object.values(channels).filter((def) => def.env && env[def.env]).map(
+            (def) => connection(
+              `env:${def.env}`,
+              "Environment",
+              def,
+              resolver(
+                def,
+                async () => ({ kind: "api_key", secret: env[def.env] ?? "", baseUrl: def.baseUrl }),
+                `Set ${def.env}.`
+              )
+            )
+          );
+        }
+      }
+    );
+  return sources;
+}
+
+// packages/integrations/services/src/watch.ts
+import { existsSync as existsSync3, watch } from "node:fs";
+import { dirname as dirname3, join as join5, resolve } from "node:path";
+function watchServiceSources(paths, changed) {
+  let watchers = [], timer, closed = false;
+  const targets = [...new Set(paths.map((path) => resolve(path)))];
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!closed) {
+        start();
+        changed();
+      }
+    }, 150);
+    timer.unref();
+  };
+  const start = () => {
+    for (const watcher of watchers) watcher.close();
+    watchers = [];
+    const directories = /* @__PURE__ */ new Set();
+    for (const target of targets) {
+      let directory = dirname3(target);
+      while (!existsSync3(directory) && dirname3(directory) !== directory) directory = dirname3(directory);
+      directories.add(directory);
+    }
+    for (const directory of directories) {
+      try {
+        const watcher = watch(directory, { persistent: false }, (_event, file) => {
+          if (file) {
+            const touched = join5(directory, String(file));
+            if (!targets.some((target) => target === touched || target.startsWith(`${touched}/`))) return;
+          }
+          schedule();
+        });
+        watcher.on("error", schedule);
+        watchers.push(watcher);
+      } catch {
+      }
+    }
+  };
+  start();
+  return () => {
+    closed = true;
+    clearTimeout(timer);
+    for (const watcher of watchers) watcher.close();
+  };
 }
 
 // packages/hosts/pi/src/auth.ts
-var channels = {
-  "openai/codex": "openai-codex",
-  "xai/imagine": "xai",
-  "opencode/go": "opencode-go",
-  "minimax/token-plan": "minimax-cn",
-  "zai/coding-plan": "zai",
-  "zai/coding-plan-cn": "zai-coding-cn"
+import { readFileSync as readFileSync2, existsSync as existsSync4 } from "node:fs";
+import { join as join6 } from "node:path";
+import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
+
+// node_modules/strip-json-comments/index.js
+var singleComment = Symbol("singleComment");
+var multiComment = Symbol("multiComment");
+var stripWithoutWhitespace = () => "";
+var stripWithWhitespace = (string, start, end) => string.slice(start, end).replace(/[^ \t\r\n]/g, " ");
+var isEscaped = (jsonString, quotePosition) => {
+  let index = quotePosition - 1;
+  let backslashCount = 0;
+  while (jsonString[index] === "\\") {
+    index -= 1;
+    backslashCount += 1;
+  }
+  return Boolean(backslashCount % 2);
 };
+function stripJsonComments(jsonString, { whitespace = true, trailingCommas = false } = {}) {
+  if (typeof jsonString !== "string") {
+    throw new TypeError(`Expected argument \`jsonString\` to be a \`string\`, got \`${typeof jsonString}\``);
+  }
+  const strip = whitespace ? stripWithWhitespace : stripWithoutWhitespace;
+  let isInsideString = false;
+  let isInsideComment = false;
+  let offset = 0;
+  let buffer = "";
+  let result = "";
+  let commaIndex = -1;
+  for (let index = 0; index < jsonString.length; index++) {
+    const currentCharacter = jsonString[index];
+    const nextCharacter = jsonString[index + 1];
+    if (!isInsideComment && currentCharacter === '"') {
+      const escaped = isEscaped(jsonString, index);
+      if (!escaped) {
+        isInsideString = !isInsideString;
+      }
+    }
+    if (isInsideString) {
+      continue;
+    }
+    if (!isInsideComment && currentCharacter + nextCharacter === "//") {
+      buffer += jsonString.slice(offset, index);
+      offset = index;
+      isInsideComment = singleComment;
+      index++;
+    } else if (isInsideComment === singleComment && currentCharacter + nextCharacter === "\r\n") {
+      index++;
+      isInsideComment = false;
+      buffer += strip(jsonString, offset, index);
+      offset = index;
+      continue;
+    } else if (isInsideComment === singleComment && currentCharacter === "\n") {
+      isInsideComment = false;
+      buffer += strip(jsonString, offset, index);
+      offset = index;
+    } else if (!isInsideComment && currentCharacter + nextCharacter === "/*") {
+      buffer += jsonString.slice(offset, index);
+      offset = index;
+      isInsideComment = multiComment;
+      index++;
+      continue;
+    } else if (isInsideComment === multiComment && currentCharacter + nextCharacter === "*/") {
+      index++;
+      isInsideComment = false;
+      buffer += strip(jsonString, offset, index + 1);
+      offset = index + 1;
+      continue;
+    } else if (trailingCommas && !isInsideComment) {
+      if (commaIndex !== -1) {
+        if (currentCharacter === "}" || currentCharacter === "]") {
+          buffer += jsonString.slice(offset, index);
+          result += strip(buffer, 0, 1) + buffer.slice(1);
+          buffer = "";
+          offset = index;
+          commaIndex = -1;
+        } else if (currentCharacter !== " " && currentCharacter !== "	" && currentCharacter !== "\r" && currentCharacter !== "\n") {
+          buffer += jsonString.slice(offset, index);
+          offset = index;
+          commaIndex = -1;
+        }
+      } else if (currentCharacter === ",") {
+        result += buffer + jsonString.slice(offset, index);
+        buffer = "";
+        offset = index;
+        commaIndex = index;
+      }
+    }
+  }
+  const remaining = isInsideComment === singleComment ? strip(jsonString, offset) : jsonString.slice(offset);
+  return result + buffer + remaining;
+}
+
+// packages/hosts/pi/src/auth.ts
 var PiCredentialResolver = class {
-  constructor(registry) {
+  constructor(registry, providerId, reloadModels) {
     this.registry = registry;
+    this.providerId = providerId;
+    this.reloadModels = reloadModels;
   }
   async resolve(request, context) {
     context.signal?.throwIfAborted();
-    const provider = channels[`${request.provider}/${request.channel}`];
-    if (!provider)
+    const provider = this.providerId;
+    const channel = channels[provider];
+    if (!channel || channel.provider !== request.provider || channel.channel !== request.channel)
       return {
         status: "unsupported",
         guidance: `Pi authentication does not support ${request.provider}/${request.channel}.`
@@ -485,11 +2858,13 @@ var PiCredentialResolver = class {
         ...context.signal ? [context.signal] : [],
         AbortSignal.timeout(15e3)
       ]);
+      if (this.reloadModels) await this.reloadModels(signal);
+      signal.throwIfAborted();
       const resolved = await new Promise(
-        (resolve2, reject) => {
+        (resolve3, reject) => {
           const abort = () => reject(signal.reason);
           signal.addEventListener("abort", abort, { once: true });
-          this.registry.getProviderAuth(provider).then(resolve2, reject).finally(() => signal.removeEventListener("abort", abort));
+          this.registry.getProviderAuth(provider).then(resolve3, reject).finally(() => signal.removeEventListener("abort", abort));
         }
       );
       context.signal?.throwIfAborted();
@@ -499,7 +2874,7 @@ var PiCredentialResolver = class {
         if (typeof value === "string") headers.set(key, value);
       const secret = auth?.apiKey ?? headers.get("authorization")?.replace(/^Bearer\s+/i, "");
       if (!secret) return { status: "missing", guidance };
-      const kind = ["opencode-go", "minimax-cn", "minimax", "zai", "zai-coding-cn"].includes(provider) ? "api_key" : "oauth";
+      const kind = channel.kind;
       if (kind === "oauth" && secret.split(".").length !== 3)
         return {
           status: "login_required",
@@ -516,7 +2891,7 @@ var PiCredentialResolver = class {
           kind,
           secret,
           accountId: headers.get("chatgpt-account-id") ?? void 0,
-          baseUrl: auth?.baseUrl
+          baseUrl: auth?.baseUrl ?? channel.baseUrl
         }
       };
     } catch {
@@ -525,6 +2900,43 @@ var PiCredentialResolver = class {
     }
   }
 };
+function piServiceSource(ctx, options = {}) {
+  return {
+    id: "pi",
+    async discover() {
+      const env = options.env ?? process.env;
+      const path = join6(getAgentDir(), "models.json");
+      const models = options.modelConfig ?? (existsSync4(path) ? JSON.parse(stripJsonComments(readFileSync2(path, "utf8").replace(/^\uFEFF/, ""))).providers ?? {} : {});
+      const readStored = options.storedCredential ?? ((id) => readStoredCredential(id));
+      return Object.entries(channels).flatMap(([providerId, channel]) => {
+        const status = ctx.modelRegistry.getProviderAuthStatus(providerId);
+        const stored = readStored(providerId);
+        const extension = ctx.modelRegistry.getRegisteredProviderConfig(providerId);
+        const runtime = status.configured && (status.source === "runtime" || channel.kind === "api_key" && (status.source === "fallback" || isConfiguredValue(extension?.apiKey, env)));
+        const configured = runtime || stored?.type === channel.kind && (channel.kind === "oauth" ? !!(stored.refresh || stored.access && (stored.expires === void 0 || stored.expires > Date.now())) : isConfiguredValue(stored.key, sourceEnvironment(env, stored.env))) || channel.kind === "api_key" && !!(channel.env && env[channel.env] || isConfiguredValue(models[providerId]?.apiKey, sourceEnvironment(env, models[providerId]?.env)));
+        if (!configured) return [];
+        return [
+          {
+            id: `pi:${providerId}`,
+            source: "pi",
+            provider: channel.provider,
+            channel: channel.channel,
+            kind: channel.kind,
+            label: `${providerId} \xB7 Pi`,
+            credentials: new PiCredentialResolver(
+              ctx.modelRegistry,
+              providerId,
+              models[providerId]?.apiKey ? async (signal) => {
+                await ctx.modelRegistry.refresh({ allowNetwork: false, providers: [providerId], signal });
+              } : void 0
+            )
+          }
+        ];
+      });
+    }
+  };
+}
+var piSourcePaths = () => [join6(getAgentDir(), "auth.json"), join6(getAgentDir(), "models.json")];
 
 // packages/hosts/pi/src/history.ts
 var object2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -544,7 +2956,7 @@ function piHistory(entries) {
 }
 
 // packages/hosts/pi/src/footer.ts
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve as resolve2, sep } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 var sanitize = (text) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
 var formatTokens = (count) => {
@@ -556,7 +2968,7 @@ var formatTokens = (count) => {
 };
 var formatCwd = (cwd, home) => {
   if (!home) return cwd;
-  const relativePath = relative(resolve(home), resolve(cwd));
+  const relativePath = relative(resolve2(home), resolve2(cwd));
   const inside = relativePath === "" || relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
   if (!inside) return cwd;
   return relativePath === "" ? "~" : `~${sep}${relativePath}`;
@@ -677,408 +3089,396 @@ function installEnhanceFooter(ctx, statusKey, getLabels) {
   });
 }
 
-// packages/hosts/pi/src/management.ts
-var groups = [
-  { label: "\u56FE\u7247\u751F\u6210 / Images", capabilities: ["gen_image"] },
-  { label: "\u89C6\u9891\u751F\u6210 / Video", capabilities: ["gen_video"] },
-  { label: "\u8BED\u97F3\u5408\u6210 / Voice", capabilities: ["gen_voice"] },
-  { label: "\u8054\u7F51\u641C\u7D22 / Search", capabilities: ["search_web"] },
-  { label: "\u6587\u4EF6\u7406\u89E3 / File understanding", capabilities: ["view_pdf", "view_video", "view_image"] },
-  { label: "\u684C\u9762\u64CD\u4F5C / Computer use", capabilities: ["use_computer"] },
-  { label: "\u5B50\u4EE3\u7406 / Subagents", capabilities: [] },
-  { label: "\u8BF7\u6C42\u589E\u5F3A / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] }
-];
-var usage = "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|model [<provider/id>|inherit]|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
-var errorText = (error) => error instanceof Error ? error.message : String(error);
-var entryCapability = (id) => id.split("/")[0];
-function registerManagement(pi, options) {
-  const { manager, registry, config, save, load, refresh, report } = options;
-  const setAutoload = (id, enabled) => save((c) => ({
-    ...c,
-    autoload: enabled ? [.../* @__PURE__ */ new Set([...c.autoload, id])] : c.autoload.filter((value) => value !== id)
+// packages/integrations/services/src/management.ts
+var serviceUsage = "services | status | refresh | prefer <capability> <service|auto> | exclude|include <capability> [service]";
+function manageServicePreferences(args, store, runtime) {
+  const [action, capability, service, ...rest] = args;
+  if (action === "services")
+    return runtime.snapshot.connections.map((c) => `${c.id} \xB7 ${c.label}`).join("\n") || "No service connections discovered. Sign in using the original provider application or configure an API key in the host/environment.";
+  if (action === "status") {
+    const p = store.load();
+    return `${runtime.describe() || "No services discovered."}
+Preferred: ${JSON.stringify(p.preferred)}
+Excluded: ${JSON.stringify(p.excluded)}`;
+  }
+  if (!["prefer", "exclude", "include"].includes(action ?? "")) return;
+  if (!capability || rest.length || !runtime.options.modules.catalog.modules.some((e) => e.capability === capability))
+    throw new Error(serviceUsage);
+  if (service && !(action === "prefer" && service === "auto") && !runtime.snapshot.connections.some(
+    (c) => c.id === service && runtime.options.modules.catalog.modules.some(
+      (e) => e.capability === capability && e.provider === c.provider && (e.auth?.channel ?? e.runtime) === c.channel
+    )
+  ))
+    throw new Error(`Service ${service} does not provide ${capability}.`);
+  if (action === "prefer") {
+    if (!service) throw new Error(serviceUsage);
+    store.update((p) => {
+      const preferred = { ...p.preferred };
+      if (service === "auto") delete preferred[capability];
+      else preferred[capability] = service;
+      return { ...p, preferred };
+    });
+    return `Preferred ${capability}: ${service}.`;
+  }
+  const key = service ? `${capability}@${service}` : capability;
+  store.update((p) => ({
+    ...p,
+    excluded: action === "exclude" ? [.../* @__PURE__ */ new Set([...p.excluded, key])] : p.excluded.filter((k) => k !== key)
   }));
-  const state = (entry) => {
-    const installed = manager.installed(entry.id);
-    return [
-      installed ? "installed" : "not installed",
-      registry.get(entry.id) ? "loaded" : "unloaded",
-      config().autoload.includes(entry.id) ? "autoload:on" : "autoload:off",
-      installed && installed.sha256 !== entry.sha256 ? "update available" : void 0
-    ].filter(Boolean).join(", ");
-  };
-  const requirements = (entry) => [
-    `${entry.id} \xB7 ${entry.version} \xB7 ${(entry.bytes / 1024).toFixed(1)} KiB`,
-    `Platform: ${entry.platforms?.join(", ") ?? "all supported Node.js platforms"}`,
-    entry.auth ? `Auth: ${entry.auth.provider}/${entry.auth.channel} (${entry.auth.acceptedKinds.join("/")}); configure via /login` : entry.capability === "use_computer" ? "Requires compatible ChatGPT desktop runtime, local login and macOS permissions; checked on first use" : "Auth: follows the supported main-model request",
-    `State: ${state(entry)}`
-  ].join("\n");
-  const status = async (ctx, only) => {
-    const credentials = new PiCredentialResolver(ctx.modelRegistry);
-    const lines = [];
-    for (const entry of only ? [only] : manager.catalog.modules) {
-      let auth = "not checked";
-      if (entry.auth)
-        auth = (await credentials.resolve(entry.auth, { signal: ctx.signal, interactive: false })).status;
-      else auth = entry.capability === "use_computer" ? "runtime checked on first use" : "main-model auth";
-      const availability = entry.kind === "tool" ? `, tool:${registry.get(entry.id) && pi.getActiveTools().includes(entry.capability) ? "active" : "inactive (unloaded, model rule or host exclusion)"}` : "";
-      lines.push(`${entry.id}: ${state(entry)}, auth:${auth}${availability}`);
-      if (only && registry.get(entry.id)?.instance.status)
-        lines.push(JSON.stringify(registry.get(entry.id).instance.status(), null, 2));
-    }
-    if (!only)
-      lines.push(
-        `Defaults: ${JSON.stringify(config().defaults)}`,
-        `Controls: ${JSON.stringify(config().controls)}`,
-        `Home: ${manager.home}`,
-        options.subagents.status(ctx)
+  return `${action === "exclude" ? "Excluded" : "Included"} ${key}.`;
+}
+
+// packages/transports/openai/src/model-support.ts
+var SUPPORT = Object.freeze({
+  "gpt-6-astra": { verbosity: true, originalImages: true, priority: true },
+  "gpt-6-sol": { verbosity: true, originalImages: true, priority: true },
+  "gpt-6-luna": { verbosity: true, originalImages: true, priority: true },
+  "gpt-5.6-sol": { verbosity: true, originalImages: true, priority: true },
+  "gpt-5.6-terra": { verbosity: true, originalImages: true, priority: true },
+  "gpt-5.6-luna": { verbosity: true, originalImages: true, priority: true },
+  "gpt-daybreak-blue-latest": { verbosity: true, originalImages: true, priority: false },
+  "gpt-daybreak-red-latest": { verbosity: true, originalImages: true, priority: false },
+  "gpt-5.5": { verbosity: true, originalImages: true, priority: true },
+  "gpt-5.4": { verbosity: true, originalImages: true, priority: true },
+  "gpt-5.4-mini": { verbosity: true, originalImages: true, priority: false },
+  "gpt-5.2": { verbosity: true, originalImages: false, priority: false },
+  "codex-auto-review": { verbosity: true, originalImages: true, priority: true }
+});
+function supportsModelOption(modelId, option) {
+  return Object.hasOwn(SUPPORT, modelId) && SUPPORT[modelId][option];
+}
+
+// packages/hosts/pi/src/requests/context.ts
+function supportsRequestOption(model, option) {
+  return model.provider === "openai" && model.channel === "codex" && model.api === "codex-responses" && supportsModelOption(model.id, option);
+}
+function matchesRequest(payload, model) {
+  return Array.isArray(payload.input) && payload.model === model.id;
+}
+
+// packages/hosts/pi/src/requests/fast.ts
+function fastCreditMultiplier(modelId) {
+  if (modelId === "gpt-5.4") return 2;
+  if ([
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna"
+  ].includes(modelId))
+    return 2.5;
+  return void 0;
+}
+var fastControl = {
+  id: "fast",
+  choices: ["off", "on"],
+  description: "Priority tier: higher ChatGPT credit consumption",
+  enabledNotice: "Fast requests service_tier=priority. ChatGPT credits: GPT-5.4 costs 2x; GPT-5.5/5.6/GPT-6 Astra/Sol/Luna cost 2.5x Standard where available. API token pricing is separate. Actual account billing/availability is backend-controlled.",
+  formatValue(value, model) {
+    const multiplier = fastCreditMultiplier(model.id);
+    return value === "on" && multiplier ? `on(${multiplier}x)` : value;
+  },
+  supported: (model) => supportsRequestOption(model, "priority"),
+  transform: (payload, value, model) => matchesRequest(payload, model) && value === "on" && payload.service_tier !== "priority" ? { ...payload, service_tier: "priority" } : payload
+};
+
+// packages/transports/openai/src/http.ts
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// packages/hosts/pi/src/requests/verbosity.ts
+var verbosityControl = {
+  id: "verbosity",
+  choices: ["off", "low", "medium", "high"],
+  description: "Answer detail; off preserves the host's setting",
+  supported: (model) => supportsRequestOption(model, "verbosity"),
+  transform(payload, value, model) {
+    if (!matchesRequest(payload, model)) return payload;
+    if (value === "off" || !["low", "medium", "high"].includes(value)) return payload;
+    if (payload.text !== void 0 && !isRecord(payload.text)) return payload;
+    const text = isRecord(payload.text) ? payload.text : {};
+    if (text.verbosity === value) return payload;
+    return { ...payload, text: { ...text, verbosity: value } };
+  }
+};
+
+// packages/hosts/pi/src/requests/image-detail.ts
+function originalBlocks(value) {
+  if (!Array.isArray(value)) return value;
+  let changed = false;
+  const blocks = value.map((block) => {
+    if (!isRecord(block) || block.type !== "input_image" || block.detail === "original") return block;
+    changed = true;
+    return { ...block, detail: "original" };
+  });
+  return changed ? blocks : value;
+}
+var imageDetailControl = {
+  id: "image_detail",
+  choices: ["off", "original"],
+  description: "Request original image detail",
+  enabledNotice: "Only changes input_image.detail. It does not disable host image resizing or recover original pixels from previews; read the saved original when needed.",
+  supported: (model) => model.input?.includes("image") === true && supportsRequestOption(model, "originalImages"),
+  transform(payload, value, model) {
+    if (!matchesRequest(payload, model)) return payload;
+    if (value !== "original" || !Array.isArray(payload.input)) return payload;
+    let changed = false;
+    const input = payload.input.map((item) => {
+      if (!isRecord(item)) return item;
+      const key = item.type === "function_call_output" ? "output" : item.type === "message" || item.role === "user" ? "content" : void 0;
+      if (!key) return item;
+      const blocks = originalBlocks(item[key]);
+      if (blocks === item[key]) return item;
+      changed = true;
+      return { ...item, [key]: blocks };
+    });
+    return changed ? { ...payload, input } : payload;
+  }
+};
+
+// packages/hosts/pi/src/requests/index.ts
+var requestControls = [fastControl, verbosityControl, imageDetailControl];
+function verifyRequestPreferences(preferences) {
+  for (const [id, value] of Object.entries(preferences.requests)) {
+    const control = requestControls.find((c) => c.id === id);
+    if (!control || !control.choices.includes(value))
+      throw new EnhanceError(
+        "CONFIG_INVALID",
+        `Invalid request setting ${id}: choose ${control?.choices.join(" / ") ?? "a supported request control"}.`
       );
-    return lines.join("\n");
-  };
-  const update = async (ctx, ids) => {
-    const updated = await manager.update(ids, options.signal());
-    report(
-      ctx,
-      updated.length ? `Updated ${updated.join(", ")}. Loaded instances are unchanged; new code is used on the next load/reload. Autoload and control preferences retained.` : "Installed modules match this host catalog. No downloads. Update the pi-enhance package first to obtain a newer catalog."
-    );
-  };
-  const remove = async (id, ctx, persist, uninstall) => {
-    registry.assertIdle(id);
-    options.subagents.assertModuleIdle(entryCapability(id));
-    const wasAutoload = config().autoload.includes(id);
-    const previous = registry.get(id);
-    const active = pi.getActiveTools();
-    let saved = false;
-    try {
-      if (persist) {
-        setAutoload(id, false);
-        saved = true;
-      }
-      await registry.unload(id);
-      refresh(ctx);
-      if (uninstall) manager.uninstall(id);
-    } catch (error) {
-      const failures = [errorText(error)];
-      try {
-        if (saved) setAutoload(id, wasAutoload);
-      } catch (rollback) {
-        failures.push(`Autoload recovery failed: ${errorText(rollback)}`);
-      }
-      try {
-        if (previous && !registry.get(id)) {
-          await options.restore(previous.module, ctx);
-          pi.setActiveTools(active);
-        }
-      } catch (rollback) {
-        failures.push(`Runtime recovery failed; reload explicitly: ${errorText(rollback)}`);
-      }
-      throw new Error(failures.join("\n"));
-    }
-  };
-  const modulePanel = async (entry, ctx) => {
-    const installed = manager.installed(entry.id);
-    const loaded = registry.get(entry.id);
-    const choices = [
-      ...!loaded || !config().autoload.includes(entry.id) ? ["enable"] : [],
-      ...!installed ? ["install"] : [],
-      ...installed && !loaded ? ["load", "load --save"] : [],
-      ...loaded || config().autoload.includes(entry.id) ? ["disable"] : [],
-      ...loaded ? ["unload"] : [],
-      ...installed ? ["update", "uninstall"] : [],
-      ...entry.kind === "tool" ? ["set default"] : [],
-      ...loaded?.instance.control ? ["settings"] : [],
-      ...loaded?.instance.manage ? ["ask", "auto", "reset", "revoke"] : [],
-      "status"
-    ];
-    const action = await ctx.ui.select(
-      `${requirements(entry)}
-Enable installs only this module; no model calls. Saved control values are retained.`,
-      choices
-    );
-    if (!action) return;
-    if (action === "set default") await run(`defaults ${entry.capability} ${entry.provider}`, ctx);
-    else await run(`${entry.provider} ${entry.capability}${action === "settings" ? "" : ` ${action}`}`, ctx);
-  };
+  }
+}
+
+// packages/hosts/pi/src/management.ts
+var usage = `/pi-enhance ${serviceUsage}; fast on|off; verbosity off|low|medium|high; image_detail off|original; subagents enable|disable|status|model [provider/id|inherit]|cancel <batch-id>; computer status|reset|ask|auto|revoke`;
+function registerManagement(pi, options) {
+  const { store, subagents, report } = options;
   const subagentsPanel = async (ctx) => {
-    const saved = config().subagentModel;
-    const available = saved && options.subagents.availableModels(ctx).some((model) => `${model.provider}/${model.id}` === saved);
+    const saved = options.preferences().subagents.model;
     const choice = await ctx.ui.select(
-      `\u5B50\u4EE3\u7406 / Subagents \xB7 ${options.subagents.isEnabled() ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528"}
-\u9ED8\u8BA4\u6A21\u578B\uFF1A${saved ?? "\u7EE7\u627F\u5F53\u524D Pi \u6A21\u578B"}${saved && !available ? "\uFF08\u5F53\u524D\u4E0D\u53EF\u7528\uFF09" : ""}`,
-      ["\u9009\u62E9\u9ED8\u8BA4\u6A21\u578B", options.subagents.isEnabled() ? "\u7981\u7528" : "\u542F\u7528", "\u72B6\u6001"]
+      `\u5B50\u4EE3\u7406 / Subagents \xB7 ${subagents.isEnabled() ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528"}
+\u9ED8\u8BA4\u6A21\u578B\uFF1A${saved ?? "\u7EE7\u627F\u5F53\u524D Pi \u6A21\u578B"}`,
+      ["\u9009\u62E9\u9ED8\u8BA4\u6A21\u578B", subagents.isEnabled() ? "\u7981\u7528" : "\u542F\u7528", "\u72B6\u6001"]
     );
     if (choice === "\u9009\u62E9\u9ED8\u8BA4\u6A21\u578B") await run("subagents model", ctx);
     else if (choice === "\u542F\u7528") await run("subagents enable", ctx);
     else if (choice === "\u7981\u7528") await run("subagents disable", ctx);
     else if (choice === "\u72B6\u6001") await run("subagents status", ctx);
   };
-  const panel = async (ctx) => {
-    const known = new Set(groups.flatMap((group2) => group2.capabilities));
-    const available = [
-      ...groups,
-      ...manager.catalog.modules.filter((e) => !known.has(e.capability)).map((e) => ({ label: e.capability, capabilities: [e.capability] }))
-    ].filter(
-      (group2) => group2.label === "\u5B50\u4EE3\u7406 / Subagents" || manager.catalog.modules.some((e) => group2.capabilities.includes(e.capability))
+  const capabilityPanel = async (ctx) => {
+    const runtime = options.runtime();
+    const capabilities = [
+      ...new Map(runtime.options.modules.catalog.modules.map((e) => [e.capability, e])).values()
+    ];
+    const labels = capabilities.map(
+      (e) => `${e.label} / ${e.capability} \xB7 ${runtime.states.filter((s) => s.module.startsWith(`${e.capability}/`) && s.status === "available").length} \u4E2A\u53EF\u7528\u8FDE\u63A5`
     );
-    const selected = await ctx.ui.select("Pi Enhance \xB7 \u6309\u529F\u80FD\u9009\u62E9", [
-      ...available.map((g) => g.label),
-      "status",
-      "catalog",
-      "updates",
-      "update --installed"
-    ]);
-    if (!selected) return;
-    const group = available.find((g) => g.label === selected);
-    if (!group) {
-      await run(selected, ctx);
-      return;
+    const choice = await ctx.ui.select("\u80FD\u529B / Capabilities", labels);
+    const entry = capabilities[labels.indexOf(choice ?? "")];
+    if (!entry) return;
+    const excluded = options.preferences().excluded.includes(entry.capability);
+    const action = await ctx.ui.select(
+      `${entry.label} \xB7 \u504F\u597D\u8FDE\u63A5\uFF1A${options.preferences().preferred[entry.capability] ?? "\u81EA\u52A8\u9009\u62E9"}`,
+      ["\u9009\u62E9\u504F\u597D\u8FDE\u63A5", "\u4F7F\u7528\u81EA\u52A8\u9009\u62E9", excluded ? "\u6062\u590D\u81EA\u52A8\u63D0\u4F9B" : "\u6392\u9664\u80FD\u529B", "\u72B6\u6001"]
+    );
+    if (action === "\u4F7F\u7528\u81EA\u52A8\u9009\u62E9") await run(`prefer ${entry.capability} auto`, ctx);
+    else if (action === "\u6392\u9664\u80FD\u529B" || action === "\u6062\u590D\u81EA\u52A8\u63D0\u4F9B")
+      await run(`${excluded ? "include" : "exclude"} ${entry.capability}`, ctx);
+    else if (action === "\u72B6\u6001")
+      report(
+        ctx,
+        runtime.states.filter((s) => s.module.startsWith(`${entry.capability}/`)).map((s) => `${s.module} @ ${s.service ?? "\u2014"}: ${s.status}${s.reason ? ` (${s.reason})` : ""}`).join("\n")
+      );
+    else if (action === "\u9009\u62E9\u504F\u597D\u8FDE\u63A5") {
+      const ids = new Set(
+        runtime.states.filter((s) => s.module.startsWith(`${entry.capability}/`) && s.service).map((s) => s.service)
+      );
+      const connections = runtime.snapshot.connections.filter((c) => ids.has(c.id));
+      const labels2 = connections.map((c) => `${c.id} \xB7 ${c.label}`);
+      const selected = await ctx.ui.select("\u9009\u62E9\u670D\u52A1\u8FDE\u63A5", labels2);
+      const connection2 = connections[labels2.indexOf(selected ?? "")];
+      if (connection2) await run(`prefer ${entry.capability} ${connection2.id}`, ctx);
     }
-    if (group.label === "\u5B50\u4EE3\u7406 / Subagents") {
-      await subagentsPanel(ctx);
-      return;
-    }
-    const entries = manager.catalog.modules.filter((e) => group.capabilities.includes(e.capability));
-    const labels = entries.map((e) => `${e.capability} / ${e.provider} \xB7 ${state(e)}`);
-    const choice = await ctx.ui.select(group.label, labels);
-    const entry = entries[labels.indexOf(choice ?? "")];
-    if (entry) await modulePanel(entry, ctx);
   };
-  const run = async (args, ctx) => {
+  const panel = async (ctx) => {
+    const choice = await ctx.ui.select("Pi Enhance \xB7 \u670D\u52A1\u4E0E\u504F\u597D", [
+      "\u670D\u52A1\u5546 / Services",
+      "\u80FD\u529B / Capabilities",
+      "\u8BF7\u6C42\u589E\u5F3A / Requests",
+      "\u5B50\u4EE3\u7406 / Subagents",
+      "\u72B6\u6001 / Status",
+      "\u5237\u65B0 / Refresh",
+      "\u684C\u9762\u7BA1\u7406 / Computer"
+    ]);
+    if (choice === "\u670D\u52A1\u5546 / Services") await run("services", ctx);
+    else if (choice === "\u80FD\u529B / Capabilities") await capabilityPanel(ctx);
+    else if (choice === "\u5B50\u4EE3\u7406 / Subagents") await subagentsPanel(ctx);
+    else if (choice === "\u72B6\u6001 / Status") await run("status", ctx);
+    else if (choice === "\u5237\u65B0 / Refresh") await run("refresh", ctx);
+    else if (choice === "\u684C\u9762\u7BA1\u7406 / Computer") {
+      const action = await ctx.ui.select("\u684C\u9762\u7BA1\u7406", ["status", "reset", "ask", "auto", "revoke"]);
+      if (action) await run(`computer ${action}`, ctx);
+    } else if (choice === "\u8BF7\u6C42\u589E\u5F3A / Requests") {
+      const selected = await ctx.ui.select(
+        "\u8BF7\u6C42\u589E\u5F3A",
+        requestControls.map((c) => `${c.id}: ${options.preferences().requests[c.id] ?? "off"}`)
+      );
+      const control = requestControls.find((c) => selected?.startsWith(`${c.id}:`));
+      if (control) await run(control.id, ctx);
+    }
+  };
+  const run = async (text, ctx) => {
     options.signal().throwIfAborted();
-    const words = args.trim().split(/\s+/).filter(Boolean);
+    const words = text.trim().split(/\s+/).filter(Boolean);
     if (!words.length) {
-      if (ctx.mode !== "tui") report(ctx, usage);
-      else await panel(ctx);
+      if (ctx.mode === "tui") await panel(ctx);
+      else report(ctx, usage);
       return;
     }
-    if (words[0] === "subagents") {
-      const action2 = words[1];
-      if (action2 === "status" && words.length === 2) {
-        report(ctx, options.subagents.status(ctx));
+    const [action, value, extra] = words;
+    if (action === "subagents") {
+      if (value === "status" && words.length === 2) {
+        report(ctx, subagents.status(ctx));
         return;
       }
-      if (action2 === "model" && words.length <= 3) {
-        const models = options.subagents.availableModels(ctx);
-        let selected = words[2];
+      if (value === "model" && words.length <= 3) {
+        const models = subagents.availableModels(ctx);
+        let selected = extra;
         if (!selected) {
           if (ctx.mode !== "tui")
             throw new Error("Use /pi-enhance subagents model <provider/id>|inherit outside TUI.");
           const inherit = "inherit current Pi model";
           const labels = models.map(
-            (model) => `${model.provider}/${model.id} \xB7 ${model.name} \xB7 ${model.input.join("/")} \xB7 ${model.reasoning ? "thinking" : "no thinking"}`
+            (m) => `${m.provider}/${m.id} \xB7 ${m.name} \xB7 ${m.input.join("/")} \xB7 ${m.reasoning ? "thinking" : "no thinking"}`
           );
-          const choice = await ctx.ui.select(`Subagent default model: ${config().subagentModel ?? inherit}`, [
-            inherit,
-            ...labels
-          ]);
+          const choice = await ctx.ui.select(
+            `Subagent default model: ${options.preferences().subagents.model ?? inherit}`,
+            [inherit, ...labels]
+          );
           if (!choice) return;
           if (choice === inherit) selected = "inherit";
           else {
             const model = models[labels.indexOf(choice)];
-            if (!model) throw new Error("Invalid model selection; no preference was changed.");
+            if (!model) throw new Error("Invalid model selection.");
             selected = `${model.provider}/${model.id}`;
           }
         }
-        if (selected !== "inherit" && !models.some((model) => `${model.provider}/${model.id}` === selected))
+        if (selected !== "inherit" && !models.some((m) => `${m.provider}/${m.id}` === selected))
           throw new Error(`Model ${selected} is not enabled and available in this Pi session.`);
-        save((c) => {
-          if (selected !== "inherit") return { ...c, subagentModel: selected };
-          const { subagentModel: _previous, ...rest } = c;
-          return rest;
-        });
+        store.update((p) => ({
+          ...p,
+          subagents: { enabled: p.subagents.enabled, ...selected === "inherit" ? {} : { model: selected } }
+        }));
+        await options.synchronize(ctx);
         report(
           ctx,
           `Saved subagent default model: ${selected === "inherit" ? "inherit current Pi model" : selected}. No model calls.`
         );
         return;
       }
-      if ((action2 === "enable" || action2 === "disable") && words.length === 2) {
-        const enabled = action2 === "enable";
-        const previous = options.subagents.isEnabled();
-        try {
-          options.subagents.setEnabled(enabled);
-          refresh(ctx);
-          save((c) => ({ ...c, subagents: enabled }));
-        } catch (error) {
-          options.subagents.setEnabled(previous);
-          refresh(ctx);
-          throw error;
-        }
-        if (!enabled) options.subagents.cancelAll();
-        report(
-          ctx,
-          `Subagents ${enabled ? "enabled" : "disabled"}. ${enabled ? "No models are called until call_subagents runs." : "Running batches were cancelled."}`
-        );
+      if ((value === "enable" || value === "disable") && words.length === 2) {
+        store.update((p) => ({ ...p, subagents: { ...p.subagents, enabled: value === "enable" } }));
+        await options.synchronize(ctx);
+        report(ctx, `Subagents ${value === "enable" ? "enabled" : "disabled"}.`);
         return;
       }
-      if (action2 === "cancel" && words.length === 3) {
+      if (value === "cancel" && extra && words.length === 3) {
         report(
           ctx,
-          options.subagents.cancel(words[2]) ? `Cancellation requested for batch ${words[2]}. Running tasks may still be stopping.` : `No active batch ${words[2]}.`
+          subagents.cancel(extra) ? `Cancelling subagent batch ${extra}.` : `No active subagent batch ${extra}.`
         );
         return;
       }
       throw new Error(usage);
     }
-    if (words[0] === "status" && words.length === 1) {
-      report(ctx, await status(ctx));
-      return;
-    }
-    if (words[0] === "catalog" && words.length === 1) {
-      report(ctx, manager.catalog.modules.map(requirements).join("\n\n"));
-      return;
-    }
-    if (words[0] === "updates" && words.length === 1) {
-      const entries = manager.updates();
-      report(
-        ctx,
-        entries.length ? entries.map(
-          (e) => `${e.id}: ${manager.installed(e.id).sha256.slice(0, 12)} \u2192 ${e.sha256.slice(0, 12)} (${(e.bytes / 1024).toFixed(1)} KiB)`
-        ).join("\n") : "No updates in this host catalog. Update the pi-enhance package first to obtain a newer catalog."
-      );
-      return;
-    }
-    if (words.join(" ") === "update --installed") {
-      await update(ctx);
-      return;
-    }
-    if (words[0] === "defaults" && words.length === 3) {
-      const [, capability2, provider2] = words;
-      if (manager.find(`${capability2}/${provider2}`).kind !== "tool")
-        throw new Error("Only tools have default providers.");
-      save((c) => ({ ...c, defaults: { ...c.defaults, [capability2]: provider2 } }));
-      report(ctx, `Saved default ${capability2}: ${provider2}. No backend calls were made.`);
-      return;
-    }
-    if (words.length < 2 || words.length > 4 || words.length === 4 && words[3] !== "--save")
-      throw new Error(usage);
-    const [provider, capability, action] = words;
-    const id = `${capability}/${provider}`, entry = manager.find(id);
-    const persist = words[3] === "--save";
-    if (persist && action !== "load" && action !== "unload")
-      throw new Error("--save is valid only with load/unload.");
-    if (!action || action === "manage") {
-      if (ctx.mode !== "tui") throw new Error("Explicit action/value required outside TUI.");
-      const control = registry.get(id)?.instance.control;
-      if (!action && control) {
-        const choice = await ctx.ui.select(`${id}: ${config().controls[control.id] ?? "off"}`, [
-          ...control.choices
-        ]);
-        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
-      } else await modulePanel(entry, ctx);
-      return;
-    }
-    if (action === "install") {
-      await manager.install(id, options.signal());
-      report(
-        ctx,
-        `Installed ${id}; not loaded by this operation. Run /pi-enhance ${provider} ${capability} enable.`
-      );
-      return;
-    }
-    if (action === "update") {
-      await update(ctx, [id]);
-      return;
-    }
-    if (action === "enable" || action === "load") {
-      if (entry.platforms && !entry.platforms.includes(process.platform))
-        throw new Error(`Module requires ${entry.platforms.join(", ")}.`);
-      const wasLoaded = !!registry.get(id);
-      if (action === "enable" && !manager.installed(id)) await manager.install(id, options.signal());
-      options.signal().throwIfAborted();
-      await load(id, ctx);
-      try {
-        if (persist || action === "enable") setAutoload(id, true);
-      } catch (error) {
-        if (!wasLoaded) {
-          await registry.unload(id);
-          refresh(ctx);
-        }
-        throw error;
+    const control = requestControls.find((c) => c.id === action);
+    if (control) {
+      if (words.length > 2) throw new Error(usage);
+      let selected = value;
+      if (!selected) {
+        if (ctx.mode !== "tui")
+          throw new Error(`Use /pi-enhance ${action} <${control.choices.join("|")}> outside TUI.`);
+        selected = await ctx.ui.select(
+          `${control.id}: ${options.preferences().requests[control.id] ?? "off"}`,
+          [...control.choices]
+        );
+        if (!selected) return;
       }
+      if (!control.choices.includes(selected)) throw new Error(`Choose ${control.choices.join(" / ")}`);
+      store.update((p) => {
+        const requests = { ...p.requests };
+        if (selected === "off") delete requests[control.id];
+        else requests[control.id] = selected;
+        return { ...p, requests };
+      });
+      await options.synchronize(ctx);
       report(
         ctx,
-        `${action === "enable" ? "Enabled" : "Loaded"} ${id}${persist || action === "enable" ? "; saved for future Pi sessions" : "; session only"}. No model calls. Saved control values retained.${entry.auth ? ` Auth required: ${entry.auth.provider}/${entry.auth.channel}; use /login and status to check readiness.` : ""}`
+        `Saved ${control.id}: ${selected}. ${selected === "off" ? "No request override." : control.enabledNotice ?? "Only applied to supported API/models."}`
       );
       return;
     }
-    if (action === "disable" || action === "unload" || action === "uninstall") {
-      await remove(id, ctx, persist || action !== "unload", action === "uninstall");
-      report(
-        ctx,
-        `${action}: ${id}. Historical artifacts retained.${action === "disable" ? " Installation and control preferences retained." : ""}`
-      );
+    if (action === "computer" && words.length === 2) {
+      const instance = options.runtime().options.registry.list().find((e) => e.instance.manage)?.instance;
+      if (!instance) throw new Error("No ChatGPT desktop runtime was discovered.");
+      report(ctx, await instance.manage(value));
       return;
     }
-    if (action === "status") {
-      report(ctx, await status(ctx, entry));
+    if (action === "refresh" && words.length === 1) {
+      await options.synchronize(ctx);
+      report(ctx, options.runtime().describe() || "No services discovered.");
       return;
     }
-    const instance = registry.get(id)?.instance;
-    if (!instance) throw new Error(`Load ${id} first. No implicit downloads or loading.`);
-    if (instance.control) {
-      const control = instance.control, value = control.aliases?.[action] ?? action;
-      if (!control.choices.includes(value)) throw new Error(`Choose ${control.choices.join(" / ")}`);
-      save((c) => ({ ...c, controls: { ...c.controls, [control.id]: value } }));
-      refresh(ctx);
-      report(
-        ctx,
-        `Saved ${control.id}: ${value}. ${value === "off" ? "No request override." : control.enabledNotice ?? "Only applied to supported API/models."}`
-      );
-      return;
-    }
-    if (instance.manage) {
-      report(ctx, await instance.manage(action));
-      return;
-    }
-    throw new Error(usage);
+    const result = manageServicePreferences(words, store, options.runtime());
+    if (result === void 0) throw new Error(usage);
+    if (!["status", "services"].includes(action)) await options.synchronize(ctx);
+    report(
+      ctx,
+      action === "status" ? `${result}
+Requests: ${JSON.stringify(options.preferences().requests)}
+${subagents.status(ctx)}` : result
+    );
   };
   let busy = false;
   pi.registerCommand("pi-enhance", {
-    description: "Optional capabilities: browse, enable, disable and update installed modules",
+    description: "Discover services and manage capability preferences",
     getArgumentCompletions(prefix) {
       const candidates = [
         "status",
-        "catalog",
-        "updates",
-        "update --installed",
+        "services",
+        "refresh",
         "subagents enable",
         "subagents disable",
         "subagents status",
         "subagents model",
         "subagents model inherit",
-        ...manager.catalog.modules.flatMap(
-          (e) => [
-            "",
-            "enable",
-            "disable",
-            "install",
-            "load",
-            "load --save",
-            "unload",
-            "unload --save",
-            "uninstall",
-            "update",
-            "status",
-            "manage",
-            ...e.kind === "request-control" ? e.capability === "verbosity" ? ["off", "low", "medium", "high"] : ["off", "on"] : e.capability === "use_computer" ? ["ask", "auto", "reset", "revoke"] : []
-          ].map((a) => `${e.provider} ${e.capability}${a ? ` ${a}` : ""}`)
+        ...requestControls.flatMap((c) => [c.id, ...c.choices.map((v) => `${c.id} ${v}`)]),
+        ...new Set(
+          options.runtime().options.modules.catalog.modules.flatMap((e) => [
+            `prefer ${e.capability} auto`,
+            `exclude ${e.capability}`,
+            `include ${e.capability}`
+          ])
         ),
-        ...manager.catalog.modules.filter((e) => e.kind === "tool").map((e) => `defaults ${e.capability} ${e.provider}`)
+        ...options.runtime().states.flatMap((s) => s.service ? [`prefer ${s.module.split("/")[0]} ${s.service}`] : [])
       ];
-      const items = candidates.filter((c) => c.startsWith(prefix.trimStart())).map((value) => ({ value, label: value }));
-      return items.length ? items : null;
+      return candidates.filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
     },
-    handler: async (args, ctx) => {
+    async handler(text, ctx) {
       if (busy) {
-        report(ctx, "Another pi-enhance operation is running. Retry after it finishes.", true);
+        report(ctx, "Another preference operation is running.", true);
         return;
       }
       busy = true;
       try {
         await ctx.waitForIdle();
-        await run(args, ctx);
+        await options.synchronize(ctx);
+        await run(text, ctx);
       } catch (error) {
-        report(ctx, errorText(error), true);
+        report(ctx, error instanceof Error ? error.message : String(error), true);
       } finally {
         busy = false;
       }
@@ -1092,18 +3492,18 @@ import { Type as Type2 } from "typebox";
 import { Box, Text } from "@earendil-works/pi-tui";
 
 // packages/hosts/pi/src/subagents/runner.ts
-import { join as join3 } from "node:path";
+import { join as join7 } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
-  getAgentDir,
+  getAgentDir as getAgentDir2,
   ModelRuntime,
   SessionManager,
   SettingsManager
 } from "@earendil-works/pi-coding-agent";
 async function runSubagent(task, index, model, thinkingLevel, registry, parentRegistry, signal, onProgress) {
   const cwd = task.cwd ?? process.cwd();
-  const agentDir = getAgentDir();
+  const agentDir = getAgentDir2();
   const settingsManager = SettingsManager.inMemory({ retry: { enabled: true } });
   const resourceLoader = new DefaultResourceLoader({
     cwd,
@@ -1117,8 +3517,8 @@ async function runSubagent(task, index, model, thinkingLevel, registry, parentRe
   });
   await resourceLoader.reload();
   const modelRuntime = await ModelRuntime.create({
-    authPath: join3(agentDir, "auth.json"),
-    modelsPath: join3(agentDir, "models.json"),
+    authPath: join7(agentDir, "auth.json"),
+    modelsPath: join7(agentDir, "models.json"),
     allowModelNetwork: false
   });
   for (const providerId of parentRegistry.getRegisteredProviderIds()) {
@@ -1140,7 +3540,7 @@ async function runSubagent(task, index, model, thinkingLevel, registry, parentRe
           cwd: ctx.cwd,
           sessionId: ctx.sessionManager.getSessionId(),
           host: "pi",
-          credentials: new PiCredentialResolver(ctx.modelRegistry),
+          credentials: new StaticCredentialResolver({}),
           signal: toolSignal,
           model: ctx.model ? {
             id: ctx.model.id,
@@ -1419,6 +3819,7 @@ var Subagents = class {
   defaultModel;
   closed = false;
   setEnabled(enabled) {
+    if (this.enabled && !enabled) this.cancelAll();
     this.enabled = enabled;
   }
   isEnabled() {
@@ -1518,10 +3919,10 @@ var Subagents = class {
     if (signal.aborted) throw new Error("Batch cancelled.");
     if (this.activeRunners < MAX_RUNNING) this.activeRunners++;
     else {
-      await new Promise((resolve2, reject) => {
+      await new Promise((resolve3, reject) => {
         const wake = () => {
           signal.removeEventListener("abort", cancel);
-          resolve2();
+          resolve3();
         };
         const cancel = () => {
           const index = this.waiters.indexOf(wake);
@@ -1984,26 +4385,35 @@ function executionContext(ctx) {
     sessionId: ctx.sessionManager.getSessionId(),
     host: "pi",
     model: modelInfo(ctx.model),
-    credentials: new PiCredentialResolver(ctx.modelRegistry),
+    credentials: new StaticCredentialResolver({}),
     signal: ctx.signal,
     history: piHistory(ctx.sessionManager.buildContextEntries()),
     choose: ctx.hasUI ? (title, choices, signal) => ctx.ui.select(title, choices, { signal }) : void 0
   };
 }
 function createPiEnhance(pi, options) {
-  const store = new ConfigStore(options.home, "pi");
-  let config = store.load();
-  const registry = new CapabilityRegistry(config.defaults);
-  const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
+  const store = new PreferenceStore(options.home, "pi", emptyPiPreferences, verifyRequestPreferences);
+  let preferences = store.load();
+  const registry = new CapabilityRegistry();
+  const modules = new ModuleCatalog(options.catalog, options.moduleDirectory);
+  const runtimeOptions = {
+    modules,
+    registry,
+    services: (entry) => ({
+      artifactRoot: join8(options.home, "artifacts", "pi", entry.capability, entry.provider),
+      preview: (bytes, mime) => resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 })
+    })
+  };
+  let runtime = new ServiceRuntime(runtimeOptions);
   const subagents = new Subagents(pi, registry);
-  subagents.setEnabled(config.subagents === true);
-  subagents.setDefaultModel(config.subagentModel);
   let previousProvider;
-  let disposed = false;
-  let operations = new AbortController();
+  let disposed = false, operations = new AbortController();
   let registered = /* @__PURE__ */ new Set();
   const knownNames = /* @__PURE__ */ new Set();
   let footerLabels = [];
+  let currentContext, stopWatching;
+  const sourceOptions = { home: options.home, nativePi: true };
+  const sources = (ctx) => options.sources?.(ctx) ?? [piServiceSource(ctx), ...fileSources(sourceOptions)];
   const report = (ctx, text, error = false) => {
     if (ctx.hasUI) ctx.ui.notify(text, error ? "error" : "info");
     else {
@@ -2013,36 +4423,30 @@ function createPiEnhance(pi, options) {
   };
   const statusLine = (ctx) => {
     const model = modelInfo(ctx.model);
-    footerLabels = registry.list().filter((e) => {
-      const control = e.instance.control;
-      return control && model?.provider === "openai" && model.channel === "codex" && model.api === "codex-responses" && control.supported(model);
-    }).map((e) => {
-      const control = e.instance.control, value = config.controls[control.id] ?? "off";
+    footerLabels = model?.provider === "openai" && model.channel === "codex" && model.api === "codex-responses" ? requestControls.filter((control) => control.supported(model)).map((control) => {
+      const value = preferences.requests[control.id] ?? "off";
       return {
         id: control.id,
-        value: control.formatValue ? control.formatValue(value, model) : value,
+        value: control.formatValue?.(value, model) ?? value,
         active: value !== "off"
       };
-    });
+    }) : [];
     if (ctx.hasUI)
       ctx.ui.setStatus(
         command,
         footerLabels.length ? footerLabels.map((l) => `${l.id}:${l.value}`).join(" ") : void 0
       );
   };
-  const excludedCapabilities = (ctx) => {
-    const input = modelInfo(ctx.model)?.input;
-    if (!input?.length) return /* @__PURE__ */ new Set();
-    return new Set(
-      registry.list().filter(
-        (e) => e.instance.tool && e.module.manifest.modelInputExcludes?.some((modality) => input.includes(modality))
-      ).map((e) => e.module.manifest.capability)
-    );
+  const executeTool = async (tool, id, args, signal, update, ctx) => {
+    try {
+      return await tool.execute(id, args, signal, update, executionContext(ctx));
+    } finally {
+      scheduleSynchronization();
+    }
   };
   const refresh = (ctx) => {
-    const excluded = excludedCapabilities(ctx);
     const hostTools = subagents.tools();
-    const tools = [...registry.tools().filter((tool) => !excluded.has(tool.name)), ...hostTools];
+    const tools = [...registry.tools(), ...hostTools];
     const active = new Set(pi.getActiveTools());
     for (const tool of tools) {
       const collision = pi.getAllTools().find((t) => t.name === tool.name);
@@ -2054,7 +4458,7 @@ function createPiEnhance(pi, options) {
         const capabilityTool = tool;
         pi.registerTool({
           ...capabilityTool,
-          execute: (id, args, signal, update, piContext) => capabilityTool.execute(id, args, signal, update, executionContext(piContext))
+          execute: (id, args, signal, update, piContext) => executeTool(capabilityTool, id, args, signal, update, piContext)
         });
       }
       if (!registered.has(tool.name)) active.add(tool.name);
@@ -2066,99 +4470,83 @@ function createPiEnhance(pi, options) {
     pi.setActiveTools([...active]);
     statusLine(ctx);
   };
-  const synchronize = refresh;
-  const activate = async (module, ctx) => {
-    const manifest = module.manifest, id = manifest.id;
-    registry.load(module, {
-      artifactRoot: join4(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
-      preview: (bytes, mime) => resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 })
-    });
-    try {
-      synchronize(ctx);
-      if (manifest.modelInputExcludes?.length)
-        report(
-          ctx,
-          `${id}: registered only while the active model lacks ${manifest.modelInputExcludes.join("/")} input.`
-        );
-    } catch (error) {
-      await registry.unload(id);
-      throw error;
-    }
+  const scheduleSynchronization = () => {
+    const ctx = currentContext;
+    if (!disposed && ctx)
+      void synchronize(ctx).catch((error) => {
+        if (!disposed && currentContext === ctx) report(ctx, String(error), true);
+      });
   };
-  const load = async (id, ctx) => {
-    const manifest = manager.find(id);
-    const unsupported = manifest.requires?.filter((r) => !support.has(r));
-    if (unsupported?.length) throw new Error(`Host lacks: ${unsupported.join(", ")}`);
-    const module = await manager.load(id);
-    operations.signal.throwIfAborted();
-    if (registry.get(id)) return;
-    await activate(module, ctx);
-  };
-  const saveConfig = (update) => {
-    config = store.update(update);
-    subagents.setDefaultModel(config.subagentModel);
-    for (const key of Object.keys(registry.defaults)) delete registry.defaults[key];
-    Object.assign(registry.defaults, config.defaults);
+  const synchronize = async (ctx) => {
+    if (disposed) return;
+    currentContext = ctx;
+    preferences = store.load();
+    subagents.setEnabled(preferences.subagents.enabled);
+    subagents.setDefaultModel(preferences.subagents.model);
+    await runtime.synchronize(
+      sources(ctx),
+      preferences,
+      { features: support, model: modelInfo(ctx.model) },
+      operations.signal
+    );
+    if (!disposed && ctx === currentContext) refresh(ctx);
   };
   registerManagement(pi, {
-    manager,
-    registry,
-    config: () => config,
-    save: saveConfig,
-    load,
-    restore: activate,
+    runtime: () => runtime,
+    store,
+    preferences: () => preferences,
+    subagents,
+    synchronize,
     refresh,
     report,
-    signal: () => operations.signal,
-    subagents
+    signal: () => operations.signal
   });
   pi.on("session_start", async (_event, ctx) => {
-    disposed = false;
-    if (operations.signal.aborted) operations = new AbortController();
-    previousProvider = ctx.model?.provider;
-    config = store.load();
-    subagents.setEnabled(config.subagents === true);
-    subagents.setDefaultModel(config.subagentModel);
-    subagents.startSession(ctx.sessionManager.getSessionId());
-    Object.assign(registry.defaults, config.defaults);
-    for (const id of config.autoload) {
-      try {
-        await load(id, ctx);
-      } catch (error) {
-        report(ctx, `${id}: ${error.message}`, true);
-      }
+    if (disposed) {
+      operations = new AbortController();
+      runtime = new ServiceRuntime(runtimeOptions);
     }
-    statusLine(ctx);
+    disposed = false;
+    previousProvider = ctx.model?.provider;
+    preferences = store.load();
+    subagents.setEnabled(preferences.subagents.enabled);
+    subagents.setDefaultModel(preferences.subagents.model);
+    subagents.startSession(ctx.sessionManager.getSessionId());
+    await synchronize(ctx);
+    stopWatching?.();
+    stopWatching = watchServiceSources(
+      [store.path, ...sourcePaths(sourceOptions), ...piSourcePaths()],
+      scheduleSynchronization
+    );
     installEnhanceFooter(ctx, command, () => footerLabels);
   });
   pi.on("model_select", async (event, ctx) => {
-    const currentModel = event.model ?? ctx.model;
-    const current = currentModel?.provider;
-    if (previousProvider !== void 0 && current !== previousProvider)
+    const model = event.model ?? ctx.model;
+    if (previousProvider !== void 0 && model?.provider !== previousProvider)
       await registry.lifecycle("provider_change");
-    previousProvider = current;
-    statusLine({ ...ctx, model: currentModel });
-    synchronize({ ...ctx, model: currentModel });
+    previousProvider = model?.provider;
+    await synchronize({ ...ctx, model });
   });
   pi.on("before_provider_request", (event, ctx) => {
     if (disposed) return;
-    const controls = registry.list().flatMap((e) => e.instance.control ? [e.instance.control] : []);
     const payload = transformControlledRequest(
       event.payload,
       modelInfo(ctx.model),
-      controls,
-      config.controls
+      requestControls,
+      preferences.requests
     );
     if (payload !== event.payload) return payload;
   });
-  pi.on("before_agent_start", (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     event.systemPromptOptions.sections.pi_enhance_release = releaseGuidance;
+    await synchronize(ctx);
     const notices = registry.list().flatMap((e) => e.instance.notice?.() ?? []);
     if (notices.length)
       return { message: { customType: "pi-enhance:recovery", content: notices.join("\n"), display: false } };
   });
   pi.on("agent_settled", async (_event, ctx) => {
     await registry.lifecycle("task_settled", () => ctx.isIdle());
+    await synchronize(ctx);
   });
   pi.on("session_tree", async () => {
     subagents.cancelAll();
@@ -2166,10 +4554,12 @@ function createPiEnhance(pi, options) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     disposed = true;
+    stopWatching?.();
+    currentContext = void 0;
     subagents.shutdown();
     operations.abort();
     try {
-      await registry.dispose();
+      await runtime.dispose();
     } finally {
       if (ctx.hasUI) {
         ctx.ui.setStatus(command, void 0);
@@ -2179,10 +4569,10 @@ function createPiEnhance(pi, options) {
   });
 }
 function piEnhance(pi) {
-  const here = dirname2(fileURLToPath(import.meta.url));
-  const dist = existsSync2(join4(here, "catalog.json")) ? here : join4(here, "../../../../dist");
-  const catalog = JSON.parse(readFileSync2(join4(dist, "catalog.json"), "utf8"));
-  createPiEnhance(pi, { home: enhanceHome(), catalog, moduleDirectory: join4(dist, "modules") });
+  const here = dirname4(fileURLToPath(import.meta.url));
+  const dist = existsSync5(join8(here, "catalog.json")) ? here : join8(here, "../../../../dist");
+  const catalog = JSON.parse(readFileSync3(join8(dist, "catalog.json"), "utf8"));
+  createPiEnhance(pi, { home: enhanceHome(), catalog, moduleDirectory: join8(dist, "modules") });
 }
 export {
   createPiEnhance,

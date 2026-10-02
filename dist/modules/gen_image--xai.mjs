@@ -5,295 +5,14 @@ var __export = (target, all) => {
 };
 
 // packages/capabilities/gen_image/xai/src/manifest.ts
-var manifest = {
-  apiVersion: 1,
-  id: "gen_image/xai",
-  capability: "gen_image",
+var requirements = {
   provider: "xai",
-  kind: "tool",
-  version: "0.2.0",
   auth: {
     provider: "xai",
     channel: "imagine",
     acceptedKinds: ["oauth"]
   }
 };
-
-// packages/transports/xai/src/http.ts
-async function abortable(pending, signal) {
-  let abort = () => {
-  };
-  const cancelled = new Promise((_resolve, reject) => {
-    abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-    if (signal.aborted) abort();
-  });
-  try {
-    return await Promise.race([pending, cancelled]);
-  } finally {
-    signal.removeEventListener("abort", abort);
-  }
-}
-
-// packages/capabilities/gen_image/xai/src/types.ts
-var IMAGE_MODELS = [
-  "grok-imagine-image-2.0",
-  "grok-imagine-image-quality",
-  "grok-imagine-image"
-];
-var ASPECT_RATIOS = [
-  "auto",
-  "1:1",
-  "16:9",
-  "9:16",
-  "4:3",
-  "3:4",
-  "3:2",
-  "2:3",
-  "2:1",
-  "1:2",
-  "19.5:9",
-  "9:19.5",
-  "20:9",
-  "9:20"
-];
-var IMAGE_DEFAULTS = {
-  model: "grok-imagine-image-2.0",
-  resolution: "1k",
-  n: 1,
-  response_format: "b64_json"
-};
-var IMAGE_TIMEOUT = { minSeconds: 10, defaultSeconds: 300, maxSeconds: 600 };
-
-// packages/capabilities/gen_image/xai/src/client.ts
-var ImageClient = class {
-  constructor(auth, fetcher = fetch) {
-    this.auth = auth;
-    this.fetcher = fetcher;
-  }
-  async images(request, options = {}) {
-    const timeoutMs = options.timeoutMs ?? IMAGE_TIMEOUT.defaultSeconds * 1e3;
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(
-        new Error(
-          `Grok image request timed out after ${timeoutMs / 1e3}s. The server may still be processing it; no automatic retry was made.`
-        )
-      ),
-      timeoutMs
-    );
-    const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
-    try {
-      signal.throwIfAborted();
-      const auth = await abortable(this.auth(), signal);
-      signal.throwIfAborted();
-      const operation = request.image || request.images?.length ? "edits" : "generations";
-      const response = await this.fetcher(new URL(`images/${operation}`, auth.baseUrl), {
-        method: "POST",
-        headers: { ...auth.headers, "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(request),
-        signal
-      });
-      const text = await response.text();
-      if (!response.ok) {
-        let detail = text;
-        try {
-          const body = JSON.parse(text);
-          detail = typeof body.error === "string" ? body.error : body.error?.message ?? body.message ?? text;
-        } catch {
-        }
-        const hint = response.status === 401 ? " Reauthenticate xAI in the current host to refresh credentials." : response.status === 429 && /0\s*\/\s*0/.test(detail) ? " This token currently has a zero model rate limit; it does not prove your SuperGrok weekly allowance is exhausted. Check subscription recognition and refresh xAI login in the current host." : "";
-        throw new Error(`Grok image API HTTP ${response.status}: ${String(detail).slice(0, 1500)}${hint}`);
-      }
-      const data = JSON.parse(text);
-      if (!Array.isArray(data.data) || data.data.length !== 1 || typeof data.data[0]?.b64_json !== "string" || !data.data[0].b64_json) {
-        throw new Error("Grok returned no valid single-image base64 result. No image was saved.");
-      }
-      return { data, requestId: response.headers.get("x-request-id") ?? void 0 };
-    } catch (error) {
-      signal.throwIfAborted();
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-};
-
-// packages/capabilities/gen_image/xai/src/artifacts.ts
-import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { homedir } from "node:os";
-
-// packages/capabilities/gen_image/xai/src/image-info.ts
-function imageInfo(bytes) {
-  const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (b.length >= 33 && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) && b.toString("ascii", 12, 16) === "IHDR") {
-    let alpha = b[25] === 4 || b[25] === 6;
-    for (let p = 8; p + 12 <= b.length; ) {
-      const size = b.readUInt32BE(p);
-      if (p + size + 12 > b.length) break;
-      if (b.toString("ascii", p + 4, p + 8) === "tRNS") alpha = true;
-      p += size + 12;
-    }
-    return {
-      mimeType: "image/png",
-      extension: "png",
-      width: b.readUInt32BE(16),
-      height: b.readUInt32BE(20),
-      alpha
-    };
-  }
-  if (b.length >= 4 && b[0] === 255 && b[1] === 216 && b[2] === 255) {
-    let p = 2;
-    while (p + 4 <= b.length) {
-      if (b[p++] !== 255) break;
-      while (b[p] === 255) p++;
-      const marker = b[p++];
-      if (marker === 218 || marker === 217) break;
-      if (marker === 1 || marker !== void 0 && marker >= 208 && marker <= 215) continue;
-      if (p + 2 > b.length) break;
-      const length = b.readUInt16BE(p);
-      if (length < 2 || p + length > b.length) break;
-      if (marker !== void 0 && [192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207].includes(marker) && length >= 7) {
-        return {
-          mimeType: "image/jpeg",
-          extension: "jpeg",
-          height: b.readUInt16BE(p + 3),
-          width: b.readUInt16BE(p + 5),
-          alpha: false
-        };
-      }
-      p += length;
-    }
-    return { mimeType: "image/jpeg", extension: "jpeg" };
-  }
-  if (b.length >= 16 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") {
-    const format = b.toString("ascii", 12, 16);
-    if (format === "VP8X" && b.length >= 30)
-      return {
-        mimeType: "image/webp",
-        extension: "webp",
-        width: b.readUIntLE(24, 3) + 1,
-        height: b.readUIntLE(27, 3) + 1,
-        alpha: Boolean(b[20] & 16)
-      };
-    if (format === "VP8L" && b.length >= 25 && b[20] === 47) {
-      const bits = b.readUInt32LE(21);
-      return {
-        mimeType: "image/webp",
-        extension: "webp",
-        width: (bits & 16383) + 1,
-        height: (bits >>> 14 & 16383) + 1,
-        alpha: Boolean(bits & 1 << 28)
-      };
-    }
-    if (format === "VP8 " && b.length >= 30 && b.subarray(23, 26).equals(Buffer.from([157, 1, 42])))
-      return {
-        mimeType: "image/webp",
-        extension: "webp",
-        width: b.readUInt16LE(26) & 16383,
-        height: b.readUInt16LE(28) & 16383,
-        alpha: false
-      };
-    return { mimeType: "image/webp", extension: "webp" };
-  }
-  throw new Error("Not a supported PNG, JPEG or WebP image (file content, not filename, is checked).");
-}
-
-// packages/capabilities/gen_image/xai/src/artifacts.ts
-function decodeImage(base64) {
-  if (!base64 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64))
-    throw new Error("Invalid base64 image returned by Grok.");
-  const bytes = Buffer.from(base64, "base64");
-  imageInfo(bytes);
-  return bytes;
-}
-async function resolveImage(source, cwd, signal) {
-  signal?.throwIfAborted();
-  if (Number(source.path !== void 0) + Number(source.image_url !== void 0) !== 1)
-    throw new Error("Each reference requires exactly one image source.");
-  if (source.path !== void 0) {
-    let path = source.path.replace(/^@/, "");
-    if (path.startsWith("~/")) path = join(homedir(), path.slice(2));
-    const bytes = await readFile(resolve(cwd, path), { signal });
-    const info = imageInfo(bytes);
-    return { type: "image_url", url: `data:${info.mimeType};base64,${bytes.toString("base64")}` };
-  }
-  const url = source.image_url;
-  if (url.startsWith("data:")) {
-    const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/s.exec(url);
-    if (!match || imageInfo(decodeImage(match[2])).mimeType !== match[1])
-      throw new Error("Reference must be a valid PNG/JPEG/WebP data URL.");
-  } else if (!["https:", "http:"].includes(new URL(url).protocol)) {
-    throw new Error("Reference URLs must use HTTP(S), or provide a local path.");
-  }
-  return { type: "image_url", url };
-}
-var ImageArtifactStore = class {
-  constructor(root) {
-    this.root = root;
-  }
-  async saveImage(sessionId, base64, signal) {
-    signal?.throwIfAborted();
-    const bytes = decodeImage(base64);
-    const info = imageInfo(bytes);
-    const parent = join(this.root, sessionId.replace(/[^a-zA-Z0-9_-]/g, "_") || "ephemeral");
-    await mkdir(parent, { recursive: true });
-    const directory = await mkdtemp(join(parent, "call-"));
-    try {
-      const path = join(directory, `image-1.${info.extension}`);
-      await writeFile(path, bytes, { flag: "wx", signal });
-      return { path, mimeType: info.mimeType, bytes: bytes.length, width: info.width, height: info.height };
-    } catch (error) {
-      await rm(directory, { recursive: true, force: true });
-      throw error;
-    }
-  }
-};
-
-// packages/capabilities/gen_image/xai/src/tool.ts
-import { readFile as readFile2 } from "node:fs/promises";
-
-// packages/core/src/errors.ts
-function annotateError(error, suffix) {
-  if (!(error instanceof Error)) return error;
-  try {
-    error.message += suffix;
-    return error;
-  } catch {
-    const wrapped = new Error(`${error.message}${suffix}`, { cause: error });
-    wrapped.name = error.name;
-    const source = error;
-    const target = wrapped;
-    for (const key of ["code", "status", "statusCode", "retryable", "requestId"])
-      if (source[key] !== void 0) target[key] = source[key];
-    return wrapped;
-  }
-}
-
-// packages/core/src/tickers.ts
-var TICK_DELAYS_MS = [1e3, 1e3, 2e3, 3e3, 5e3, 8e3, 12e3, 18e3, 25e3];
-function createProgressTicker(tick) {
-  let index = 0;
-  let timer;
-  let disposed = false;
-  const schedule = () => {
-    const delay = TICK_DELAYS_MS[Math.min(index, TICK_DELAYS_MS.length - 1)];
-    index += 1;
-    timer = setTimeout(() => {
-      if (disposed) return;
-      tick();
-      schedule();
-    }, delay);
-  };
-  schedule();
-  return {
-    dispose() {
-      disposed = true;
-      if (timer !== void 0) clearTimeout(timer);
-    }
-  };
-}
 
 // node_modules/typebox/build/system/memory/memory.mjs
 var memory_exports = {};
@@ -4883,6 +4602,338 @@ __export(typebox_exports, {
   With: () => With2
 });
 
+// packages/capabilities/gen_image/definition.ts
+var definition = {
+  id: "gen_image",
+  label: "\u56FE\u7247\u751F\u6210",
+  group: "Images",
+  commonFields: ["prompt", "images", "model", "timeout_seconds"],
+  composeParameters(schemas) {
+    return {
+      images: typebox_exports.Optional(
+        typebox_exports.Array(
+          typebox_exports.Object(
+            {
+              path: typebox_exports.Optional(typebox_exports.String({ minLength: 1 })),
+              image_url: typebox_exports.Optional(typebox_exports.String({ minLength: 1 }))
+            },
+            { additionalProperties: false }
+          ),
+          {
+            minItems: 1,
+            maxItems: Math.max(
+              ...schemas.map(
+                (s) => s.properties.images?.maxItems ?? 1
+              )
+            )
+          }
+        )
+      ),
+      model: typebox_exports.Optional(
+        typebox_exports.Unsafe({
+          type: "string",
+          enum: [
+            ...new Set(
+              schemas.flatMap((s) => s.properties.model?.enum ?? [])
+            )
+          ]
+        })
+      )
+    };
+  }
+};
+
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
+function defineModule(definition2, manifest, create) {
+  return {
+    definition: definition2,
+    manifest: {
+      ...manifest,
+      apiVersion: MODULE_API_VERSION,
+      id: `${definition2.id}/${manifest.provider}`,
+      capability: definition2.id
+    },
+    create
+  };
+}
+
+// packages/transports/xai/src/http.ts
+async function abortable(pending, signal) {
+  let abort = () => {
+  };
+  const cancelled = new Promise((_resolve, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try {
+    return await Promise.race([pending, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
+
+// packages/capabilities/gen_image/xai/src/types.ts
+var IMAGE_MODELS = [
+  "grok-imagine-image-2.0",
+  "grok-imagine-image-quality",
+  "grok-imagine-image"
+];
+var ASPECT_RATIOS = [
+  "auto",
+  "1:1",
+  "16:9",
+  "9:16",
+  "4:3",
+  "3:4",
+  "3:2",
+  "2:3",
+  "2:1",
+  "1:2",
+  "19.5:9",
+  "9:19.5",
+  "20:9",
+  "9:20"
+];
+var IMAGE_DEFAULTS = {
+  model: "grok-imagine-image-2.0",
+  resolution: "1k",
+  n: 1,
+  response_format: "b64_json"
+};
+var IMAGE_TIMEOUT = { minSeconds: 10, defaultSeconds: 300, maxSeconds: 600 };
+
+// packages/capabilities/gen_image/xai/src/client.ts
+var ImageClient = class {
+  constructor(auth, fetcher = fetch) {
+    this.auth = auth;
+    this.fetcher = fetcher;
+  }
+  async images(request, options = {}) {
+    const timeoutMs = options.timeoutMs ?? IMAGE_TIMEOUT.defaultSeconds * 1e3;
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(
+        new Error(
+          `Grok image request timed out after ${timeoutMs / 1e3}s. The server may still be processing it; no automatic retry was made.`
+        )
+      ),
+      timeoutMs
+    );
+    const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+    try {
+      signal.throwIfAborted();
+      const auth = await abortable(this.auth(), signal);
+      signal.throwIfAborted();
+      const operation = request.image || request.images?.length ? "edits" : "generations";
+      const response = await this.fetcher(new URL(`images/${operation}`, auth.baseUrl), {
+        method: "POST",
+        headers: { ...auth.headers, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(request),
+        signal
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let detail = text;
+        try {
+          const body = JSON.parse(text);
+          detail = typeof body.error === "string" ? body.error : body.error?.message ?? body.message ?? text;
+        } catch {
+        }
+        const hint = response.status === 401 ? " Reauthenticate xAI in the current host to refresh credentials." : response.status === 429 && /0\s*\/\s*0/.test(detail) ? " This token currently has a zero model rate limit; it does not prove your SuperGrok weekly allowance is exhausted. Check subscription recognition and refresh xAI login in the current host." : "";
+        throw new Error(`Grok image API HTTP ${response.status}: ${String(detail).slice(0, 1500)}${hint}`);
+      }
+      const data = JSON.parse(text);
+      if (!Array.isArray(data.data) || data.data.length !== 1 || typeof data.data[0]?.b64_json !== "string" || !data.data[0].b64_json) {
+        throw new Error("Grok returned no valid single-image base64 result. No image was saved.");
+      }
+      return { data, requestId: response.headers.get("x-request-id") ?? void 0 };
+    } catch (error) {
+      signal.throwIfAborted();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+};
+
+// packages/capabilities/gen_image/xai/src/artifacts.ts
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+
+// packages/capabilities/gen_image/xai/src/image-info.ts
+function imageInfo(bytes) {
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (b.length >= 33 && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) && b.toString("ascii", 12, 16) === "IHDR") {
+    let alpha = b[25] === 4 || b[25] === 6;
+    for (let p = 8; p + 12 <= b.length; ) {
+      const size = b.readUInt32BE(p);
+      if (p + size + 12 > b.length) break;
+      if (b.toString("ascii", p + 4, p + 8) === "tRNS") alpha = true;
+      p += size + 12;
+    }
+    return {
+      mimeType: "image/png",
+      extension: "png",
+      width: b.readUInt32BE(16),
+      height: b.readUInt32BE(20),
+      alpha
+    };
+  }
+  if (b.length >= 4 && b[0] === 255 && b[1] === 216 && b[2] === 255) {
+    let p = 2;
+    while (p + 4 <= b.length) {
+      if (b[p++] !== 255) break;
+      while (b[p] === 255) p++;
+      const marker = b[p++];
+      if (marker === 218 || marker === 217) break;
+      if (marker === 1 || marker !== void 0 && marker >= 208 && marker <= 215) continue;
+      if (p + 2 > b.length) break;
+      const length = b.readUInt16BE(p);
+      if (length < 2 || p + length > b.length) break;
+      if (marker !== void 0 && [192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207].includes(marker) && length >= 7) {
+        return {
+          mimeType: "image/jpeg",
+          extension: "jpeg",
+          height: b.readUInt16BE(p + 3),
+          width: b.readUInt16BE(p + 5),
+          alpha: false
+        };
+      }
+      p += length;
+    }
+    return { mimeType: "image/jpeg", extension: "jpeg" };
+  }
+  if (b.length >= 16 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") {
+    const format = b.toString("ascii", 12, 16);
+    if (format === "VP8X" && b.length >= 30)
+      return {
+        mimeType: "image/webp",
+        extension: "webp",
+        width: b.readUIntLE(24, 3) + 1,
+        height: b.readUIntLE(27, 3) + 1,
+        alpha: Boolean(b[20] & 16)
+      };
+    if (format === "VP8L" && b.length >= 25 && b[20] === 47) {
+      const bits = b.readUInt32LE(21);
+      return {
+        mimeType: "image/webp",
+        extension: "webp",
+        width: (bits & 16383) + 1,
+        height: (bits >>> 14 & 16383) + 1,
+        alpha: Boolean(bits & 1 << 28)
+      };
+    }
+    if (format === "VP8 " && b.length >= 30 && b.subarray(23, 26).equals(Buffer.from([157, 1, 42])))
+      return {
+        mimeType: "image/webp",
+        extension: "webp",
+        width: b.readUInt16LE(26) & 16383,
+        height: b.readUInt16LE(28) & 16383,
+        alpha: false
+      };
+    return { mimeType: "image/webp", extension: "webp" };
+  }
+  throw new Error("Not a supported PNG, JPEG or WebP image (file content, not filename, is checked).");
+}
+
+// packages/capabilities/gen_image/xai/src/artifacts.ts
+function decodeImage(base64) {
+  if (!base64 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64))
+    throw new Error("Invalid base64 image returned by Grok.");
+  const bytes = Buffer.from(base64, "base64");
+  imageInfo(bytes);
+  return bytes;
+}
+async function resolveImage(source, cwd, signal) {
+  signal?.throwIfAborted();
+  if (Number(source.path !== void 0) + Number(source.image_url !== void 0) !== 1)
+    throw new Error("Each reference requires exactly one image source.");
+  if (source.path !== void 0) {
+    let path = source.path.replace(/^@/, "");
+    if (path.startsWith("~/")) path = join(homedir(), path.slice(2));
+    const bytes = await readFile(resolve(cwd, path), { signal });
+    const info = imageInfo(bytes);
+    return { type: "image_url", url: `data:${info.mimeType};base64,${bytes.toString("base64")}` };
+  }
+  const url = source.image_url;
+  if (url.startsWith("data:")) {
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/s.exec(url);
+    if (!match || imageInfo(decodeImage(match[2])).mimeType !== match[1])
+      throw new Error("Reference must be a valid PNG/JPEG/WebP data URL.");
+  } else if (!["https:", "http:"].includes(new URL(url).protocol)) {
+    throw new Error("Reference URLs must use HTTP(S), or provide a local path.");
+  }
+  return { type: "image_url", url };
+}
+var ImageArtifactStore = class {
+  constructor(root) {
+    this.root = root;
+  }
+  async saveImage(sessionId, base64, signal) {
+    signal?.throwIfAborted();
+    const bytes = decodeImage(base64);
+    const info = imageInfo(bytes);
+    const parent = join(this.root, sessionId.replace(/[^a-zA-Z0-9_-]/g, "_") || "ephemeral");
+    await mkdir(parent, { recursive: true });
+    const directory = await mkdtemp(join(parent, "call-"));
+    try {
+      const path = join(directory, `image-1.${info.extension}`);
+      await writeFile(path, bytes, { flag: "wx", signal });
+      return { path, mimeType: info.mimeType, bytes: bytes.length, width: info.width, height: info.height };
+    } catch (error) {
+      await rm(directory, { recursive: true, force: true });
+      throw error;
+    }
+  }
+};
+
+// packages/capabilities/gen_image/xai/src/tool.ts
+import { readFile as readFile2 } from "node:fs/promises";
+
+// packages/core/src/errors.ts
+function annotateError(error, suffix) {
+  if (!(error instanceof Error)) return error;
+  try {
+    error.message += suffix;
+    return error;
+  } catch {
+    const wrapped = new Error(`${error.message}${suffix}`, { cause: error });
+    wrapped.name = error.name;
+    const source = error;
+    const target = wrapped;
+    for (const key of ["code", "status", "statusCode", "retryable", "requestId"])
+      if (source[key] !== void 0) target[key] = source[key];
+    return wrapped;
+  }
+}
+
+// packages/core/src/tickers.ts
+var TICK_DELAYS_MS = [1e3, 1e3, 2e3, 3e3, 5e3, 8e3, 12e3, 18e3, 25e3];
+function createProgressTicker(tick) {
+  let index = 0;
+  let timer;
+  let disposed = false;
+  const schedule = () => {
+    const delay = TICK_DELAYS_MS[Math.min(index, TICK_DELAYS_MS.length - 1)];
+    index += 1;
+    timer = setTimeout(() => {
+      if (disposed) return;
+      tick();
+      schedule();
+    }, delay);
+  };
+  schedule();
+  return {
+    dispose() {
+      disposed = true;
+      if (timer !== void 0) clearTimeout(timer);
+    }
+  };
+}
+
 // packages/capabilities/gen_image/xai/src/schema.ts
 var choices = (values, description) => typebox_exports.Unsafe({ type: "string", enum: [...values], description });
 var imageSource = typebox_exports.Object(
@@ -8822,6 +8873,71 @@ Original files are saved. Previews may be resized; use original paths for subseq
   };
 }
 
+// package.json
+var package_default = {
+  name: "pi-enhance",
+  version: "0.3.0",
+  description: "Host-neutral capabilities with automatic service discovery for Pi and Claude Code",
+  type: "module",
+  license: "MIT",
+  repository: "github:Ezio2000/agent-enhance",
+  keywords: [
+    "pi-package",
+    "agent-enhance",
+    "capabilities"
+  ],
+  engines: {
+    node: ">=22"
+  },
+  files: [
+    "dist/pi-enhance.mjs",
+    "dist/catalog.json",
+    "dist/modules",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
+  pi: {
+    extensions: [
+      "./dist/pi-enhance.mjs"
+    ]
+  },
+  scripts: {
+    build: "tsx scripts/build.ts",
+    typecheck: "tsc --noEmit",
+    test: "tsx --test tests/*.test.ts tests/capabilities/*/*/*.test.ts tests/transports/*/*.test.ts",
+    "check:boundaries": "tsx scripts/check-boundaries.ts",
+    check: "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test && npm run verify:distribution",
+    smoke: "tsx scripts/smoke.ts",
+    "verify:distribution": "tsx scripts/verify-distribution.ts",
+    format: "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
+    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
+  },
+  peerDependencies: {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    typebox: "*"
+  },
+  devDependencies: {
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@types/node": "^22.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    esbuild: "^0.25.0",
+    prettier: "^3.9.8",
+    "proper-lockfile": "^4.1.2",
+    "strip-json-comments": "^5.0.3",
+    tsx: "^4.20.0",
+    typebox: "1.3.7",
+    typescript: "^5.9.0"
+  }
+};
+
+// packages/transports/version.ts
+var clientInfo = { name: "agent-enhance", version: package_default.version };
+var userAgent = `${clientInfo.name}/${clientInfo.version}`;
+
 // packages/core/src/auth.ts
 var EnhanceError = class extends Error {
   constructor(code, message) {
@@ -8852,21 +8968,18 @@ async function resolveGrokAuth(ctx) {
   );
   return {
     baseUrl: "https://api.x.ai/v1/",
-    headers: { Authorization: `Bearer ${credential.secret}`, "User-Agent": "agent-enhance/0.2.0" }
+    headers: { Authorization: `Bearer ${credential.secret}`, "User-Agent": userAgent }
   };
 }
 
 // packages/capabilities/gen_image/xai/src/index.ts
-var index_default = {
-  manifest,
-  create: (services) => ({
-    tool: imageTool({
-      artifacts: new ImageArtifactStore(services.artifactRoot),
-      client: (ctx) => new ImageClient(() => resolveGrokAuth(ctx)),
-      preview: services.preview
-    })
+var index_default = defineModule(definition, requirements, (services) => ({
+  tool: imageTool({
+    artifacts: new ImageArtifactStore(services.artifactRoot),
+    client: (ctx) => new ImageClient(() => resolveGrokAuth(ctx)),
+    preview: services.preview
   })
-};
+}));
 export {
   index_default as default
 };

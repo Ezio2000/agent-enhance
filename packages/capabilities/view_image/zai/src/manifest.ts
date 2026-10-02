@@ -1,11 +1,6 @@
 import type { ModuleManifest } from "../../../../core/src/contracts.ts";
-export const manifest = {
-  apiVersion: 1,
-  id: "view_image/zai",
-  capability: "view_image",
+export const requirements = {
   provider: "zai",
-  kind: "tool",
-  version: "0.2.0",
   auth: {
     provider: "zai",
     channel: "coding-plan",
@@ -13,4 +8,4 @@ export const manifest = {
   },
   /** Hosts skip registering this tool while the active model already accepts image input. */
   modelInputExcludes: ["image"],
-} satisfies ModuleManifest;
+} satisfies Omit<ModuleManifest, "apiVersion" | "id" | "capability">;

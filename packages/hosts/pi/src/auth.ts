@@ -1,23 +1,30 @@
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
+import stripJsonComments from "strip-json-comments";
+import {
+  isConfiguredValue,
+  sourceEnvironment,
+} from "../../../integrations/services/src/sources/config-value.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CredentialResolution, CredentialResolver } from "../../../core/src/auth.ts";
 import type { AuthRequirement } from "../../../core/src/contracts.ts";
-const channels: Record<string, string> = {
-  "openai/codex": "openai-codex",
-  "xai/imagine": "xai",
-  "opencode/go": "opencode-go",
-  "minimax/token-plan": "minimax-cn",
-  "zai/coding-plan": "zai",
-  "zai/coding-plan-cn": "zai-coding-cn",
-};
+import { channels } from "../../../integrations/services/src/sources/channels.ts";
+import type { ServiceSource } from "../../../integrations/services/src/contracts.ts";
 export class PiCredentialResolver implements CredentialResolver {
-  constructor(private readonly registry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth">) {}
+  constructor(
+    private readonly registry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth">,
+    private readonly providerId: string,
+    private readonly reloadModels?: (signal?: AbortSignal) => Promise<void>,
+  ) {}
   async resolve(
     request: AuthRequirement,
     context: { signal?: AbortSignal; interactive: boolean },
   ): Promise<CredentialResolution> {
     context.signal?.throwIfAborted();
-    const provider = channels[`${request.provider}/${request.channel}`];
-    if (!provider)
+    const provider = this.providerId;
+    const channel = channels[provider];
+    if (!channel || channel.provider !== request.provider || channel.channel !== request.channel)
       return {
         status: "unsupported",
         guidance: `Pi authentication does not support ${request.provider}/${request.channel}.`,
@@ -31,6 +38,8 @@ export class PiCredentialResolver implements CredentialResolver {
         ...(context.signal ? [context.signal] : []),
         AbortSignal.timeout(15_000),
       ]);
+      if (this.reloadModels) await this.reloadModels(signal);
+      signal.throwIfAborted();
       const resolved = await new Promise<Awaited<ReturnType<typeof this.registry.getProviderAuth>>>(
         (resolve, reject) => {
           const abort = () => reject(signal.reason);
@@ -48,9 +57,7 @@ export class PiCredentialResolver implements CredentialResolver {
         if (typeof value === "string") headers.set(key, value);
       const secret = auth?.apiKey ?? headers.get("authorization")?.replace(/^Bearer\s+/i, "");
       if (!secret) return { status: "missing", guidance };
-      const kind = ["opencode-go", "minimax-cn", "minimax", "zai", "zai-coding-cn"].includes(provider)
-        ? "api_key"
-        : "oauth";
+      const kind = channel.kind;
       if (kind === "oauth" && secret.split(".").length !== 3)
         return {
           status: "login_required",
@@ -67,7 +74,7 @@ export class PiCredentialResolver implements CredentialResolver {
           kind,
           secret,
           accountId: headers.get("chatgpt-account-id") ?? undefined,
-          baseUrl: auth?.baseUrl,
+          baseUrl: auth?.baseUrl ?? channel.baseUrl,
         },
       };
     } catch {
@@ -76,3 +83,80 @@ export class PiCredentialResolver implements CredentialResolver {
     }
   }
 }
+
+export interface PiSourceOptions {
+  env?: NodeJS.ProcessEnv;
+  storedCredential?(provider: string):
+    | {
+        type: string;
+        key?: string;
+        env?: Record<string, string>;
+        access?: string;
+        refresh?: string;
+        expires?: number;
+      }
+    | undefined;
+  modelConfig?: Record<string, { apiKey?: string; env?: Record<string, string> }>;
+}
+export function piServiceSource(ctx: ExtensionContext, options: PiSourceOptions = {}): ServiceSource {
+  return {
+    id: "pi",
+    async discover() {
+      const env = options.env ?? process.env;
+      const path = join(getAgentDir(), "models.json");
+      const models =
+        options.modelConfig ??
+        (existsSync(path)
+          ? (JSON.parse(stripJsonComments(readFileSync(path, "utf8").replace(/^\uFEFF/, ""))).providers ?? {})
+          : {});
+      const readStored: NonNullable<PiSourceOptions["storedCredential"]> =
+        options.storedCredential ?? ((id) => readStoredCredential(id));
+      return Object.entries(channels).flatMap(([providerId, channel]) => {
+        const status = ctx.modelRegistry.getProviderAuthStatus(providerId);
+        const stored = readStored(providerId);
+        const extension = ctx.modelRegistry.getRegisteredProviderConfig(providerId);
+        const runtime =
+          status.configured &&
+          (status.source === "runtime" ||
+            (channel.kind === "api_key" &&
+              (status.source === "fallback" || isConfiguredValue(extension?.apiKey, env))));
+        const configured =
+          runtime ||
+          (stored?.type === channel.kind &&
+            (channel.kind === "oauth"
+              ? !!(
+                  stored.refresh ||
+                  (stored.access && (stored.expires === undefined || stored.expires > Date.now()))
+                )
+              : isConfiguredValue(stored.key, sourceEnvironment(env, stored.env)))) ||
+          (channel.kind === "api_key" &&
+            !!(
+              (channel.env && env[channel.env]) ||
+              isConfiguredValue(models[providerId]?.apiKey, sourceEnvironment(env, models[providerId]?.env))
+            ));
+        if (!configured) return [];
+        return [
+          {
+            id: `pi:${providerId}`,
+            source: "pi",
+            provider: channel.provider,
+            channel: channel.channel,
+            kind: channel.kind,
+            label: `${providerId} · Pi`,
+            credentials: new PiCredentialResolver(
+              ctx.modelRegistry,
+              providerId,
+              models[providerId]?.apiKey
+                ? async (signal) => {
+                    await ctx.modelRegistry.refresh({ allowNetwork: false, providers: [providerId], signal });
+                  }
+                : undefined,
+            ),
+          },
+        ];
+      });
+    },
+  };
+}
+
+export const piSourcePaths = () => [join(getAgentDir(), "auth.json"), join(getAgentDir(), "models.json")];

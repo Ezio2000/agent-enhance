@@ -5,19 +5,36 @@ var __export = (target, all) => {
 };
 
 // packages/capabilities/gen_video/xai/src/manifest.ts
-var manifest = {
-  apiVersion: 1,
-  id: "gen_video/xai",
-  capability: "gen_video",
+var requirements = {
   provider: "xai",
-  kind: "tool",
-  version: "0.2.0",
   auth: {
     provider: "xai",
     channel: "imagine",
     acceptedKinds: ["oauth"]
   }
 };
+
+// packages/capabilities/gen_video/definition.ts
+var definition = {
+  id: "gen_video",
+  label: "\u89C6\u9891\u751F\u6210",
+  group: "Video"
+};
+
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
+function defineModule(definition2, manifest, create) {
+  return {
+    definition: definition2,
+    manifest: {
+      ...manifest,
+      apiVersion: MODULE_API_VERSION,
+      id: `${definition2.id}/${manifest.provider}`,
+      capability: definition2.id
+    },
+    create
+  };
+}
 
 // packages/transports/xai/src/http.ts
 async function abortable(pending, signal) {
@@ -9025,6 +9042,71 @@ Original file is saved. Do not re-read or narrate the clip.`
   };
 }
 
+// package.json
+var package_default = {
+  name: "pi-enhance",
+  version: "0.3.0",
+  description: "Host-neutral capabilities with automatic service discovery for Pi and Claude Code",
+  type: "module",
+  license: "MIT",
+  repository: "github:Ezio2000/agent-enhance",
+  keywords: [
+    "pi-package",
+    "agent-enhance",
+    "capabilities"
+  ],
+  engines: {
+    node: ">=22"
+  },
+  files: [
+    "dist/pi-enhance.mjs",
+    "dist/catalog.json",
+    "dist/modules",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
+  pi: {
+    extensions: [
+      "./dist/pi-enhance.mjs"
+    ]
+  },
+  scripts: {
+    build: "tsx scripts/build.ts",
+    typecheck: "tsc --noEmit",
+    test: "tsx --test tests/*.test.ts tests/capabilities/*/*/*.test.ts tests/transports/*/*.test.ts",
+    "check:boundaries": "tsx scripts/check-boundaries.ts",
+    check: "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test && npm run verify:distribution",
+    smoke: "tsx scripts/smoke.ts",
+    "verify:distribution": "tsx scripts/verify-distribution.ts",
+    format: "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
+    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
+  },
+  peerDependencies: {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    typebox: "*"
+  },
+  devDependencies: {
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@types/node": "^22.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    esbuild: "^0.25.0",
+    prettier: "^3.9.8",
+    "proper-lockfile": "^4.1.2",
+    "strip-json-comments": "^5.0.3",
+    tsx: "^4.20.0",
+    typebox: "1.3.7",
+    typescript: "^5.9.0"
+  }
+};
+
+// packages/transports/version.ts
+var clientInfo = { name: "agent-enhance", version: package_default.version };
+var userAgent = `${clientInfo.name}/${clientInfo.version}`;
+
 // packages/core/src/auth.ts
 var EnhanceError = class extends Error {
   constructor(code, message) {
@@ -9055,20 +9137,17 @@ async function resolveGrokAuth(ctx) {
   );
   return {
     baseUrl: "https://api.x.ai/v1/",
-    headers: { Authorization: `Bearer ${credential.secret}`, "User-Agent": "agent-enhance/0.2.0" }
+    headers: { Authorization: `Bearer ${credential.secret}`, "User-Agent": userAgent }
   };
 }
 
 // packages/capabilities/gen_video/xai/src/index.ts
-var index_default = {
-  manifest,
-  create: (services) => ({
-    tool: videoTool({
-      artifacts: new VideoArtifactStore(services.artifactRoot),
-      client: (ctx) => new VideoClient(() => resolveGrokAuth(ctx))
-    })
+var index_default = defineModule(definition, requirements, (services) => ({
+  tool: videoTool({
+    artifacts: new VideoArtifactStore(services.artifactRoot),
+    client: (ctx) => new VideoClient(() => resolveGrokAuth(ctx))
   })
-};
+}));
 export {
   index_default as default
 };

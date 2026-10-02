@@ -1,14 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { enhanceHome } from "../../../core/src/config.ts";
-import type { Catalog } from "../../../core/src/modules.ts";
+import { enhanceHome } from "../../../integrations/services/src/preferences.ts";
+import type { Catalog } from "../../../integrations/services/src/catalog.ts";
 import { distDirectory } from "./paths.ts";
 import { serve } from "./server.ts";
 import { hook } from "./hook.ts";
 import { manage } from "./manage.ts";
-import { pollXai } from "./login.ts";
 
-const VERSION = "0.2.0";
 /** Entry of dist/cc-enhance.mjs: `serve` | `hook prompt|stop` | `cli <args…>`. */
 async function main(argv: string[]): Promise<void> {
   const home = enhanceHome();
@@ -16,9 +14,8 @@ async function main(argv: string[]): Promise<void> {
   const catalog = JSON.parse(readFileSync(join(dist, "catalog.json"), "utf8")) as Catalog;
   const options = { home, catalog, moduleDirectory: join(dist, "modules") };
   const [command, ...rest] = argv;
-  if (command === "serve") return serve({ ...options, version: VERSION });
+  if (command === "serve") return serve({ ...options, version: catalog.release });
   if (command === "hook") return hook(rest[0]);
-  if (command === "poll-xai") return pollXai(home, rest[0] ?? "");
   if (command === "cli") {
     // Slash commands pass $ARGUMENTS as one string; split it here.
     const args = rest.flatMap((a) => a.split(/\s+/)).filter(Boolean);

@@ -1,5 +1,7 @@
-import type { CapabilityModule, ModuleServices, ModuleInstance } from "../../../../core/src/contracts.ts";
-import { manifest } from "./manifest.ts";
+import type { ModuleServices, ModuleInstance } from "../../../../core/src/contracts.ts";
+import { requirements } from "./manifest.ts";
+import { definition } from "../../definition.ts";
+import { defineModule } from "../../../../core/src/module.ts";
 import { ComputerSession } from "./session.ts";
 import { ComputerOutput } from "./output.ts";
 import { computerTool } from "./tool.ts";
@@ -24,4 +26,4 @@ export function createComputer(services: ModuleServices, session = new ComputerS
     },
   };
 }
-export default { manifest, create: createComputer } satisfies CapabilityModule;
+export default defineModule(definition, requirements, createComputer);

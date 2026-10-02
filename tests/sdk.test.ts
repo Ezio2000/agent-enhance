@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -53,8 +53,21 @@ test("Pi SDK child with tools: [] has no implicit built-in tools", async () => {
 
 test("real Pi SDK loads built adapter, executes commands, refreshes schemas and preserves excluded tools", async () => {
   const home = await mkdtemp(join(tmpdir(), "enhance-sdk-"));
-  const oldHome = process.env.AGENT_ENHANCE_HOME;
+  const originalEnv = { ...process.env };
   process.env.AGENT_ENHANCE_HOME = home;
+  process.env.CODEX_HOME = join(home, "codex");
+  process.env.PI_CODING_AGENT_DIR = home;
+  process.env.XDG_DATA_HOME = join(home, "data");
+  process.env.OPENAI_CODEX_COMPUTER_APP = join(home, "absent.app");
+  for (const key of [
+    "OPENCODE_AUTH_CONTENT",
+    "OPENCODE_API_KEY",
+    "MINIMAX_CN_API_KEY",
+    "MINIMAX_API_KEY",
+    "ZAI_API_KEY",
+    "ZAI_CODING_CN_API_KEY",
+  ])
+    delete process.env[key];
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   try {
     const settingsManager = SettingsManager.inMemory({
@@ -75,6 +88,18 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
     });
     await loader.reload();
     assert.deepEqual(loader.getExtensions().errors, []);
+    await writeFile(
+      join(home, "auth.json"),
+      JSON.stringify({
+        "openai-codex": {
+          type: "oauth",
+          access: "fixture",
+          refresh: "fixture",
+          expires: Date.now() + 3600000,
+        },
+        xai: { type: "oauth", access: "fixture", refresh: "fixture", expires: Date.now() + 3600000 },
+      }),
+    );
     const modelRuntime = await ModelRuntime.create({
       authPath: join(home, "auth.json"),
       modelsPath: join(home, "models.json"),
@@ -112,25 +137,23 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
     assert.ok(!session.getActiveToolNames().includes("view_subagents"));
     assert.ok(!session.getActiveToolNames().includes("cancel_subagents"));
     assert.doesNotMatch(session.systemPrompt, /Delegate substantial independent investigations/);
-    await session.prompt("/pi-enhance openai gen_image enable");
-    await session.prompt("/pi-enhance xai gen_image install");
-    await session.prompt("/pi-enhance xai gen_image load");
+    await session.prompt("/pi-enhance refresh");
     const image = session.getAllTools().find((t) => t.name === "gen_image");
     assert.ok(image, JSON.stringify(session.messages));
     assert.deepEqual((image.parameters as any).properties.provider.enum, ["openai", "xai"]);
     assert.equal(session.getAllTools().filter((t) => t.name === "gen_image").length, 1);
     assert.ok(session.getActiveToolNames().includes("gen_image"));
-    await session.prompt("/pi-enhance xai gen_video enable");
+    await session.prompt("/pi-enhance refresh");
     assert.ok(
       !session.getActiveToolNames().includes("gen_video"),
       "host exclusions must not be bypassed by dynamic activation",
     );
-    await session.prompt("/pi-enhance openai gen_image disable");
+    await session.prompt("/pi-enhance exclude gen_image pi:openai-codex");
     assert.deepEqual(
       (session.getAllTools().find((t) => t.name === "gen_image")!.parameters as any).properties.provider.enum,
       ["xai"],
     );
-    await session.prompt("/pi-enhance xai gen_image unload");
+    await session.prompt("/pi-enhance exclude gen_image");
     assert.ok(!session.getActiveToolNames().includes("gen_image"));
     assert.ok(!session.messages.some((m) => m.role === "assistant")); // Commands never invoke a model.
   } finally {
@@ -138,8 +161,7 @@ test("real Pi SDK loads built adapter, executes commands, refreshes schemas and 
       await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       session.dispose();
     }
-    if (oldHome === undefined) delete process.env.AGENT_ENHANCE_HOME;
-    else process.env.AGENT_ENHANCE_HOME = oldHome;
+    process.env = originalEnv;
     await rm(home, { recursive: true, force: true });
   }
 });

@@ -5,16 +5,34 @@ var __export = (target, all) => {
 };
 
 // packages/capabilities/use_computer/openai/src/manifest.ts
-var manifest = {
-  apiVersion: 1,
-  id: "use_computer/openai",
-  capability: "use_computer",
+var requirements = {
   provider: "openai",
-  kind: "tool",
-  version: "0.2.0",
+  runtime: "chatgpt-desktop",
   platforms: ["darwin"],
   requires: ["approval", "task-settled"]
 };
+
+// packages/capabilities/use_computer/definition.ts
+var definition = {
+  id: "use_computer",
+  label: "\u684C\u9762\u64CD\u4F5C",
+  group: "Computer use"
+};
+
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
+function defineModule(definition2, manifest, create) {
+  return {
+    definition: definition2,
+    manifest: {
+      ...manifest,
+      apiVersion: MODULE_API_VERSION,
+      id: `${definition2.id}/${manifest.provider}`,
+      capability: definition2.id
+    },
+    create
+  };
+}
 
 // packages/capabilities/use_computer/openai/src/session.ts
 import { randomUUID } from "node:crypto";
@@ -128,6 +146,71 @@ var ComputerApprovals = class {
   }
 };
 
+// package.json
+var package_default = {
+  name: "pi-enhance",
+  version: "0.3.0",
+  description: "Host-neutral capabilities with automatic service discovery for Pi and Claude Code",
+  type: "module",
+  license: "MIT",
+  repository: "github:Ezio2000/agent-enhance",
+  keywords: [
+    "pi-package",
+    "agent-enhance",
+    "capabilities"
+  ],
+  engines: {
+    node: ">=22"
+  },
+  files: [
+    "dist/pi-enhance.mjs",
+    "dist/catalog.json",
+    "dist/modules",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
+  pi: {
+    extensions: [
+      "./dist/pi-enhance.mjs"
+    ]
+  },
+  scripts: {
+    build: "tsx scripts/build.ts",
+    typecheck: "tsc --noEmit",
+    test: "tsx --test tests/*.test.ts tests/capabilities/*/*/*.test.ts tests/transports/*/*.test.ts",
+    "check:boundaries": "tsx scripts/check-boundaries.ts",
+    check: "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test && npm run verify:distribution",
+    smoke: "tsx scripts/smoke.ts",
+    "verify:distribution": "tsx scripts/verify-distribution.ts",
+    format: "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
+    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
+  },
+  peerDependencies: {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    typebox: "*"
+  },
+  devDependencies: {
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@types/node": "^22.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    esbuild: "^0.25.0",
+    prettier: "^3.9.8",
+    "proper-lockfile": "^4.1.2",
+    "strip-json-comments": "^5.0.3",
+    tsx: "^4.20.0",
+    typebox: "1.3.7",
+    typescript: "^5.9.0"
+  }
+};
+
+// packages/transports/version.ts
+var clientInfo = { name: "agent-enhance", version: package_default.version };
+var userAgent = `${clientInfo.name}/${clientInfo.version}`;
+
 // packages/capabilities/use_computer/openai/src/mcp.ts
 import { spawn } from "node:child_process";
 var MAX_FRAME = 64 * 1024 * 1024;
@@ -213,7 +296,7 @@ var ComputerMcp = class {
       {
         protocolVersion: "2024-11-05",
         capabilities: { elicitation: {} },
-        clientInfo: { name: "agent-enhance", version: "0.2.0" }
+        clientInfo
       },
       3e4,
       signal
@@ -464,16 +547,16 @@ async function materialized(pluginDir, probe, roots) {
   for (const name of [...pinned, ...versions]) {
     const directory = join(pluginDir, name);
     const file = join(directory, ".mcp.json");
-    let manifest2;
+    let manifest;
     try {
-      manifest2 = JSON.parse(await probe.readText(file));
+      manifest = JSON.parse(await probe.readText(file));
     } catch (error) {
       problems.push(
         `${file}: ${error instanceof SyntaxError ? "invalid JSON" : "no materialized plugin manifest"}`
       );
       continue;
     }
-    const servers = manifest2 !== null && typeof manifest2 === "object" ? manifest2.mcpServers : void 0;
+    const servers = manifest !== null && typeof manifest === "object" ? manifest.mcpServers : void 0;
     const raw = servers !== null && typeof servers === "object" ? servers.cua_repl : void 0;
     const server = raw !== null && typeof raw === "object" ? raw : void 0;
     const command = typeof server?.command === "string" ? server.command : "";
@@ -9496,7 +9579,7 @@ function createComputer(services, session = new ComputerSession()) {
     }
   };
 }
-var index_default = { manifest, create: createComputer };
+var index_default = defineModule(definition, requirements, createComputer);
 export {
   createComputer,
   index_default as default

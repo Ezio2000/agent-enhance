@@ -1,4 +1,5 @@
-import type { CapabilityModule } from "../../../../core/src/contracts.ts";
-import { manifest } from "./manifest.ts";
+import { requirements } from "./manifest.ts";
+import { definition } from "../../definition.ts";
+import { defineModule } from "../../../../core/src/module.ts";
 import { pdfTool } from "./tool.ts";
-export default { manifest, create: () => ({ tool: pdfTool() }) } satisfies CapabilityModule;
+export default defineModule(definition, requirements, () => ({ tool: pdfTool() }));

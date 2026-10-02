@@ -1,3 +1,4 @@
+import { clientInfo } from "../../version.ts";
 import type { ProtocolAuth, ResolveAuth, RequestOptions } from "./types.ts";
 import { ProtocolError, isRecord, redact, responseError } from "./http.ts";
 
@@ -133,7 +134,7 @@ export class ZaiMcpToolClient {
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "agent-enhance", version: "0.2.0" },
+          clientInfo,
         },
       },
       options,

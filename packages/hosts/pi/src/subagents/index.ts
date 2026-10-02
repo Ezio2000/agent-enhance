@@ -207,6 +207,7 @@ export class Subagents {
     });
   }
   setEnabled(enabled: boolean): void {
+    if (this.enabled && !enabled) this.cancelAll();
     this.enabled = enabled;
   }
   isEnabled(): boolean {

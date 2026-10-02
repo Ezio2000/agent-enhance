@@ -1,3 +1,4 @@
+import { userAgent } from "../../version.ts";
 import type { ExecutionContext } from "../../../core/src/contracts.ts";
 import { requireCredential } from "../../../core/src/auth.ts";
 import type { ProtocolAuth } from "./types.ts";
@@ -41,7 +42,7 @@ export async function resolveCodexAuth(
       Authorization: `Bearer ${credential.secret}`,
       "chatgpt-account-id": accountId,
       originator: "pi",
-      "User-Agent": "agent-enhance/0.2.0",
+      "User-Agent": userAgent,
     },
   };
 }

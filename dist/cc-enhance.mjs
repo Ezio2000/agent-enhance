@@ -5,7 +5,13 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __commonJS = (cb, mod) => function __require() {
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __export = (target, all) => {
@@ -1057,10 +1063,10 @@ var require_util = __commonJS({
     var codegen_1 = require_codegen();
     var code_1 = require_code();
     function toHash(arr) {
-      const hash2 = {};
+      const hash = {};
       for (const item of arr)
-        hash2[item] = true;
-      return hash2;
+        hash[item] = true;
+      return hash;
     }
     exports.toHash = toHash;
     function alwaysValidSchema(it, schema) {
@@ -2231,15 +2237,15 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize) {
+    function getFullPath(resolver2, id = "", normalize) {
       if (normalize !== false)
         id = normalizeId(id);
-      const p = resolver.parse(id);
-      return _getFullPath(resolver, p);
+      const p = resolver2.parse(id);
+      return _getFullPath(resolver2, p);
     }
     exports.getFullPath = getFullPath;
-    function _getFullPath(resolver, p) {
-      const serialized = resolver.serialize(p);
+    function _getFullPath(resolver2, p) {
+      const serialized = resolver2.serialize(p);
       return serialized.split("#")[0] + "#";
     }
     exports._getFullPath = _getFullPath;
@@ -2248,9 +2254,9 @@ var require_resolve = __commonJS({
       return id ? id.replace(TRAILING_SLASH_HASH, "") : "";
     }
     exports.normalizeId = normalizeId;
-    function resolveUrl(resolver, baseId, id) {
+    function resolveUrl(resolver2, baseId, id) {
       id = normalizeId(id);
-      return resolver.resolve(baseId, id);
+      return resolver2.resolve(baseId, id);
     }
     exports.resolveUrl = resolveUrl;
     var ANCHOR = /^[a-z_][-a-z0-9._]*$/i;
@@ -2846,10 +2852,10 @@ var require_ref_error = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
     var MissingRefError = class extends Error {
-      constructor(resolver, baseId, ref, msg) {
+      constructor(resolver2, baseId, ref, msg) {
         super(msg || `can't resolve reference ${ref} from id ${baseId}`);
-        this.missingRef = (0, resolve_1.resolveUrl)(resolver, baseId, ref);
-        this.missingSchema = (0, resolve_1.normalizeId)((0, resolve_1.getFullPath)(resolver, this.missingRef));
+        this.missingRef = (0, resolve_1.resolveUrl)(resolver2, baseId, ref);
+        this.missingSchema = (0, resolve_1.normalizeId)((0, resolve_1.getFullPath)(resolver2, this.missingRef));
       }
     };
     exports.default = MissingRefError;
@@ -2980,7 +2986,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3007,7 +3013,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3837,7 +3843,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -4206,7 +4212,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -7195,11 +7201,1613 @@ var require_dist = __commonJS({
   }
 });
 
+// node_modules/graceful-fs/polyfills.js
+var require_polyfills = __commonJS({
+  "node_modules/graceful-fs/polyfills.js"(exports, module) {
+    var constants2 = __require("constants");
+    var origCwd = process.cwd;
+    var cwd = null;
+    var platform = process.env.GRACEFUL_FS_PLATFORM || process.platform;
+    process.cwd = function() {
+      if (!cwd)
+        cwd = origCwd.call(process);
+      return cwd;
+    };
+    try {
+      process.cwd();
+    } catch (er) {
+    }
+    if (typeof process.chdir === "function") {
+      chdir = process.chdir;
+      process.chdir = function(d) {
+        cwd = null;
+        chdir.call(process, d);
+      };
+      if (Object.setPrototypeOf) Object.setPrototypeOf(process.chdir, chdir);
+    }
+    var chdir;
+    module.exports = patch;
+    function patch(fs) {
+      if (constants2.hasOwnProperty("O_SYMLINK") && process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
+        patchLchmod(fs);
+      }
+      if (!fs.lutimes) {
+        patchLutimes(fs);
+      }
+      fs.chown = chownFix(fs.chown);
+      fs.fchown = chownFix(fs.fchown);
+      fs.lchown = chownFix(fs.lchown);
+      fs.chmod = chmodFix(fs.chmod);
+      fs.fchmod = chmodFix(fs.fchmod);
+      fs.lchmod = chmodFix(fs.lchmod);
+      fs.chownSync = chownFixSync(fs.chownSync);
+      fs.fchownSync = chownFixSync(fs.fchownSync);
+      fs.lchownSync = chownFixSync(fs.lchownSync);
+      fs.chmodSync = chmodFixSync(fs.chmodSync);
+      fs.fchmodSync = chmodFixSync(fs.fchmodSync);
+      fs.lchmodSync = chmodFixSync(fs.lchmodSync);
+      fs.stat = statFix(fs.stat);
+      fs.fstat = statFix(fs.fstat);
+      fs.lstat = statFix(fs.lstat);
+      fs.statSync = statFixSync(fs.statSync);
+      fs.fstatSync = statFixSync(fs.fstatSync);
+      fs.lstatSync = statFixSync(fs.lstatSync);
+      if (fs.chmod && !fs.lchmod) {
+        fs.lchmod = function(path, mode, cb) {
+          if (cb) process.nextTick(cb);
+        };
+        fs.lchmodSync = function() {
+        };
+      }
+      if (fs.chown && !fs.lchown) {
+        fs.lchown = function(path, uid, gid, cb) {
+          if (cb) process.nextTick(cb);
+        };
+        fs.lchownSync = function() {
+        };
+      }
+      if (platform === "win32") {
+        fs.rename = typeof fs.rename !== "function" ? fs.rename : (function(fs$rename) {
+          function rename2(from, to, cb) {
+            var start = Date.now();
+            var backoff = 0;
+            fs$rename(from, to, function CB(er) {
+              if (er && (er.code === "EACCES" || er.code === "EPERM" || er.code === "EBUSY") && Date.now() - start < 6e4) {
+                setTimeout(function() {
+                  fs.stat(to, function(stater, st) {
+                    if (stater && stater.code === "ENOENT")
+                      fs$rename(from, to, CB);
+                    else
+                      cb(er);
+                  });
+                }, backoff);
+                if (backoff < 100)
+                  backoff += 10;
+                return;
+              }
+              if (cb) cb(er);
+            });
+          }
+          if (Object.setPrototypeOf) Object.setPrototypeOf(rename2, fs$rename);
+          return rename2;
+        })(fs.rename);
+      }
+      fs.read = typeof fs.read !== "function" ? fs.read : (function(fs$read) {
+        function read(fd, buffer, offset, length, position, callback_) {
+          var callback;
+          if (callback_ && typeof callback_ === "function") {
+            var eagCounter = 0;
+            callback = function(er, _, __) {
+              if (er && er.code === "EAGAIN" && eagCounter < 10) {
+                eagCounter++;
+                return fs$read.call(fs, fd, buffer, offset, length, position, callback);
+              }
+              callback_.apply(this, arguments);
+            };
+          }
+          return fs$read.call(fs, fd, buffer, offset, length, position, callback);
+        }
+        if (Object.setPrototypeOf) Object.setPrototypeOf(read, fs$read);
+        return read;
+      })(fs.read);
+      fs.readSync = typeof fs.readSync !== "function" ? fs.readSync : /* @__PURE__ */ (function(fs$readSync) {
+        return function(fd, buffer, offset, length, position) {
+          var eagCounter = 0;
+          while (true) {
+            try {
+              return fs$readSync.call(fs, fd, buffer, offset, length, position);
+            } catch (er) {
+              if (er.code === "EAGAIN" && eagCounter < 10) {
+                eagCounter++;
+                continue;
+              }
+              throw er;
+            }
+          }
+        };
+      })(fs.readSync);
+      function patchLchmod(fs2) {
+        fs2.lchmod = function(path, mode, callback) {
+          fs2.open(
+            path,
+            constants2.O_WRONLY | constants2.O_SYMLINK,
+            mode,
+            function(err, fd) {
+              if (err) {
+                if (callback) callback(err);
+                return;
+              }
+              fs2.fchmod(fd, mode, function(err2) {
+                fs2.close(fd, function(err22) {
+                  if (callback) callback(err2 || err22);
+                });
+              });
+            }
+          );
+        };
+        fs2.lchmodSync = function(path, mode) {
+          var fd = fs2.openSync(path, constants2.O_WRONLY | constants2.O_SYMLINK, mode);
+          var threw = true;
+          var ret;
+          try {
+            ret = fs2.fchmodSync(fd, mode);
+            threw = false;
+          } finally {
+            if (threw) {
+              try {
+                fs2.closeSync(fd);
+              } catch (er) {
+              }
+            } else {
+              fs2.closeSync(fd);
+            }
+          }
+          return ret;
+        };
+      }
+      function patchLutimes(fs2) {
+        if (constants2.hasOwnProperty("O_SYMLINK") && fs2.futimes) {
+          fs2.lutimes = function(path, at, mt, cb) {
+            fs2.open(path, constants2.O_SYMLINK, function(er, fd) {
+              if (er) {
+                if (cb) cb(er);
+                return;
+              }
+              fs2.futimes(fd, at, mt, function(er2) {
+                fs2.close(fd, function(er22) {
+                  if (cb) cb(er2 || er22);
+                });
+              });
+            });
+          };
+          fs2.lutimesSync = function(path, at, mt) {
+            var fd = fs2.openSync(path, constants2.O_SYMLINK);
+            var ret;
+            var threw = true;
+            try {
+              ret = fs2.futimesSync(fd, at, mt);
+              threw = false;
+            } finally {
+              if (threw) {
+                try {
+                  fs2.closeSync(fd);
+                } catch (er) {
+                }
+              } else {
+                fs2.closeSync(fd);
+              }
+            }
+            return ret;
+          };
+        } else if (fs2.futimes) {
+          fs2.lutimes = function(_a3, _b, _c, cb) {
+            if (cb) process.nextTick(cb);
+          };
+          fs2.lutimesSync = function() {
+          };
+        }
+      }
+      function chmodFix(orig) {
+        if (!orig) return orig;
+        return function(target, mode, cb) {
+          return orig.call(fs, target, mode, function(er) {
+            if (chownErOk(er)) er = null;
+            if (cb) cb.apply(this, arguments);
+          });
+        };
+      }
+      function chmodFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, mode) {
+          try {
+            return orig.call(fs, target, mode);
+          } catch (er) {
+            if (!chownErOk(er)) throw er;
+          }
+        };
+      }
+      function chownFix(orig) {
+        if (!orig) return orig;
+        return function(target, uid, gid, cb) {
+          return orig.call(fs, target, uid, gid, function(er) {
+            if (chownErOk(er)) er = null;
+            if (cb) cb.apply(this, arguments);
+          });
+        };
+      }
+      function chownFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, uid, gid) {
+          try {
+            return orig.call(fs, target, uid, gid);
+          } catch (er) {
+            if (!chownErOk(er)) throw er;
+          }
+        };
+      }
+      function statFix(orig) {
+        if (!orig) return orig;
+        return function(target, options, cb) {
+          if (typeof options === "function") {
+            cb = options;
+            options = null;
+          }
+          function callback(er, stats) {
+            if (stats) {
+              if (stats.uid < 0) stats.uid += 4294967296;
+              if (stats.gid < 0) stats.gid += 4294967296;
+            }
+            if (cb) cb.apply(this, arguments);
+          }
+          return options ? orig.call(fs, target, options, callback) : orig.call(fs, target, callback);
+        };
+      }
+      function statFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, options) {
+          var stats = options ? orig.call(fs, target, options) : orig.call(fs, target);
+          if (stats) {
+            if (stats.uid < 0) stats.uid += 4294967296;
+            if (stats.gid < 0) stats.gid += 4294967296;
+          }
+          return stats;
+        };
+      }
+      function chownErOk(er) {
+        if (!er)
+          return true;
+        if (er.code === "ENOSYS")
+          return true;
+        var nonroot = !process.getuid || process.getuid() !== 0;
+        if (nonroot) {
+          if (er.code === "EINVAL" || er.code === "EPERM")
+            return true;
+        }
+        return false;
+      }
+    }
+  }
+});
+
+// node_modules/graceful-fs/legacy-streams.js
+var require_legacy_streams = __commonJS({
+  "node_modules/graceful-fs/legacy-streams.js"(exports, module) {
+    var Stream = __require("stream").Stream;
+    module.exports = legacy;
+    function legacy(fs) {
+      return {
+        ReadStream,
+        WriteStream
+      };
+      function ReadStream(path, options) {
+        if (!(this instanceof ReadStream)) return new ReadStream(path, options);
+        Stream.call(this);
+        var self = this;
+        this.path = path;
+        this.fd = null;
+        this.readable = true;
+        this.paused = false;
+        this.flags = "r";
+        this.mode = 438;
+        this.bufferSize = 64 * 1024;
+        options = options || {};
+        var keys = Object.keys(options);
+        for (var index = 0, length = keys.length; index < length; index++) {
+          var key = keys[index];
+          this[key] = options[key];
+        }
+        if (this.encoding) this.setEncoding(this.encoding);
+        if (this.start !== void 0) {
+          if ("number" !== typeof this.start) {
+            throw TypeError("start must be a Number");
+          }
+          if (this.end === void 0) {
+            this.end = Infinity;
+          } else if ("number" !== typeof this.end) {
+            throw TypeError("end must be a Number");
+          }
+          if (this.start > this.end) {
+            throw new Error("start must be <= end");
+          }
+          this.pos = this.start;
+        }
+        if (this.fd !== null) {
+          process.nextTick(function() {
+            self._read();
+          });
+          return;
+        }
+        fs.open(this.path, this.flags, this.mode, function(err, fd) {
+          if (err) {
+            self.emit("error", err);
+            self.readable = false;
+            return;
+          }
+          self.fd = fd;
+          self.emit("open", fd);
+          self._read();
+        });
+      }
+      function WriteStream(path, options) {
+        if (!(this instanceof WriteStream)) return new WriteStream(path, options);
+        Stream.call(this);
+        this.path = path;
+        this.fd = null;
+        this.writable = true;
+        this.flags = "w";
+        this.encoding = "binary";
+        this.mode = 438;
+        this.bytesWritten = 0;
+        options = options || {};
+        var keys = Object.keys(options);
+        for (var index = 0, length = keys.length; index < length; index++) {
+          var key = keys[index];
+          this[key] = options[key];
+        }
+        if (this.start !== void 0) {
+          if ("number" !== typeof this.start) {
+            throw TypeError("start must be a Number");
+          }
+          if (this.start < 0) {
+            throw new Error("start must be >= zero");
+          }
+          this.pos = this.start;
+        }
+        this.busy = false;
+        this._queue = [];
+        if (this.fd === null) {
+          this._open = fs.open;
+          this._queue.push([this._open, this.path, this.flags, this.mode, void 0]);
+          this.flush();
+        }
+      }
+    }
+  }
+});
+
+// node_modules/graceful-fs/clone.js
+var require_clone = __commonJS({
+  "node_modules/graceful-fs/clone.js"(exports, module) {
+    "use strict";
+    module.exports = clone2;
+    var getPrototypeOf = Object.getPrototypeOf || function(obj) {
+      return obj.__proto__;
+    };
+    function clone2(obj) {
+      if (obj === null || typeof obj !== "object")
+        return obj;
+      if (obj instanceof Object)
+        var copy = { __proto__: getPrototypeOf(obj) };
+      else
+        var copy = /* @__PURE__ */ Object.create(null);
+      Object.getOwnPropertyNames(obj).forEach(function(key) {
+        Object.defineProperty(copy, key, Object.getOwnPropertyDescriptor(obj, key));
+      });
+      return copy;
+    }
+  }
+});
+
+// node_modules/graceful-fs/graceful-fs.js
+var require_graceful_fs = __commonJS({
+  "node_modules/graceful-fs/graceful-fs.js"(exports, module) {
+    var fs = __require("fs");
+    var polyfills = require_polyfills();
+    var legacy = require_legacy_streams();
+    var clone2 = require_clone();
+    var util = __require("util");
+    var gracefulQueue;
+    var previousSymbol;
+    if (typeof Symbol === "function" && typeof Symbol.for === "function") {
+      gracefulQueue = Symbol.for("graceful-fs.queue");
+      previousSymbol = Symbol.for("graceful-fs.previous");
+    } else {
+      gracefulQueue = "___graceful-fs.queue";
+      previousSymbol = "___graceful-fs.previous";
+    }
+    function noop() {
+    }
+    function publishQueue(context, queue2) {
+      Object.defineProperty(context, gracefulQueue, {
+        get: function() {
+          return queue2;
+        }
+      });
+    }
+    var debug = noop;
+    if (util.debuglog)
+      debug = util.debuglog("gfs4");
+    else if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || ""))
+      debug = function() {
+        var m = util.format.apply(util, arguments);
+        m = "GFS4: " + m.split(/\n/).join("\nGFS4: ");
+        console.error(m);
+      };
+    if (!fs[gracefulQueue]) {
+      queue = global[gracefulQueue] || [];
+      publishQueue(fs, queue);
+      fs.close = (function(fs$close) {
+        function close(fd, cb) {
+          return fs$close.call(fs, fd, function(err) {
+            if (!err) {
+              resetQueue();
+            }
+            if (typeof cb === "function")
+              cb.apply(this, arguments);
+          });
+        }
+        Object.defineProperty(close, previousSymbol, {
+          value: fs$close
+        });
+        return close;
+      })(fs.close);
+      fs.closeSync = (function(fs$closeSync) {
+        function closeSync2(fd) {
+          fs$closeSync.apply(fs, arguments);
+          resetQueue();
+        }
+        Object.defineProperty(closeSync2, previousSymbol, {
+          value: fs$closeSync
+        });
+        return closeSync2;
+      })(fs.closeSync);
+      if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
+        process.on("exit", function() {
+          debug(fs[gracefulQueue]);
+          __require("assert").equal(fs[gracefulQueue].length, 0);
+        });
+      }
+    }
+    var queue;
+    if (!global[gracefulQueue]) {
+      publishQueue(global, fs[gracefulQueue]);
+    }
+    module.exports = patch(clone2(fs));
+    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs.__patched) {
+      module.exports = patch(fs);
+      fs.__patched = true;
+    }
+    function patch(fs2) {
+      polyfills(fs2);
+      fs2.gracefulify = patch;
+      fs2.createReadStream = createReadStream;
+      fs2.createWriteStream = createWriteStream;
+      var fs$readFile = fs2.readFile;
+      fs2.readFile = readFile4;
+      function readFile4(path, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$readFile(path, options, cb);
+        function go$readFile(path2, options2, cb2, startTime) {
+          return fs$readFile(path2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$readFile, [path2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$writeFile = fs2.writeFile;
+      fs2.writeFile = writeFile2;
+      function writeFile2(path, data, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$writeFile(path, data, options, cb);
+        function go$writeFile(path2, data2, options2, cb2, startTime) {
+          return fs$writeFile(path2, data2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$writeFile, [path2, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$appendFile = fs2.appendFile;
+      if (fs$appendFile)
+        fs2.appendFile = appendFile;
+      function appendFile(path, data, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$appendFile(path, data, options, cb);
+        function go$appendFile(path2, data2, options2, cb2, startTime) {
+          return fs$appendFile(path2, data2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$appendFile, [path2, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$copyFile = fs2.copyFile;
+      if (fs$copyFile)
+        fs2.copyFile = copyFile;
+      function copyFile(src, dest, flags, cb) {
+        if (typeof flags === "function") {
+          cb = flags;
+          flags = 0;
+        }
+        return go$copyFile(src, dest, flags, cb);
+        function go$copyFile(src2, dest2, flags2, cb2, startTime) {
+          return fs$copyFile(src2, dest2, flags2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$copyFile, [src2, dest2, flags2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$readdir = fs2.readdir;
+      fs2.readdir = readdir;
+      var noReaddirOptionVersions = /^v[0-5]\./;
+      function readdir(path, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path2, options2, cb2, startTime) {
+          return fs$readdir(path2, fs$readdirCallback(
+            path2,
+            options2,
+            cb2,
+            startTime
+          ));
+        } : function go$readdir2(path2, options2, cb2, startTime) {
+          return fs$readdir(path2, options2, fs$readdirCallback(
+            path2,
+            options2,
+            cb2,
+            startTime
+          ));
+        };
+        return go$readdir(path, options, cb);
+        function fs$readdirCallback(path2, options2, cb2, startTime) {
+          return function(err, files) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([
+                go$readdir,
+                [path2, options2, cb2],
+                err,
+                startTime || Date.now(),
+                Date.now()
+              ]);
+            else {
+              if (files && files.sort)
+                files.sort();
+              if (typeof cb2 === "function")
+                cb2.call(this, err, files);
+            }
+          };
+        }
+      }
+      if (process.version.substr(0, 4) === "v0.8") {
+        var legStreams = legacy(fs2);
+        ReadStream = legStreams.ReadStream;
+        WriteStream = legStreams.WriteStream;
+      }
+      var fs$ReadStream = fs2.ReadStream;
+      if (fs$ReadStream) {
+        ReadStream.prototype = Object.create(fs$ReadStream.prototype);
+        ReadStream.prototype.open = ReadStream$open;
+      }
+      var fs$WriteStream = fs2.WriteStream;
+      if (fs$WriteStream) {
+        WriteStream.prototype = Object.create(fs$WriteStream.prototype);
+        WriteStream.prototype.open = WriteStream$open;
+      }
+      Object.defineProperty(fs2, "ReadStream", {
+        get: function() {
+          return ReadStream;
+        },
+        set: function(val) {
+          ReadStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      Object.defineProperty(fs2, "WriteStream", {
+        get: function() {
+          return WriteStream;
+        },
+        set: function(val) {
+          WriteStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      var FileReadStream = ReadStream;
+      Object.defineProperty(fs2, "FileReadStream", {
+        get: function() {
+          return FileReadStream;
+        },
+        set: function(val) {
+          FileReadStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      var FileWriteStream = WriteStream;
+      Object.defineProperty(fs2, "FileWriteStream", {
+        get: function() {
+          return FileWriteStream;
+        },
+        set: function(val) {
+          FileWriteStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      function ReadStream(path, options) {
+        if (this instanceof ReadStream)
+          return fs$ReadStream.apply(this, arguments), this;
+        else
+          return ReadStream.apply(Object.create(ReadStream.prototype), arguments);
+      }
+      function ReadStream$open() {
+        var that = this;
+        open4(that.path, that.flags, that.mode, function(err, fd) {
+          if (err) {
+            if (that.autoClose)
+              that.destroy();
+            that.emit("error", err);
+          } else {
+            that.fd = fd;
+            that.emit("open", fd);
+            that.read();
+          }
+        });
+      }
+      function WriteStream(path, options) {
+        if (this instanceof WriteStream)
+          return fs$WriteStream.apply(this, arguments), this;
+        else
+          return WriteStream.apply(Object.create(WriteStream.prototype), arguments);
+      }
+      function WriteStream$open() {
+        var that = this;
+        open4(that.path, that.flags, that.mode, function(err, fd) {
+          if (err) {
+            that.destroy();
+            that.emit("error", err);
+          } else {
+            that.fd = fd;
+            that.emit("open", fd);
+          }
+        });
+      }
+      function createReadStream(path, options) {
+        return new fs2.ReadStream(path, options);
+      }
+      function createWriteStream(path, options) {
+        return new fs2.WriteStream(path, options);
+      }
+      var fs$open = fs2.open;
+      fs2.open = open4;
+      function open4(path, flags, mode, cb) {
+        if (typeof mode === "function")
+          cb = mode, mode = null;
+        return go$open(path, flags, mode, cb);
+        function go$open(path2, flags2, mode2, cb2, startTime) {
+          return fs$open(path2, flags2, mode2, function(err, fd) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$open, [path2, flags2, mode2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      return fs2;
+    }
+    function enqueue(elem) {
+      debug("ENQUEUE", elem[0].name, elem[1]);
+      fs[gracefulQueue].push(elem);
+      retry();
+    }
+    var retryTimer;
+    function resetQueue() {
+      var now = Date.now();
+      for (var i = 0; i < fs[gracefulQueue].length; ++i) {
+        if (fs[gracefulQueue][i].length > 2) {
+          fs[gracefulQueue][i][3] = now;
+          fs[gracefulQueue][i][4] = now;
+        }
+      }
+      retry();
+    }
+    function retry() {
+      clearTimeout(retryTimer);
+      retryTimer = void 0;
+      if (fs[gracefulQueue].length === 0)
+        return;
+      var elem = fs[gracefulQueue].shift();
+      var fn = elem[0];
+      var args = elem[1];
+      var err = elem[2];
+      var startTime = elem[3];
+      var lastTime = elem[4];
+      if (startTime === void 0) {
+        debug("RETRY", fn.name, args);
+        fn.apply(null, args);
+      } else if (Date.now() - startTime >= 6e4) {
+        debug("TIMEOUT", fn.name, args);
+        var cb = args.pop();
+        if (typeof cb === "function")
+          cb.call(null, err);
+      } else {
+        var sinceAttempt = Date.now() - lastTime;
+        var sinceStart = Math.max(lastTime - startTime, 1);
+        var desiredDelay = Math.min(sinceStart * 1.2, 100);
+        if (sinceAttempt >= desiredDelay) {
+          debug("RETRY", fn.name, args);
+          fn.apply(null, args.concat([startTime]));
+        } else {
+          fs[gracefulQueue].push(elem);
+        }
+      }
+      if (retryTimer === void 0) {
+        retryTimer = setTimeout(retry, 0);
+      }
+    }
+  }
+});
+
+// node_modules/retry/lib/retry_operation.js
+var require_retry_operation = __commonJS({
+  "node_modules/retry/lib/retry_operation.js"(exports, module) {
+    function RetryOperation(timeouts, options) {
+      if (typeof options === "boolean") {
+        options = { forever: options };
+      }
+      this._originalTimeouts = JSON.parse(JSON.stringify(timeouts));
+      this._timeouts = timeouts;
+      this._options = options || {};
+      this._maxRetryTime = options && options.maxRetryTime || Infinity;
+      this._fn = null;
+      this._errors = [];
+      this._attempts = 1;
+      this._operationTimeout = null;
+      this._operationTimeoutCb = null;
+      this._timeout = null;
+      this._operationStart = null;
+      if (this._options.forever) {
+        this._cachedTimeouts = this._timeouts.slice(0);
+      }
+    }
+    module.exports = RetryOperation;
+    RetryOperation.prototype.reset = function() {
+      this._attempts = 1;
+      this._timeouts = this._originalTimeouts;
+    };
+    RetryOperation.prototype.stop = function() {
+      if (this._timeout) {
+        clearTimeout(this._timeout);
+      }
+      this._timeouts = [];
+      this._cachedTimeouts = null;
+    };
+    RetryOperation.prototype.retry = function(err) {
+      if (this._timeout) {
+        clearTimeout(this._timeout);
+      }
+      if (!err) {
+        return false;
+      }
+      var currentTime = (/* @__PURE__ */ new Date()).getTime();
+      if (err && currentTime - this._operationStart >= this._maxRetryTime) {
+        this._errors.unshift(new Error("RetryOperation timeout occurred"));
+        return false;
+      }
+      this._errors.push(err);
+      var timeout = this._timeouts.shift();
+      if (timeout === void 0) {
+        if (this._cachedTimeouts) {
+          this._errors.splice(this._errors.length - 1, this._errors.length);
+          this._timeouts = this._cachedTimeouts.slice(0);
+          timeout = this._timeouts.shift();
+        } else {
+          return false;
+        }
+      }
+      var self = this;
+      var timer = setTimeout(function() {
+        self._attempts++;
+        if (self._operationTimeoutCb) {
+          self._timeout = setTimeout(function() {
+            self._operationTimeoutCb(self._attempts);
+          }, self._operationTimeout);
+          if (self._options.unref) {
+            self._timeout.unref();
+          }
+        }
+        self._fn(self._attempts);
+      }, timeout);
+      if (this._options.unref) {
+        timer.unref();
+      }
+      return true;
+    };
+    RetryOperation.prototype.attempt = function(fn, timeoutOps) {
+      this._fn = fn;
+      if (timeoutOps) {
+        if (timeoutOps.timeout) {
+          this._operationTimeout = timeoutOps.timeout;
+        }
+        if (timeoutOps.cb) {
+          this._operationTimeoutCb = timeoutOps.cb;
+        }
+      }
+      var self = this;
+      if (this._operationTimeoutCb) {
+        this._timeout = setTimeout(function() {
+          self._operationTimeoutCb();
+        }, self._operationTimeout);
+      }
+      this._operationStart = (/* @__PURE__ */ new Date()).getTime();
+      this._fn(this._attempts);
+    };
+    RetryOperation.prototype.try = function(fn) {
+      console.log("Using RetryOperation.try() is deprecated");
+      this.attempt(fn);
+    };
+    RetryOperation.prototype.start = function(fn) {
+      console.log("Using RetryOperation.start() is deprecated");
+      this.attempt(fn);
+    };
+    RetryOperation.prototype.start = RetryOperation.prototype.try;
+    RetryOperation.prototype.errors = function() {
+      return this._errors;
+    };
+    RetryOperation.prototype.attempts = function() {
+      return this._attempts;
+    };
+    RetryOperation.prototype.mainError = function() {
+      if (this._errors.length === 0) {
+        return null;
+      }
+      var counts = {};
+      var mainError = null;
+      var mainErrorCount = 0;
+      for (var i = 0; i < this._errors.length; i++) {
+        var error2 = this._errors[i];
+        var message = error2.message;
+        var count = (counts[message] || 0) + 1;
+        counts[message] = count;
+        if (count >= mainErrorCount) {
+          mainError = error2;
+          mainErrorCount = count;
+        }
+      }
+      return mainError;
+    };
+  }
+});
+
+// node_modules/retry/lib/retry.js
+var require_retry = __commonJS({
+  "node_modules/retry/lib/retry.js"(exports) {
+    var RetryOperation = require_retry_operation();
+    exports.operation = function(options) {
+      var timeouts = exports.timeouts(options);
+      return new RetryOperation(timeouts, {
+        forever: options && options.forever,
+        unref: options && options.unref,
+        maxRetryTime: options && options.maxRetryTime
+      });
+    };
+    exports.timeouts = function(options) {
+      if (options instanceof Array) {
+        return [].concat(options);
+      }
+      var opts = {
+        retries: 10,
+        factor: 2,
+        minTimeout: 1 * 1e3,
+        maxTimeout: Infinity,
+        randomize: false
+      };
+      for (var key in options) {
+        opts[key] = options[key];
+      }
+      if (opts.minTimeout > opts.maxTimeout) {
+        throw new Error("minTimeout is greater than maxTimeout");
+      }
+      var timeouts = [];
+      for (var i = 0; i < opts.retries; i++) {
+        timeouts.push(this.createTimeout(i, opts));
+      }
+      if (options && options.forever && !timeouts.length) {
+        timeouts.push(this.createTimeout(i, opts));
+      }
+      timeouts.sort(function(a, b) {
+        return a - b;
+      });
+      return timeouts;
+    };
+    exports.createTimeout = function(attempt, opts) {
+      var random = opts.randomize ? Math.random() + 1 : 1;
+      var timeout = Math.round(random * opts.minTimeout * Math.pow(opts.factor, attempt));
+      timeout = Math.min(timeout, opts.maxTimeout);
+      return timeout;
+    };
+    exports.wrap = function(obj, options, methods) {
+      if (options instanceof Array) {
+        methods = options;
+        options = null;
+      }
+      if (!methods) {
+        methods = [];
+        for (var key in obj) {
+          if (typeof obj[key] === "function") {
+            methods.push(key);
+          }
+        }
+      }
+      for (var i = 0; i < methods.length; i++) {
+        var method = methods[i];
+        var original = obj[method];
+        obj[method] = function retryWrapper(original2) {
+          var op = exports.operation(options);
+          var args = Array.prototype.slice.call(arguments, 1);
+          var callback = args.pop();
+          args.push(function(err) {
+            if (op.retry(err)) {
+              return;
+            }
+            if (err) {
+              arguments[0] = op.mainError();
+            }
+            callback.apply(this, arguments);
+          });
+          op.attempt(function() {
+            original2.apply(obj, args);
+          });
+        }.bind(obj, original);
+        obj[method].options = options;
+      }
+    };
+  }
+});
+
+// node_modules/retry/index.js
+var require_retry2 = __commonJS({
+  "node_modules/retry/index.js"(exports, module) {
+    module.exports = require_retry();
+  }
+});
+
+// node_modules/signal-exit/signals.js
+var require_signals = __commonJS({
+  "node_modules/signal-exit/signals.js"(exports, module) {
+    module.exports = [
+      "SIGABRT",
+      "SIGALRM",
+      "SIGHUP",
+      "SIGINT",
+      "SIGTERM"
+    ];
+    if (process.platform !== "win32") {
+      module.exports.push(
+        "SIGVTALRM",
+        "SIGXCPU",
+        "SIGXFSZ",
+        "SIGUSR2",
+        "SIGTRAP",
+        "SIGSYS",
+        "SIGQUIT",
+        "SIGIOT"
+        // should detect profiler and enable/disable accordingly.
+        // see #21
+        // 'SIGPROF'
+      );
+    }
+    if (process.platform === "linux") {
+      module.exports.push(
+        "SIGIO",
+        "SIGPOLL",
+        "SIGPWR",
+        "SIGSTKFLT",
+        "SIGUNUSED"
+      );
+    }
+  }
+});
+
+// node_modules/signal-exit/index.js
+var require_signal_exit = __commonJS({
+  "node_modules/signal-exit/index.js"(exports, module) {
+    var process3 = global.process;
+    var processOk = function(process4) {
+      return process4 && typeof process4 === "object" && typeof process4.removeListener === "function" && typeof process4.emit === "function" && typeof process4.reallyExit === "function" && typeof process4.listeners === "function" && typeof process4.kill === "function" && typeof process4.pid === "number" && typeof process4.on === "function";
+    };
+    if (!processOk(process3)) {
+      module.exports = function() {
+        return function() {
+        };
+      };
+    } else {
+      assert2 = __require("assert");
+      signals = require_signals();
+      isWin = /^win/i.test(process3.platform);
+      EE = __require("events");
+      if (typeof EE !== "function") {
+        EE = EE.EventEmitter;
+      }
+      if (process3.__signal_exit_emitter__) {
+        emitter = process3.__signal_exit_emitter__;
+      } else {
+        emitter = process3.__signal_exit_emitter__ = new EE();
+        emitter.count = 0;
+        emitter.emitted = {};
+      }
+      if (!emitter.infinite) {
+        emitter.setMaxListeners(Infinity);
+        emitter.infinite = true;
+      }
+      module.exports = function(cb, opts) {
+        if (!processOk(global.process)) {
+          return function() {
+          };
+        }
+        assert2.equal(typeof cb, "function", "a callback must be provided for exit handler");
+        if (loaded === false) {
+          load();
+        }
+        var ev = "exit";
+        if (opts && opts.alwaysLast) {
+          ev = "afterexit";
+        }
+        var remove = function() {
+          emitter.removeListener(ev, cb);
+          if (emitter.listeners("exit").length === 0 && emitter.listeners("afterexit").length === 0) {
+            unload();
+          }
+        };
+        emitter.on(ev, cb);
+        return remove;
+      };
+      unload = function unload2() {
+        if (!loaded || !processOk(global.process)) {
+          return;
+        }
+        loaded = false;
+        signals.forEach(function(sig) {
+          try {
+            process3.removeListener(sig, sigListeners[sig]);
+          } catch (er) {
+          }
+        });
+        process3.emit = originalProcessEmit;
+        process3.reallyExit = originalProcessReallyExit;
+        emitter.count -= 1;
+      };
+      module.exports.unload = unload;
+      emit = function emit2(event, code, signal) {
+        if (emitter.emitted[event]) {
+          return;
+        }
+        emitter.emitted[event] = true;
+        emitter.emit(event, code, signal);
+      };
+      sigListeners = {};
+      signals.forEach(function(sig) {
+        sigListeners[sig] = function listener() {
+          if (!processOk(global.process)) {
+            return;
+          }
+          var listeners = process3.listeners(sig);
+          if (listeners.length === emitter.count) {
+            unload();
+            emit("exit", null, sig);
+            emit("afterexit", null, sig);
+            if (isWin && sig === "SIGHUP") {
+              sig = "SIGINT";
+            }
+            process3.kill(process3.pid, sig);
+          }
+        };
+      });
+      module.exports.signals = function() {
+        return signals;
+      };
+      loaded = false;
+      load = function load2() {
+        if (loaded || !processOk(global.process)) {
+          return;
+        }
+        loaded = true;
+        emitter.count += 1;
+        signals = signals.filter(function(sig) {
+          try {
+            process3.on(sig, sigListeners[sig]);
+            return true;
+          } catch (er) {
+            return false;
+          }
+        });
+        process3.emit = processEmit;
+        process3.reallyExit = processReallyExit;
+      };
+      module.exports.load = load;
+      originalProcessReallyExit = process3.reallyExit;
+      processReallyExit = function processReallyExit2(code) {
+        if (!processOk(global.process)) {
+          return;
+        }
+        process3.exitCode = code || /* istanbul ignore next */
+        0;
+        emit("exit", process3.exitCode, null);
+        emit("afterexit", process3.exitCode, null);
+        originalProcessReallyExit.call(process3, process3.exitCode);
+      };
+      originalProcessEmit = process3.emit;
+      processEmit = function processEmit2(ev, arg) {
+        if (ev === "exit" && processOk(global.process)) {
+          if (arg !== void 0) {
+            process3.exitCode = arg;
+          }
+          var ret = originalProcessEmit.apply(this, arguments);
+          emit("exit", process3.exitCode, null);
+          emit("afterexit", process3.exitCode, null);
+          return ret;
+        } else {
+          return originalProcessEmit.apply(this, arguments);
+        }
+      };
+    }
+    var assert2;
+    var signals;
+    var isWin;
+    var EE;
+    var emitter;
+    var unload;
+    var emit;
+    var sigListeners;
+    var loaded;
+    var load;
+    var originalProcessReallyExit;
+    var processReallyExit;
+    var originalProcessEmit;
+    var processEmit;
+  }
+});
+
+// node_modules/proper-lockfile/lib/mtime-precision.js
+var require_mtime_precision = __commonJS({
+  "node_modules/proper-lockfile/lib/mtime-precision.js"(exports, module) {
+    "use strict";
+    var cacheSymbol = Symbol();
+    function probe(file, fs, callback) {
+      const cachedPrecision = fs[cacheSymbol];
+      if (cachedPrecision) {
+        return fs.stat(file, (err, stat2) => {
+          if (err) {
+            return callback(err);
+          }
+          callback(null, stat2.mtime, cachedPrecision);
+        });
+      }
+      const mtime = new Date(Math.ceil(Date.now() / 1e3) * 1e3 + 5);
+      fs.utimes(file, mtime, mtime, (err) => {
+        if (err) {
+          return callback(err);
+        }
+        fs.stat(file, (err2, stat2) => {
+          if (err2) {
+            return callback(err2);
+          }
+          const precision = stat2.mtime.getTime() % 1e3 === 0 ? "s" : "ms";
+          Object.defineProperty(fs, cacheSymbol, { value: precision });
+          callback(null, stat2.mtime, precision);
+        });
+      });
+    }
+    function getMtime(precision) {
+      let now = Date.now();
+      if (precision === "s") {
+        now = Math.ceil(now / 1e3) * 1e3;
+      }
+      return new Date(now);
+    }
+    module.exports.probe = probe;
+    module.exports.getMtime = getMtime;
+  }
+});
+
+// node_modules/proper-lockfile/lib/lockfile.js
+var require_lockfile = __commonJS({
+  "node_modules/proper-lockfile/lib/lockfile.js"(exports, module) {
+    "use strict";
+    var path = __require("path");
+    var fs = require_graceful_fs();
+    var retry = require_retry2();
+    var onExit = require_signal_exit();
+    var mtimePrecision = require_mtime_precision();
+    var locks = {};
+    function getLockFile(file, options) {
+      return options.lockfilePath || `${file}.lock`;
+    }
+    function resolveCanonicalPath(file, options, callback) {
+      if (!options.realpath) {
+        return callback(null, path.resolve(file));
+      }
+      options.fs.realpath(file, callback);
+    }
+    function acquireLock(file, options, callback) {
+      const lockfilePath = getLockFile(file, options);
+      options.fs.mkdir(lockfilePath, (err) => {
+        if (!err) {
+          return mtimePrecision.probe(lockfilePath, options.fs, (err2, mtime, mtimePrecision2) => {
+            if (err2) {
+              options.fs.rmdir(lockfilePath, () => {
+              });
+              return callback(err2);
+            }
+            callback(null, mtime, mtimePrecision2);
+          });
+        }
+        if (err.code !== "EEXIST") {
+          return callback(err);
+        }
+        if (options.stale <= 0) {
+          return callback(Object.assign(new Error("Lock file is already being held"), { code: "ELOCKED", file }));
+        }
+        options.fs.stat(lockfilePath, (err2, stat2) => {
+          if (err2) {
+            if (err2.code === "ENOENT") {
+              return acquireLock(file, { ...options, stale: 0 }, callback);
+            }
+            return callback(err2);
+          }
+          if (!isLockStale(stat2, options)) {
+            return callback(Object.assign(new Error("Lock file is already being held"), { code: "ELOCKED", file }));
+          }
+          removeLock(file, options, (err3) => {
+            if (err3) {
+              return callback(err3);
+            }
+            acquireLock(file, { ...options, stale: 0 }, callback);
+          });
+        });
+      });
+    }
+    function isLockStale(stat2, options) {
+      return stat2.mtime.getTime() < Date.now() - options.stale;
+    }
+    function removeLock(file, options, callback) {
+      options.fs.rmdir(getLockFile(file, options), (err) => {
+        if (err && err.code !== "ENOENT") {
+          return callback(err);
+        }
+        callback();
+      });
+    }
+    function updateLock(file, options) {
+      const lock2 = locks[file];
+      if (lock2.updateTimeout) {
+        return;
+      }
+      lock2.updateDelay = lock2.updateDelay || options.update;
+      lock2.updateTimeout = setTimeout(() => {
+        lock2.updateTimeout = null;
+        options.fs.stat(lock2.lockfilePath, (err, stat2) => {
+          const isOverThreshold = lock2.lastUpdate + options.stale < Date.now();
+          if (err) {
+            if (err.code === "ENOENT" || isOverThreshold) {
+              return setLockAsCompromised(file, lock2, Object.assign(err, { code: "ECOMPROMISED" }));
+            }
+            lock2.updateDelay = 1e3;
+            return updateLock(file, options);
+          }
+          const isMtimeOurs = lock2.mtime.getTime() === stat2.mtime.getTime();
+          if (!isMtimeOurs) {
+            return setLockAsCompromised(
+              file,
+              lock2,
+              Object.assign(
+                new Error("Unable to update lock within the stale threshold"),
+                { code: "ECOMPROMISED" }
+              )
+            );
+          }
+          const mtime = mtimePrecision.getMtime(lock2.mtimePrecision);
+          options.fs.utimes(lock2.lockfilePath, mtime, mtime, (err2) => {
+            const isOverThreshold2 = lock2.lastUpdate + options.stale < Date.now();
+            if (lock2.released) {
+              return;
+            }
+            if (err2) {
+              if (err2.code === "ENOENT" || isOverThreshold2) {
+                return setLockAsCompromised(file, lock2, Object.assign(err2, { code: "ECOMPROMISED" }));
+              }
+              lock2.updateDelay = 1e3;
+              return updateLock(file, options);
+            }
+            lock2.mtime = mtime;
+            lock2.lastUpdate = Date.now();
+            lock2.updateDelay = null;
+            updateLock(file, options);
+          });
+        });
+      }, lock2.updateDelay);
+      if (lock2.updateTimeout.unref) {
+        lock2.updateTimeout.unref();
+      }
+    }
+    function setLockAsCompromised(file, lock2, err) {
+      lock2.released = true;
+      if (lock2.updateTimeout) {
+        clearTimeout(lock2.updateTimeout);
+      }
+      if (locks[file] === lock2) {
+        delete locks[file];
+      }
+      lock2.options.onCompromised(err);
+    }
+    function lock(file, options, callback) {
+      options = {
+        stale: 1e4,
+        update: null,
+        realpath: true,
+        retries: 0,
+        fs,
+        onCompromised: (err) => {
+          throw err;
+        },
+        ...options
+      };
+      options.retries = options.retries || 0;
+      options.retries = typeof options.retries === "number" ? { retries: options.retries } : options.retries;
+      options.stale = Math.max(options.stale || 0, 2e3);
+      options.update = options.update == null ? options.stale / 2 : options.update || 0;
+      options.update = Math.max(Math.min(options.update, options.stale / 2), 1e3);
+      resolveCanonicalPath(file, options, (err, file2) => {
+        if (err) {
+          return callback(err);
+        }
+        const operation = retry.operation(options.retries);
+        operation.attempt(() => {
+          acquireLock(file2, options, (err2, mtime, mtimePrecision2) => {
+            if (operation.retry(err2)) {
+              return;
+            }
+            if (err2) {
+              return callback(operation.mainError());
+            }
+            const lock2 = locks[file2] = {
+              lockfilePath: getLockFile(file2, options),
+              mtime,
+              mtimePrecision: mtimePrecision2,
+              options,
+              lastUpdate: Date.now()
+            };
+            updateLock(file2, options);
+            callback(null, (releasedCallback) => {
+              if (lock2.released) {
+                return releasedCallback && releasedCallback(Object.assign(new Error("Lock is already released"), { code: "ERELEASED" }));
+              }
+              unlock(file2, { ...options, realpath: false }, releasedCallback);
+            });
+          });
+        });
+      });
+    }
+    function unlock(file, options, callback) {
+      options = {
+        fs,
+        realpath: true,
+        ...options
+      };
+      resolveCanonicalPath(file, options, (err, file2) => {
+        if (err) {
+          return callback(err);
+        }
+        const lock2 = locks[file2];
+        if (!lock2) {
+          return callback(Object.assign(new Error("Lock is not acquired/owned by you"), { code: "ENOTACQUIRED" }));
+        }
+        lock2.updateTimeout && clearTimeout(lock2.updateTimeout);
+        lock2.released = true;
+        delete locks[file2];
+        removeLock(file2, options, callback);
+      });
+    }
+    function check(file, options, callback) {
+      options = {
+        stale: 1e4,
+        realpath: true,
+        fs,
+        ...options
+      };
+      options.stale = Math.max(options.stale || 0, 2e3);
+      resolveCanonicalPath(file, options, (err, file2) => {
+        if (err) {
+          return callback(err);
+        }
+        options.fs.stat(getLockFile(file2, options), (err2, stat2) => {
+          if (err2) {
+            return err2.code === "ENOENT" ? callback(null, false) : callback(err2);
+          }
+          return callback(null, !isLockStale(stat2, options));
+        });
+      });
+    }
+    function getLocks() {
+      return locks;
+    }
+    onExit(() => {
+      for (const file in locks) {
+        const options = locks[file].options;
+        try {
+          options.fs.rmdirSync(getLockFile(file, options));
+        } catch (e) {
+        }
+      }
+    });
+    module.exports.lock = lock;
+    module.exports.unlock = unlock;
+    module.exports.check = check;
+    module.exports.getLocks = getLocks;
+  }
+});
+
+// node_modules/proper-lockfile/lib/adapter.js
+var require_adapter = __commonJS({
+  "node_modules/proper-lockfile/lib/adapter.js"(exports, module) {
+    "use strict";
+    var fs = require_graceful_fs();
+    function createSyncFs(fs2) {
+      const methods = ["mkdir", "realpath", "stat", "rmdir", "utimes"];
+      const newFs = { ...fs2 };
+      methods.forEach((method) => {
+        newFs[method] = (...args) => {
+          const callback = args.pop();
+          let ret;
+          try {
+            ret = fs2[`${method}Sync`](...args);
+          } catch (err) {
+            return callback(err);
+          }
+          callback(null, ret);
+        };
+      });
+      return newFs;
+    }
+    function toPromise(method) {
+      return (...args) => new Promise((resolve2, reject) => {
+        args.push((err, result) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve2(result);
+          }
+        });
+        method(...args);
+      });
+    }
+    function toSync(method) {
+      return (...args) => {
+        let err;
+        let result;
+        args.push((_err, _result) => {
+          err = _err;
+          result = _result;
+        });
+        method(...args);
+        if (err) {
+          throw err;
+        }
+        return result;
+      };
+    }
+    function toSyncOptions(options) {
+      options = { ...options };
+      options.fs = createSyncFs(options.fs || fs);
+      if (typeof options.retries === "number" && options.retries > 0 || options.retries && typeof options.retries.retries === "number" && options.retries.retries > 0) {
+        throw Object.assign(new Error("Cannot use retries with the sync api"), { code: "ESYNC" });
+      }
+      return options;
+    }
+    module.exports = {
+      toPromise,
+      toSync,
+      toSyncOptions
+    };
+  }
+});
+
+// node_modules/proper-lockfile/index.js
+var require_proper_lockfile = __commonJS({
+  "node_modules/proper-lockfile/index.js"(exports, module) {
+    "use strict";
+    var lockfile2 = require_lockfile();
+    var { toPromise, toSync, toSyncOptions } = require_adapter();
+    async function lock(file, options) {
+      const release = await toPromise(lockfile2.lock)(file, options);
+      return toPromise(release);
+    }
+    function lockSync(file, options) {
+      const release = toSync(lockfile2.lock)(file, toSyncOptions(options));
+      return toSync(release);
+    }
+    function unlock(file, options) {
+      return toPromise(lockfile2.unlock)(file, options);
+    }
+    function unlockSync(file, options) {
+      return toSync(lockfile2.unlock)(file, toSyncOptions(options));
+    }
+    function check(file, options) {
+      return toPromise(lockfile2.check)(file, options);
+    }
+    function checkSync(file, options) {
+      return toSync(lockfile2.check)(file, toSyncOptions(options));
+    }
+    module.exports = lock;
+    module.exports.lock = lock;
+    module.exports.unlock = unlock;
+    module.exports.lockSync = lockSync;
+    module.exports.unlockSync = unlockSync;
+    module.exports.check = check;
+    module.exports.checkSync = checkSync;
+  }
+});
+
 // packages/hosts/claude-code/src/index.ts
 import { readFileSync as readFileSync3 } from "node:fs";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 
-// packages/core/src/config.ts
+// packages/integrations/services/src/preferences.ts
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// packages/core/src/auth.ts
+var EnhanceError = class extends Error {
+  constructor(code, message) {
+    super(`${code}: ${message}`);
+    this.code = code;
+    this.name = "EnhanceError";
+  }
+};
+var StaticCredentialResolver = class {
+  constructor(credentials) {
+    this.credentials = credentials;
+  }
+  async resolve(request) {
+    const credential = this.credentials[`${request.provider}/${request.channel}`];
+    return credential ? { status: "ready", credential } : {
+      status: "missing",
+      guidance: `Configure ${request.provider}/${request.channel} credentials in this host.`
+    };
+  }
+};
+
+// packages/integrations/services/src/json.ts
 import {
   closeSync,
   constants,
@@ -7212,24 +8820,8 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-
-// packages/core/src/auth.ts
-var EnhanceError = class extends Error {
-  constructor(code, message) {
-    super(`${code}: ${message}`);
-    this.code = code;
-    this.name = "EnhanceError";
-  }
-};
-
-// packages/core/src/config.ts
-function enhanceHome() {
-  return process.env.AGENT_ENHANCE_HOME ?? join(homedir(), ".agent-enhance");
-}
-var emptyConfig = () => ({ version: 1, autoload: [], defaults: {}, controls: {} });
 function readJson(path, fallback) {
   if (!existsSync(path)) return fallback();
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -7268,22 +8860,44 @@ function updateJson(path, fallback, update) {
     unlinkSync(lockPath);
   }
 }
-function validate(config2) {
-  if (config2?.version !== 1 || !Array.isArray(config2.autoload) || config2.autoload.some((x) => typeof x !== "string") || !config2.defaults || !config2.controls || typeof config2.defaults !== "object" || typeof config2.controls !== "object" || Array.isArray(config2.defaults) || Array.isArray(config2.controls) || Object.values(config2.defaults).some((x) => typeof x !== "string") || Object.values(config2.controls).some((x) => typeof x !== "string") || config2.subagents !== void 0 && typeof config2.subagents !== "boolean" || config2.subagentModel !== void 0 && (typeof config2.subagentModel !== "string" || !/^[^\s/]+\/\S+$/.test(config2.subagentModel)))
-    throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
-  return config2;
-}
-var ConfigStore = class {
-  path;
-  constructor(home, host) {
-    if (!/^[a-z][a-z0-9-]*$/.test(host)) throw new Error("Invalid host ID");
-    this.path = join(home, "hosts", `${host}.json`);
+
+// packages/integrations/services/src/preferences.ts
+var enhanceHome = () => process.env.AGENT_ENHANCE_HOME ?? join(homedir(), ".agent-enhance");
+var emptyPreferences = () => ({ version: 1, preferred: {}, excluded: [] });
+var record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+function validate(value, pi) {
+  if (!record(value) || value.version !== 1 || !record(value.preferred) || Object.values(value.preferred).some((v) => typeof v !== "string" || !v) || !Array.isArray(value.excluded) || value.excluded.some((v) => typeof v !== "string" || !v) || Object.keys(value).some(
+    (k) => !["version", "preferred", "excluded", ...pi ? ["requests", "subagents"] : []].includes(k)
+  ))
+    throw new EnhanceError("CONFIG_INVALID", "Invalid service preferences; original file was not changed.");
+  if (pi) {
+    const p = value;
+    if (!record(p.requests) || Object.values(p.requests).some((v) => typeof v !== "string") || !record(p.subagents) || typeof p.subagents.enabled !== "boolean" || Object.keys(p.subagents).some((k) => !["enabled", "model"].includes(k)) || p.subagents.model !== void 0 && (typeof p.subagents.model !== "string" || !/^[^\s/]+\/\S+$/.test(p.subagents.model)))
+      throw new EnhanceError("CONFIG_INVALID", "Invalid Pi preferences; original file was not changed.");
   }
+  return value;
+}
+var PreferenceStore = class {
+  constructor(home, host, empty, verifySettings) {
+    this.host = host;
+    this.empty = empty;
+    this.verifySettings = verifySettings;
+    this.path = join(home, "preferences", `${host}.json`);
+  }
+  path;
   load() {
-    return validate(readJson(this.path, emptyConfig));
+    const value = validate(readJson(this.path, this.empty), this.host === "pi");
+    this.verifySettings?.(value);
+    return value;
   }
   update(update) {
-    return updateJson(this.path, emptyConfig, (c) => validate(update(validate(c))));
+    return updateJson(this.path, this.empty, (current) => {
+      const before = validate(current, this.host === "pi");
+      this.verifySettings?.(before);
+      const after = validate(update(before), this.host === "pi");
+      this.verifySettings?.(after);
+      return after;
+    });
   }
 };
 
@@ -7298,15 +8912,13 @@ function distDirectory() {
   const here = dirname2(fileURLToPath(import.meta.url));
   return existsSync2(join2(here, "catalog.json")) ? here : join2(here, "../../../../dist");
 }
-var credentialsPath = (home) => join2(home, "credentials.json");
 function runDirectory() {
   return process.env.CC_ENHANCE_RUN_DIR ?? join2(tmpdir(), `cc-enhance-${userInfo().uid}`);
 }
 var artifactRoot = (home, capability, provider) => join2(home, "artifacts", HOST_ID, capability, provider);
 
 // packages/hosts/claude-code/src/server.ts
-import { mkdirSync as mkdirSync3, readdirSync as readdirSync2, rmSync as rmSync2, watch } from "node:fs";
-import { dirname as dirname4 } from "node:path";
+import { readdirSync as readdirSync2, rmSync as rmSync2 } from "node:fs";
 
 // node_modules/zod/v4/core/util.js
 var util_exports = {};
@@ -10622,7 +12234,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve) {
+function isRecursive(inst, stack, resolve2) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -10632,7 +12244,7 @@ function isRecursive(inst, stack, resolve) {
   let result = NONE;
   const check = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve);
+      const answer = isRecursive(child, stack, resolve2);
       if (answer > result)
         result = answer;
     }
@@ -10643,7 +12255,7 @@ function isRecursive(inst, stack, resolve) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve2) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -10707,7 +12319,7 @@ function isRecursive(inst, stack, resolve) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve2 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -12496,8 +14108,8 @@ function rewriteKeyNames(ctx) {
       bySchema.set(entry.schema, entry);
   }
   const rewrites = /* @__PURE__ */ new Map();
-  for (const record2 of pendingRecords.get(ctx) ?? []) {
-    const seen = ctx.seen.get(record2);
+  for (const record3 of pendingRecords.get(ctx) ?? []) {
+    const seen = ctx.seen.get(record3);
     const names = (seen?.def ?? seen?.schema)?.propertyNames;
     if (!names || names === true || rewrites.has(names))
       continue;
@@ -13441,7 +15053,7 @@ var ZodRecord = /* @__PURE__ */ $constructor("ZodRecord", (inst, def) => {
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
 });
-function record(keyType, valueType, params) {
+function record2(keyType, valueType, params) {
   if (!valueType || !valueType._zod) {
     return new ZodRecord({
       type: "record",
@@ -13953,7 +15565,7 @@ var ImplementationSchema = BaseMetadataSchema.extend({
 });
 var FormElicitationCapabilitySchema = intersection(object2({
   applyDefaults: boolean2().optional()
-}), record(string2(), unknown()));
+}), record2(string2(), unknown()));
 var ElicitationCapabilitySchema = preprocess((value) => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     if (Object.keys(value).length === 0) {
@@ -13964,7 +15576,7 @@ var ElicitationCapabilitySchema = preprocess((value) => {
 }, intersection(object2({
   form: FormElicitationCapabilitySchema.optional(),
   url: AssertObjectSchema.optional()
-}), record(string2(), unknown()).optional()));
+}), record2(string2(), unknown()).optional()));
 var ClientTasksCapabilitySchema = looseObject({
   /**
    * Present if the client supports listing tasks.
@@ -14017,7 +15629,7 @@ var ClientCapabilitiesSchema = object2({
   /**
    * Experimental, non-standard capabilities that the client supports.
    */
-  experimental: record(string2(), AssertObjectSchema).optional(),
+  experimental: record2(string2(), AssertObjectSchema).optional(),
   /**
    * Present if the client supports sampling from an LLM.
    */
@@ -14052,7 +15664,7 @@ var ClientCapabilitiesSchema = object2({
   /**
    * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
    */
-  extensions: record(string2(), AssertObjectSchema).optional()
+  extensions: record2(string2(), AssertObjectSchema).optional()
 });
 var InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
@@ -14070,7 +15682,7 @@ var ServerCapabilitiesSchema = object2({
   /**
    * Experimental, non-standard capabilities that the server supports.
    */
-  experimental: record(string2(), AssertObjectSchema).optional(),
+  experimental: record2(string2(), AssertObjectSchema).optional(),
   /**
    * Present if the server supports sending log messages to the client.
    */
@@ -14117,7 +15729,7 @@ var ServerCapabilitiesSchema = object2({
   /**
    * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
    */
-  extensions: record(string2(), AssertObjectSchema).optional()
+  extensions: record2(string2(), AssertObjectSchema).optional()
 });
 var InitializeResultSchema = ResultSchema.extend({
   /**
@@ -14255,7 +15867,7 @@ var ResourceContentsSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var TextResourceContentsSchema = ResourceContentsSchema.extend({
   /**
@@ -14449,7 +16061,7 @@ var GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
    * Arguments to use for templating the prompt.
    */
-  arguments: record(string2(), string2()).optional()
+  arguments: record2(string2(), string2()).optional()
 });
 var GetPromptRequestSchema = RequestSchema.extend({
   method: literal("prompts/get"),
@@ -14469,7 +16081,7 @@ var TextContentSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var ImageContentSchema = object2({
   type: literal("image"),
@@ -14489,7 +16101,7 @@ var ImageContentSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var AudioContentSchema = object2({
   type: literal("audio"),
@@ -14509,7 +16121,7 @@ var AudioContentSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var ToolUseContentSchema = object2({
   type: literal("tool_use"),
@@ -14527,12 +16139,12 @@ var ToolUseContentSchema = object2({
    * Arguments to pass to the tool.
    * Must conform to the tool's inputSchema.
    */
-  input: record(string2(), unknown()),
+  input: record2(string2(), unknown()),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var EmbeddedResourceSchema = object2({
   type: literal("resource"),
@@ -14545,7 +16157,7 @@ var EmbeddedResourceSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var ResourceLinkSchema = ResourceSchema.extend({
   type: literal("resource_link")
@@ -14635,7 +16247,7 @@ var ToolSchema = object2({
    */
   inputSchema: object2({
     type: literal("object"),
-    properties: record(string2(), AssertObjectSchema).optional(),
+    properties: record2(string2(), AssertObjectSchema).optional(),
     required: array(string2()).optional()
   }).catchall(unknown()),
   /**
@@ -14645,7 +16257,7 @@ var ToolSchema = object2({
    */
   outputSchema: object2({
     type: literal("object"),
-    properties: record(string2(), AssertObjectSchema).optional(),
+    properties: record2(string2(), AssertObjectSchema).optional(),
     required: array(string2()).optional()
   }).catchall(unknown()).optional(),
   /**
@@ -14660,7 +16272,7 @@ var ToolSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var ListToolsRequestSchema = PaginatedRequestSchema.extend({
   method: literal("tools/list")
@@ -14681,7 +16293,7 @@ var CallToolResultSchema = ResultSchema.extend({
    *
    * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
    */
-  structuredContent: record(string2(), unknown()).optional(),
+  structuredContent: record2(string2(), unknown()).optional(),
   /**
    * Whether the tool call ended in an error.
    *
@@ -14709,7 +16321,7 @@ var CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   /**
    * Arguments to pass to the tool.
    */
-  arguments: record(string2(), unknown()).optional()
+  arguments: record2(string2(), unknown()).optional()
 });
 var CallToolRequestSchema = RequestSchema.extend({
   method: literal("tools/call"),
@@ -14811,7 +16423,7 @@ var ToolResultContentSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var SamplingContentSchema = discriminatedUnion("type", [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 var SamplingMessageContentBlockSchema = discriminatedUnion("type", [
@@ -14828,7 +16440,7 @@ var SamplingMessageSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   messages: array(SamplingMessageSchema),
@@ -15016,7 +16628,7 @@ var ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
    */
   requestedSchema: object2({
     type: literal("object"),
-    properties: record(string2(), PrimitiveSchemaDefinitionSchema),
+    properties: record2(string2(), PrimitiveSchemaDefinitionSchema),
     required: array(string2()).optional()
   })
 });
@@ -15068,7 +16680,7 @@ var ElicitResultSchema = ResultSchema.extend({
    * Per MCP spec, content is "typically omitted" for decline/cancel actions.
    * We normalize null to undefined for leniency while maintaining type compatibility.
    */
-  content: preprocess((val) => val === null ? void 0 : val, record(string2(), union([string2(), number2(), boolean2(), array(string2())])).optional())
+  content: preprocess((val) => val === null ? void 0 : val, record2(string2(), union([string2(), number2(), boolean2(), array(string2())])).optional())
 });
 var ResourceTemplateReferenceSchema = object2({
   type: literal("ref/resource"),
@@ -15103,7 +16715,7 @@ var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * Previously-resolved variables in a URI template or prompt.
      */
-    arguments: record(string2(), string2()).optional()
+    arguments: record2(string2(), string2()).optional()
   }).optional()
 });
 var CompleteRequestSchema = RequestSchema.extend({
@@ -15139,7 +16751,7 @@ var RootSchema = object2({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record(string2(), unknown()).optional()
+  _meta: record2(string2(), unknown()).optional()
 });
 var ListRootsRequestSchema = RequestSchema.extend({
   method: literal("roots/list"),
@@ -15334,15 +16946,15 @@ var Protocol = class {
               if (queuedMessage.type === "response" || queuedMessage.type === "error") {
                 const message = queuedMessage.message;
                 const requestId = message.id;
-                const resolver = this._requestResolvers.get(requestId);
-                if (resolver) {
+                const resolver2 = this._requestResolvers.get(requestId);
+                if (resolver2) {
                   this._requestResolvers.delete(requestId);
                   if (queuedMessage.type === "response") {
-                    resolver(message);
+                    resolver2(message);
                   } else {
                     const errorMessage = message;
                     const error2 = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
-                    resolver(error2);
+                    resolver2(error2);
                   }
                 } else {
                   const messageType = queuedMessage.type === "response" ? "Response" : "Error";
@@ -15663,14 +17275,14 @@ var Protocol = class {
   }
   _onresponse(response) {
     const messageId = Number(response.id);
-    const resolver = this._requestResolvers.get(messageId);
-    if (resolver) {
+    const resolver2 = this._requestResolvers.get(messageId);
+    if (resolver2) {
       this._requestResolvers.delete(messageId);
       if (isJSONRPCResultResponse(response)) {
-        resolver(response);
+        resolver2(response);
       } else {
         const error2 = new McpError(response.error.code, response.error.message, response.error.data);
-        resolver(error2);
+        resolver2(error2);
       }
       return;
     }
@@ -15787,7 +17399,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -15804,7 +17416,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -15882,7 +17494,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -16116,9 +17728,9 @@ var Protocol = class {
       for (const message of messages) {
         if (message.type === "request" && isJSONRPCRequest(message.message)) {
           const requestId = message.message.id;
-          const resolver = this._requestResolvers.get(requestId);
-          if (resolver) {
-            resolver(new McpError(ErrorCode.InternalError, "Task cancelled or completed"));
+          const resolver2 = this._requestResolvers.get(requestId);
+          if (resolver2) {
+            resolver2(new McpError(ErrorCode.InternalError, "Task cancelled or completed"));
             this._requestResolvers.delete(requestId);
           } else {
             this._onerror(new Error(`Resolver missing for request ${requestId} during task ${taskId} cleanup`));
@@ -16143,12 +17755,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -17024,12 +18636,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -18629,8 +20241,8 @@ function CreateObject(types, value) {
 }
 function FromUnionKey(types, value) {
   const flattened = Flatten(types);
-  const record2 = TryBuildRecord(flattened, value);
-  return IsSchema(record2) ? record2 : CreateObject(flattened, value);
+  const record3 = TryBuildRecord(flattened, value);
+  return IsSchema(record3) ? record3 : CreateObject(flattened, value);
 }
 
 // node_modules/typebox/build/type/engine/record/from_key.mjs
@@ -23502,10 +25114,10 @@ function ErrorUniqueItems(_stack, context, schemaPath, instancePath, schema, val
     return true;
   const set = /* @__PURE__ */ new Set();
   const duplicateItems = value.reduce((result, value2, index) => {
-    const hash2 = hash_exports.Hash(value2);
-    if (set.has(hash2))
+    const hash = hash_exports.Hash(value2);
+    if (set.has(hash))
       return [...result, index];
-    set.add(hash2);
+    set.add(hash);
     return result;
   }, []);
   const isUniqueItems = guard_exports.IsEqual(duplicateItems.length, 0);
@@ -25169,10 +26781,10 @@ var RepairError = class extends Error {
 function MakeUnique(values) {
   const [hashes, result] = [/* @__PURE__ */ new Set(), []];
   for (const value of values) {
-    const hash2 = Hash2(value);
-    if (hashes.has(hash2))
+    const hash = Hash2(value);
+    if (hashes.has(hash))
       continue;
-    hashes.add(hash2);
+    hashes.add(hash);
     result.push(value);
   }
   return result;
@@ -25392,19 +27004,22 @@ __export(value_exports, {
   Repair: () => Repair
 });
 
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
+
 // packages/core/src/registry.ts
-var COMMON_FIELDS = {
-  gen_image: ["prompt", "images", "model", "timeout_seconds"],
-  search_web: ["search_query", "open"]
-};
 var strings = (values) => typebox_exports.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object3 = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 var CapabilityRegistry = class {
   entries = /* @__PURE__ */ new Map();
-  pending = /* @__PURE__ */ new Set();
-  defaults;
-  constructor(defaults = {}) {
-    this.defaults = { ...defaults };
+  pending = /* @__PURE__ */ new Map();
+  suspended = /* @__PURE__ */ new Set();
+  preferred;
+  constructor(preferred = {}) {
+    this.preferred = { ...preferred };
+  }
+  setPreferred(preferred) {
+    this.preferred = { ...preferred };
   }
   list() {
     return [...this.entries.values()];
@@ -25412,17 +27027,30 @@ var CapabilityRegistry = class {
   get(id) {
     return this.entries.get(id);
   }
-  load(module, services) {
+  load(module, services, binding) {
     const { manifest } = module;
-    if (manifest.apiVersion !== 1 || manifest.id !== `${manifest.capability}/${manifest.provider}` || !/^[a-z][a-z0-9_]*$/.test(manifest.capability))
+    if (manifest.apiVersion !== MODULE_API_VERSION || module.definition.id !== manifest.capability || manifest.id !== `${manifest.capability}/${manifest.provider}` || !/^[a-z][a-z0-9_]*$/.test(manifest.capability))
       throw new EnhanceError("MODULE_CONTRACT", "Invalid module identity or API version.");
-    if (this.entries.has(manifest.id)) return;
+    const id = binding ? `${manifest.id}@${binding.id}` : manifest.id;
+    if (this.entries.has(id)) return;
     if (manifest.platforms && !manifest.platforms.includes(process.platform))
       throw new EnhanceError("PLATFORM", `Module requires ${manifest.platforms.join(", ")}.`);
     const instance = module.create(services);
-    if (manifest.kind === "tool" && (!instance.tool || instance.tool.name !== manifest.capability))
+    if (!instance.tool || instance.tool.name !== manifest.capability)
       throw new EnhanceError("MODULE_CONTRACT", "Tool name must match capability.");
-    this.entries.set(manifest.id, { module, instance });
+    this.entries.set(id, { id, module, instance, binding });
+  }
+  setBinding(id, binding) {
+    const entry = this.entries.get(id);
+    if (!entry || entry.binding?.id !== binding.id)
+      throw new EnhanceError("MODULE_CONTRACT", "Binding identity cannot change.");
+    entry.binding = binding;
+  }
+  suspend(id) {
+    this.suspended.add(id);
+  }
+  resume(id) {
+    this.suspended.delete(id);
   }
   assertIdle(id) {
     if (this.pending.has(id))
@@ -25431,8 +27059,10 @@ var CapabilityRegistry = class {
   async unload(id) {
     this.assertIdle(id);
     const entry = this.entries.get(id);
+    this.suspend(id);
     await entry?.instance.dispose?.();
     this.entries.delete(id);
+    this.suspended.delete(id);
   }
   async lifecycle(event, isIdle) {
     const results = await Promise.allSettled(this.list().map((e) => e.instance.lifecycle?.(event, isIdle)));
@@ -25444,8 +27074,10 @@ var CapabilityRegistry = class {
       );
   }
   async dispose() {
+    for (const id of this.entries.keys()) this.suspend(id);
     const results = await Promise.allSettled(this.list().map((e) => e.instance.dispose?.()));
     this.entries.clear();
+    this.suspended.clear();
     const errors = results.filter((r) => r.status === "rejected");
     if (errors.length)
       throw new AggregateError(
@@ -25456,23 +27088,42 @@ var CapabilityRegistry = class {
   tools() {
     const groups = /* @__PURE__ */ new Map();
     for (const entry of this.list())
-      if (entry.instance.tool) {
+      if (entry.instance.tool && !this.suspended.has(entry.id)) {
         const cap = entry.module.manifest.capability;
         groups.set(cap, [...groups.get(cap) ?? [], entry]);
       }
-    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([cap, entries]) => this.merge(cap, entries));
+    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(
+      ([cap, entries]) => this.merge(
+        cap,
+        entries.sort(
+          (a, b) => a.module.manifest.provider.localeCompare(b.module.manifest.provider) || (a.binding?.id ?? "").localeCompare(b.binding?.id ?? "")
+        )
+      )
+    );
   }
   merge(capability, entries) {
-    const providers = entries.map((e) => e.module.manifest.provider);
+    const implementations = [...new Map(entries.map((e) => [e.module.manifest.provider, e])).values()];
+    const providers = implementations.map((e) => e.module.manifest.provider);
+    const definition = entries[0].module.definition;
     const first = entries[0].instance.tool;
     const properties = { provider: typebox_exports.Optional(strings(providers)) };
+    if (entries.some((e) => e.binding))
+      properties.service = typebox_exports.Optional(
+        typebox_exports.Unsafe({
+          type: "string",
+          enum: [...new Set(entries.map((e) => e.binding?.id ?? e.module.manifest.provider))],
+          description: "Select an exact service connection: " + entries.map(
+            (e) => `${e.binding?.id ?? e.module.manifest.provider} (${e.binding?.label ?? e.module.manifest.provider})`
+          ).join(", ")
+        })
+      );
     const options = {};
-    for (const { module, instance } of entries) {
+    for (const { module, instance } of implementations) {
       const schema = instance.tool.parameters;
       const specific = {};
       const required2 = schema.required ?? [];
       for (const [key, field] of Object.entries(schema.properties)) {
-        const common = COMMON_FIELDS[capability];
+        const common = definition.commonFields;
         if (common && !common.includes(key))
           specific[key] = required2.includes(key) ? field : typebox_exports.Optional(field);
         else if (!properties[key]) properties[key] = required2.includes(key) ? field : typebox_exports.Optional(field);
@@ -25482,39 +27133,18 @@ var CapabilityRegistry = class {
           typebox_exports.Object(specific, { additionalProperties: false })
         );
     }
-    if (capability === "gen_image") {
-      properties.images = typebox_exports.Optional(
-        typebox_exports.Array(
-          typebox_exports.Object(
-            {
-              path: typebox_exports.Optional(typebox_exports.String({ minLength: 1 })),
-              image_url: typebox_exports.Optional(typebox_exports.String({ minLength: 1 }))
-            },
-            { additionalProperties: false }
-          ),
-          {
-            minItems: 1,
-            // A provider without reference-image support (e.g. minimax) contributes a floor of 1.
-            maxItems: Math.max(
-              ...entries.map(
-                (e) => e.instance.tool.parameters.properties.images?.maxItems ?? 1
-              )
-            )
-          }
-        )
-      );
-      properties.model = typebox_exports.Optional(
-        strings(entries.flatMap((e) => e.instance.tool.parameters.properties.model?.enum ?? []))
-      );
-    }
+    Object.assign(
+      properties,
+      definition.composeParameters?.(implementations.map((e) => e.instance.tool.parameters))
+    );
     if (Object.keys(options).length)
       properties.options = typebox_exports.Optional(typebox_exports.Object(options, { additionalProperties: false }));
     const parameters = typebox_exports.Object(properties, { additionalProperties: false });
     return {
       name: capability,
-      label: capability,
-      description: `Providers: ${providers.join(", ")}. Set provider or omit it for the configured default; a failed call never falls back to another provider.${COMMON_FIELDS[capability] ? ` Provider-specific parameters go in options.<provider>.` : ""}
-` + entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
+      label: definition.label,
+      description: `Providers: ${providers.join(", ")}. Choose provider/service when several connections are available; a saved preference or a sole connection can be used implicitly. Failed calls never fall back.${definition.commonFields ? ` Provider-specific parameters go in options.<provider>.` : ""}
+` + implementations.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool.promptGuidelines ?? []))],
       parameters,
@@ -25526,17 +27156,23 @@ var CapabilityRegistry = class {
             "Arguments do not match the current loaded capability schema."
           );
         const args = raw;
-        const provider = args.provider ?? this.defaults[capability] ?? (providers.length === 1 ? providers[0] : void 0);
-        const entry = entries.find((e) => e.module.manifest.provider === provider);
-        if (!entry)
+        const candidates = entries.filter(
+          (e) => !args.provider || e.module.manifest.provider === args.provider
+        );
+        const service = args.service ?? this.preferred[capability];
+        const matches = service ? candidates.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === service) : candidates;
+        const selectable = !args.service && args.provider && !matches.length ? candidates : matches;
+        if (selectable.length !== 1)
           throw new EnhanceError(
             "PROVIDER_SELECTION",
-            `Choose a loaded provider for ${capability}: ${providers.join(", ")}.`
+            `Choose an exact provider/service for ${capability}; ${selectable.length ? "several connections match" : "selected connection is unavailable"}.`
           );
-        const id = entry.module.manifest.id;
-        if (this.entries.get(id) !== entry)
+        const entry = selectable[0];
+        const provider = entry.module.manifest.provider;
+        const id = entry.id;
+        if (this.entries.get(id) !== entry || this.suspended.has(id))
           throw new EnhanceError("STALE_TOOL", "Capability changed; use the refreshed tool schema.");
-        const { provider: ignored, options: rawOptions, ...common } = args;
+        const { provider: ignored, service: ignoredService, options: rawOptions, ...common } = args;
         const selectedOptions = object3(rawOptions) ? rawOptions : {};
         if (Object.keys(selectedOptions).some((key) => key !== provider))
           throw new EnhanceError("PROVIDER_OPTIONS", "Only options for the selected provider are accepted.");
@@ -25547,12 +27183,21 @@ var CapabilityRegistry = class {
             "PROVIDER_ARGUMENTS",
             `Arguments are unsupported by ${provider}; check model and input limits.`
           );
-        const activeContext = { ...context, signal };
-        this.pending.add(`${id}:${callId}`);
-        this.pending.add(id);
+        const activeContext = {
+          ...context,
+          signal,
+          credentials: entry.binding?.credentials ?? context.credentials
+        };
+        this.pending.set(id, (this.pending.get(id) ?? 0) + 1);
         const normalize = (result) => ({
           ...result,
-          details: { ...result.details, version: 1, capability, provider }
+          details: {
+            ...result.details,
+            version: 1,
+            capability,
+            provider,
+            ...entry.binding ? { service: entry.binding.id } : {}
+          }
         });
         try {
           return normalize(
@@ -25565,196 +27210,281 @@ var CapabilityRegistry = class {
             )
           );
         } finally {
-          this.pending.delete(`${id}:${callId}`);
-          if (![...this.pending].some((key) => key.startsWith(`${id}:`))) this.pending.delete(id);
+          const remaining = (this.pending.get(id) ?? 1) - 1;
+          if (remaining) this.pending.set(id, remaining);
+          else this.pending.delete(id);
         }
       }
     };
   }
 };
 
-// packages/core/src/modules.ts
-import { createHash, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+// packages/integrations/services/src/catalog.ts
 import { join as join3 } from "node:path";
 import { pathToFileURL } from "node:url";
-var emptyLock = () => ({ version: 1, modules: {} });
-var moduleId = /^[a-z_]+\/[a-z]+$/;
-var hash = /^[a-f0-9]{64}$/;
-function validateLock(lock) {
-  if (lock?.version !== 1 || !lock.modules || typeof lock.modules !== "object" || Array.isArray(lock.modules) || Object.entries(lock.modules).some(
-    ([id, entry]) => !moduleId.test(id) || !entry || typeof entry.version !== "string" || !hash.test(entry.sha256) || entry.file !== `${id.replace("/", "--")}.mjs`
-  ))
-    throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
-  return lock;
-}
-var sameInstallation = (a, b) => a?.sha256 === b?.sha256 && a?.version === b?.version && a?.file === b?.file;
-var ModuleManager = class {
-  constructor(home, catalog, bundledDirectory, fetchImpl = fetch) {
-    this.home = home;
+var CATALOG_VERSION = 2;
+var ModuleCatalog = class {
+  constructor(catalog, directory) {
     this.catalog = catalog;
-    this.bundledDirectory = bundledDirectory;
-    this.fetchImpl = fetchImpl;
-    this.lockPath = join3(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance" || !Array.isArray(catalog.modules))
-      throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
+    this.directory = directory;
+    if (catalog.version !== CATALOG_VERSION || !Array.isArray(catalog.modules))
+      throw new Error("Invalid module catalog.");
     const ids = /* @__PURE__ */ new Set();
     for (const entry of catalog.modules) {
-      if (!moduleId.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.apiVersion !== 1 || typeof entry.version !== "string" || entry.file !== `${entry.id.replace("/", "--")}.mjs` || !hash.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > 25 * 1024 * 1024 || ids.has(entry.id))
-        throw new EnhanceError("CATALOG_INVALID", "Invalid module entry.");
+      if (entry.apiVersion !== MODULE_API_VERSION || !/^[a-z][a-z0-9_]*\/[a-z][a-z0-9-]*$/.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.file !== `${entry.capability}--${entry.provider}.mjs` || ids.has(entry.id))
+        throw new Error("Invalid module catalog entry.");
       ids.add(entry.id);
     }
   }
-  lockPath;
   find(id) {
     const entry = this.catalog.modules.find((e) => e.id === id);
-    if (!entry) throw new EnhanceError("MODULE_UNKNOWN", `Unknown capability/provider: ${id}`);
+    if (!entry) throw new Error(`Unknown capability/provider: ${id}`);
     return entry;
   }
-  readLock() {
-    return validateLock(readJson(this.lockPath, emptyLock));
-  }
-  installed(id) {
-    return this.readLock().modules[id];
-  }
-  /** Local catalog comparison only: no network, imports, or authentication. */
-  updates() {
-    const lock = this.readLock();
-    return this.catalog.modules.filter((e) => lock.modules[e.id] && lock.modules[e.id].sha256 !== e.sha256);
-  }
-  path(entry) {
-    return join3(this.home, "packages", `${entry.sha256}-${entry.file}`);
-  }
-  verify(bytes, entry) {
-    if (bytes.byteLength !== entry.bytes || createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
-      throw new EnhanceError("MODULE_INTEGRITY", `Integrity verification failed: ${entry.id}`);
-  }
-  /** Stage verified bytes without changing installation records or executing the module. */
-  async stage(entry, signal) {
-    signal?.throwIfAborted();
-    try {
-      this.verify(await readFile(this.path(entry), { signal }), entry);
-      return;
-    } catch (error2) {
-      if (error2.code !== "ENOENT" && !(error2 instanceof EnhanceError && error2.code === "MODULE_INTEGRITY"))
-        throw error2;
-    }
-    let bytes;
-    if (this.bundledDirectory) {
-      try {
-        bytes = await readFile(join3(this.bundledDirectory, entry.file), { signal });
-      } catch (error2) {
-        if (error2.code !== "ENOENT") throw error2;
-      }
-    }
-    if (!bytes) {
-      if (!/^[a-f0-9]{40}$/.test(this.catalog.revision))
-        throw new EnhanceError(
-          "MODULE_SOURCE",
-          "This development catalog has no immutable download revision. Build locally first."
-        );
-      const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(6e4)]) : AbortSignal.timeout(6e4);
-      const url = `https://raw.githubusercontent.com/${this.catalog.repository}/${this.catalog.revision}/dist/modules/${entry.file}`;
-      const response = await this.fetchImpl(url, { redirect: "error", signal: requestSignal });
-      if (!response.ok || !response.body)
-        throw new EnhanceError("MODULE_DOWNLOAD", `Module download returned HTTP ${response.status}.`);
-      const chunks = [];
-      let size = 0;
-      for await (const chunk of response.body) {
-        requestSignal.throwIfAborted();
-        size += chunk.byteLength;
-        if (size > entry.bytes)
-          throw new EnhanceError("MODULE_INTEGRITY", "Downloaded module exceeds its declared size.");
-        chunks.push(chunk);
-      }
-      bytes = Buffer.concat(chunks);
-    }
-    this.verify(bytes, entry);
-    signal?.throwIfAborted();
-    await mkdir(join3(this.home, "packages"), { recursive: true, mode: 448 });
-    const target = this.path(entry), temp = `${target}.${randomUUID2()}.tmp`;
-    try {
-      await writeFile(temp, bytes, { mode: 384, flag: "wx", signal });
-      await rename(temp, target);
-    } finally {
-      await rm(temp, { force: true });
-    }
-  }
-  async commit(entries, before, signal) {
-    if (!entries.length) return;
-    for (const entry of entries) await this.stage(entry, signal);
-    signal?.throwIfAborted();
-    updateJson(this.lockPath, emptyLock, (raw) => {
-      const current = validateLock(raw);
-      for (const entry of entries)
-        if (!sameInstallation(current.modules[entry.id], before.modules[entry.id]))
-          throw new EnhanceError(
-            "MODULE_CONFLICT",
-            `Installation changed during download: ${entry.id}. Retry explicitly.`
-          );
-      const modules = { ...current.modules };
-      for (const entry of entries)
-        modules[entry.id] = { version: entry.version, sha256: entry.sha256, file: entry.file };
-      return { version: 1, modules };
-    });
-  }
-  async install(id, signal) {
-    await this.commit([this.find(id)], this.readLock(), signal);
-  }
-  /** Updates installed modules only; loaded instances remain untouched until a later load. */
-  async update(ids, signal) {
-    const before = this.readLock();
-    const entries = [
-      ...new Set(ids ?? this.catalog.modules.filter((e) => before.modules[e.id]).map((e) => e.id))
-    ].map((id) => {
-      const entry = this.find(id);
-      if (!before.modules[id])
-        throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before updating.`);
-      return entry;
-    }).filter((entry) => before.modules[entry.id].sha256 !== entry.sha256);
-    await this.commit(entries, before, signal);
-    return entries.map((e) => e.id);
-  }
   async load(id) {
-    const entry = this.find(id), installed = this.installed(id);
-    if (!installed)
-      throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before loading.`);
-    if (installed.sha256 !== entry.sha256)
-      throw new EnhanceError("MODULE_VERSION", `Update or reinstall ${id} to match this host catalog.`);
-    this.verify(await readFile(this.path(entry)), entry);
-    const loaded = (await import(pathToFileURL(this.path(entry)).href)).default;
-    if (JSON.stringify(loaded?.manifest) !== JSON.stringify(
-      Object.fromEntries(
-        Object.entries(entry).filter(([key]) => !["file", "sha256", "bytes"].includes(key))
-      )
-    ))
-      throw new EnhanceError("MODULE_CONTRACT", "Downloaded manifest does not match catalog.");
-    return loaded;
-  }
-  uninstall(id) {
-    this.find(id);
-    updateJson(this.lockPath, emptyLock, (raw) => {
-      const modules = { ...validateLock(raw).modules };
-      delete modules[id];
-      return { version: 1, modules };
-    });
+    const entry = this.find(id);
+    const module = (await import(pathToFileURL(join3(this.directory, entry.file)).href)).default;
+    const { file: _file2, bytes: _bytes, label: _label, group: _group, ...manifest } = entry;
+    if (JSON.stringify(module.manifest) !== JSON.stringify(manifest) || module.definition.id !== entry.capability)
+      throw new Error(`Module contract does not match this release: ${id}`);
+    return module;
   }
 };
 
-// packages/hosts/claude-code/src/credentials.ts
+// packages/integrations/services/src/contracts.ts
+async function discoverServices(sources) {
+  const results = await Promise.allSettled(sources.map((source) => source.discover()));
+  const connections = /* @__PURE__ */ new Map();
+  const errors = {};
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      errors[sources[index].id] = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      return;
+    }
+    for (const connection2 of result.value) {
+      if (connections.has(connection2.id)) throw new Error(`Duplicate service connection: ${connection2.id}`);
+      connections.set(connection2.id, connection2);
+    }
+  });
+  return { connections: [...connections.values()], errors };
+}
+
+// packages/integrations/services/src/runtime.ts
+var ServiceRuntime = class {
+  constructor(options) {
+    this.options = options;
+  }
+  snapshot = { connections: [], errors: {} };
+  states = [];
+  syncing = Promise.resolve();
+  stopped = false;
+  synchronize(sources, preferences, host, signal) {
+    const operation = this.syncing.catch(() => {
+    }).then(async () => {
+      if (this.stopped) return;
+      signal?.throwIfAborted();
+      const discovered = await discoverServices(sources);
+      signal?.throwIfAborted();
+      if (this.stopped) return;
+      const failed = new Set(Object.keys(discovered.errors));
+      const known = new Set(discovered.connections.map((c) => c.id));
+      for (const connection2 of this.snapshot.connections)
+        if (failed.has(connection2.source) && !known.has(connection2.id))
+          discovered.connections.push(connection2);
+      this.snapshot = discovered;
+      const wanted = /* @__PURE__ */ new Map();
+      const states = [];
+      for (const entry of this.options.modules.catalog.modules) {
+        const unsupported = entry.platforms && !entry.platforms.includes(host.platform ?? process.platform) ? `Requires ${entry.platforms.join("/")}` : entry.requires?.filter((feature) => !host.features.has(feature)).join(", ");
+        if (unsupported) {
+          states.push({ module: entry.id, status: "unsupported", reason: unsupported });
+          continue;
+        }
+        const connections = discovered.connections.filter(
+          (connection2) => connection2.provider === entry.provider && (entry.auth ? connection2.channel === entry.auth.channel && connection2.kind !== "runtime" && entry.auth.acceptedKinds.includes(connection2.kind) : connection2.kind === "runtime" && connection2.channel === entry.runtime)
+        );
+        if (!connections.length) {
+          states.push({ module: entry.id, status: "missing", reason: "No matching service connection" });
+          continue;
+        }
+        for (const connection2 of connections) {
+          const state = { module: entry.id, service: connection2.id, status: "available" };
+          if (preferences.excluded.some(
+            (key) => [entry.capability, entry.id, `${entry.capability}@${connection2.id}`].includes(key)
+          )) {
+            state.status = "excluded";
+          } else if (entry.modelInputExcludes?.some((input) => host.model?.input?.includes(input))) {
+            state.status = "hidden";
+            state.reason = "Current model already accepts this input";
+          } else wanted.set(`${entry.id}@${connection2.id}`, { entry, connection: connection2 });
+          states.push(state);
+        }
+      }
+      const registry2 = this.options.registry;
+      registry2.setPreferred(preferences.preferred);
+      for (const loaded of registry2.list()) {
+        if (wanted.has(loaded.id)) {
+          registry2.resume(loaded.id);
+          continue;
+        }
+        registry2.suspend(loaded.id);
+        try {
+          await registry2.unload(loaded.id);
+        } catch (error2) {
+          states.push({
+            module: loaded.module.manifest.id,
+            service: loaded.binding?.id,
+            status: error2 instanceof EnhanceError && error2.code === "MODULE_BUSY" ? "busy" : "error",
+            reason: error2 instanceof Error ? error2.message : String(error2)
+          });
+        }
+      }
+      for (const [id, { entry, connection: connection2 }] of wanted) {
+        if (registry2.get(id)) {
+          registry2.setBinding(id, {
+            id: connection2.id,
+            label: connection2.label,
+            credentials: connection2.credentials
+          });
+          continue;
+        }
+        try {
+          const module = await this.options.modules.load(entry.id);
+          signal?.throwIfAborted();
+          if (this.stopped) return;
+          registry2.load(module, this.options.services(entry, connection2), {
+            id: connection2.id,
+            label: connection2.label,
+            credentials: connection2.credentials
+          });
+        } catch (error2) {
+          signal?.throwIfAborted();
+          const state = states.find((s) => s.module === entry.id && s.service === connection2.id);
+          state.status = "error";
+          state.reason = error2 instanceof Error ? error2.message : String(error2);
+        }
+      }
+      this.states = states;
+    });
+    this.syncing = operation;
+    return operation;
+  }
+  async dispose() {
+    this.stopped = true;
+    await this.syncing.catch(() => {
+    });
+    await this.options.registry.dispose();
+  }
+  describe() {
+    return [
+      ...this.snapshot.connections.map((c) => `${c.id} \xB7 ${c.label} \xB7 configured`),
+      ...Object.entries(this.snapshot.errors).map(
+        ([source, error2]) => `${source}: discovery error: ${error2}`
+      ),
+      ...this.states.map(
+        (s) => `${s.module}${s.service ? ` @ ${s.service}` : ""}: ${s.status}${s.reason ? ` (${s.reason})` : ""}`
+      )
+    ].join("\n");
+  }
+};
+
+// packages/integrations/services/src/sources/files.ts
+var import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
 import { readFile as readFile2 } from "node:fs/promises";
+import { existsSync as existsSync3 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join5 } from "node:path";
+
+// packages/integrations/services/src/sources/config-value.ts
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+function interpolateConfigValue(value, env) {
+  let missing = false;
+  const resolved = value.replace(/\$(\$|!|\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*)/g, (match, reference) => {
+    if (reference === "$" || reference === "!") return reference;
+    const name = reference.startsWith("{") ? reference.slice(1, -1) : reference;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return match;
+    const replacement = env[name];
+    if (!replacement) {
+      missing = true;
+      return "";
+    }
+    return replacement;
+  });
+  return missing ? void 0 : resolved;
+}
+function sourceEnvironment(env, extra) {
+  return { ...env, ...Object.fromEntries(Object.entries(extra ?? {}).filter(([, value]) => !!value)) };
+}
+function isConfiguredValue(value, env) {
+  return typeof value === "string" && (value.startsWith("!") ? !!value.slice(1).trim() : !!interpolateConfigValue(value, env));
+}
+async function resolveConfiguredValue(value, env, signal) {
+  if (!value.startsWith("!")) return interpolateConfigValue(value, env) ?? "";
+  const result = await promisify(exec)(value.slice(1), {
+    env,
+    signal,
+    timeout: 15e3,
+    maxBuffer: 1024 * 1024
+  });
+  return result.stdout.trim();
+}
+
+// packages/integrations/services/src/sources/channels.ts
+var channels = {
+  "openai-codex": { provider: "openai", channel: "codex", kind: "oauth" },
+  xai: { provider: "xai", channel: "imagine", kind: "oauth" },
+  "opencode-go": {
+    provider: "opencode",
+    channel: "go",
+    kind: "api_key",
+    env: "OPENCODE_API_KEY",
+    baseUrl: "https://opencode.ai/zen/go/v1/"
+  },
+  "minimax-cn": {
+    provider: "minimax",
+    channel: "token-plan",
+    kind: "api_key",
+    env: "MINIMAX_CN_API_KEY",
+    baseUrl: "https://api.minimaxi.com"
+  },
+  minimax: {
+    provider: "minimax",
+    channel: "token-plan",
+    kind: "api_key",
+    env: "MINIMAX_API_KEY",
+    baseUrl: "https://api.minimax.io"
+  },
+  zai: {
+    provider: "zai",
+    channel: "coding-plan",
+    kind: "api_key",
+    env: "ZAI_API_KEY",
+    baseUrl: "https://api.z.ai"
+  },
+  "zai-coding-cn": {
+    provider: "zai",
+    channel: "coding-plan",
+    kind: "api_key",
+    env: "ZAI_CODING_CN_API_KEY",
+    baseUrl: "https://open.bigmodel.cn"
+  }
+};
+
+// packages/integrations/services/src/sources/codex.ts
+import { readFile } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
 
-// packages/hosts/claude-code/src/lock.ts
-import { open as open2, rename as rename2, rm as rm2, stat } from "node:fs/promises";
-import { mkdir as mkdir2 } from "node:fs/promises";
+// packages/integrations/services/src/sources/lock.ts
+import { open as open2, rename, rm, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname as dirname3 } from "node:path";
-import { randomUUID as randomUUID3 } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 var STALE_MS = 3e4;
 async function withFileLock(path, fn, timeoutMs = 15e3) {
   const lockPath = `${path}.lock`;
-  await mkdir2(dirname3(path), { recursive: true, mode: 448 });
+  await mkdir(dirname3(path), { recursive: true, mode: 448 });
   const deadline = Date.now() + timeoutMs;
   for (; ; ) {
     const file = await open2(lockPath, "wx", 384).catch(
@@ -25771,23 +27501,23 @@ async function withFileLock(path, fn, timeoutMs = 15e3) {
       try {
         return await fn();
       } finally {
-        await rm2(lockPath, { force: true });
+        await rm(lockPath, { force: true });
       }
     }
     try {
       if (Date.now() - (await stat(lockPath)).mtimeMs > STALE_MS) {
-        await rm2(lockPath, { force: true });
+        await rm(lockPath, { force: true });
         continue;
       }
     } catch {
     }
     if (Date.now() >= deadline) throw new Error(`Timed out waiting for lock ${lockPath}`);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve2) => setTimeout(resolve2, 100));
   }
 }
 async function writeFileAtomic(path, text) {
-  await mkdir2(dirname3(path), { recursive: true, mode: 448 });
-  const temp = `${path}.${randomUUID3()}.tmp`;
+  await mkdir(dirname3(path), { recursive: true, mode: 448 });
+  const temp = `${path}.${randomUUID2()}.tmp`;
   const file = await open2(temp, "wx", 384);
   try {
     await file.writeFile(text, "utf8");
@@ -25796,133 +27526,16 @@ async function writeFileAtomic(path, text) {
     await file.close();
   }
   try {
-    await rename2(temp, path);
+    await rename(temp, path);
   } finally {
-    await rm2(temp, { force: true });
+    await rm(temp, { force: true });
   }
 }
 
-// packages/hosts/claude-code/src/xai.ts
-var CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
-var SCOPE = "openid profile email offline_access grok-cli:access api:access";
-var DEVICE_URL = "https://auth.x.ai/oauth2/device/code";
-var TOKEN_URL = "https://auth.x.ai/oauth2/token";
-var REFRESH_SKEW_MS = 5 * 60 * 1e3;
-async function postForm(url, fields, signal) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(fields),
-    redirect: "error",
-    signal: signal ?? AbortSignal.timeout(3e4)
-  });
-  const body = await response.json().catch(() => ({}));
-  return { ok: response.ok, status: response.status, body };
-}
-var failure2 = (action, r) => new Error(
-  `xAI OAuth ${action} failed (HTTP ${r.status})${typeof r.body.error === "string" ? `: ${r.body.error}` : ""}`
-);
-function tokens(body, previousRefresh) {
-  const access = body.access_token;
-  const refresh = body.refresh_token ?? previousRefresh;
-  if (typeof access !== "string" || !access || typeof refresh !== "string" || !refresh)
-    throw new Error("xAI OAuth returned no usable tokens.");
-  const lifetime = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 3600;
-  return { kind: "oauth", access, refresh, expires: Date.now() + lifetime * 1e3 - REFRESH_SKEW_MS };
-}
-async function requestDeviceCode() {
-  const r = await postForm(DEVICE_URL, { client_id: CLIENT_ID, scope: SCOPE, referrer: "cc-enhance" });
-  if (!r.ok) throw failure2("device authorization", r);
-  const b = r.body;
-  const uri = String(b.verification_uri_complete ?? b.verification_uri ?? "");
-  if (!uri.startsWith("https://") || typeof b.device_code !== "string" || typeof b.user_code !== "string")
-    throw new Error("Unexpected xAI device authorization response.");
-  return {
-    deviceCode: b.device_code,
-    userCode: b.user_code,
-    verificationUri: uri,
-    intervalSeconds: typeof b.interval === "number" && b.interval > 0 ? b.interval : 5,
-    expiresInSeconds: typeof b.expires_in === "number" && b.expires_in > 0 ? b.expires_in : 900
-  };
-}
-async function pollDeviceCode(device) {
-  let interval = device.intervalSeconds;
-  const deadline = Date.now() + device.expiresInSeconds * 1e3;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, interval * 1e3));
-    const r = await postForm(TOKEN_URL, {
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      client_id: CLIENT_ID,
-      device_code: device.deviceCode
-    });
-    if (r.ok) return tokens(r.body);
-    if (r.body.error === "authorization_pending") continue;
-    if (r.body.error === "slow_down") {
-      interval = typeof r.body.interval === "number" ? r.body.interval : interval + 5;
-      continue;
-    }
-    throw failure2("device token polling", r);
-  }
-  throw new Error("xAI device code expired before authorization.");
-}
-async function refreshXai(refresh, signal) {
-  const r = await postForm(
-    TOKEN_URL,
-    { grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: refresh },
-    signal
-  );
-  if (!r.ok) throw failure2("token refresh", r);
-  return tokens(r.body, refresh);
-}
-
-// packages/hosts/claude-code/src/credentials.ts
-var CHANNELS = {
-  "openai/codex": {
-    provider: "openai",
-    login: "Run `codex login` (Codex CLI, ChatGPT account); cc-enhance reads ~/.codex/auth.json."
-  },
-  "xai/imagine": { provider: "xai", login: "/cc-enhance login xai" },
-  "opencode/go": { provider: "opencode", login: "/cc-enhance login opencode <api-key>" },
-  "minimax/token-plan": { provider: "minimax", login: "/cc-enhance login minimax <sk-cp-key> [--global]" },
-  "zai/coding-plan": { provider: "zai", login: "/cc-enhance login zai <api-key> [--cn]" }
-};
-var CredentialStore = class {
-  path;
-  constructor(home) {
-    this.path = credentialsPath(home);
-  }
-  async read() {
-    let text;
-    try {
-      text = await readFile2(this.path, "utf8");
-    } catch (error2) {
-      if (error2.code === "ENOENT") return { version: 1, credentials: {} };
-      throw error2;
-    }
-    const parsed = JSON.parse(text);
-    if (parsed?.version !== 1 || !parsed.credentials || typeof parsed.credentials !== "object")
-      throw new Error(`Unsupported credential file ${this.path}; not overwritten.`);
-    return parsed;
-  }
-  async update(fn) {
-    return withFileLock(this.path, async () => {
-      const next = await fn(await this.read());
-      await writeFileAtomic(this.path, JSON.stringify(next, null, 2) + "\n");
-      return next;
-    });
-  }
-  set(channel, entry) {
-    return this.update((file) => {
-      const credentials = { ...file.credentials };
-      if (entry) credentials[channel] = entry;
-      else delete credentials[channel];
-      return { version: 1, credentials };
-    });
-  }
-};
+// packages/integrations/services/src/sources/codex.ts
 var CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 var CODEX_MARGIN_MS = 12e4;
-var codexAuthPath = () => join4(process.env.CODEX_HOME ?? join4(homedir2(), ".codex"), "auth.json");
+var codexAuthPath = (env = process.env) => join4(env.CODEX_HOME ?? join4(homedir2(), ".codex"), "auth.json");
 function jwtPayload(token) {
   try {
     return JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
@@ -25939,16 +27552,19 @@ var jwtAccount = (token) => {
   return typeof auth?.chatgpt_account_id === "string" ? auth.chatgpt_account_id : void 0;
 };
 var fresh = (expires, margin) => expires === void 0 || expires - margin > Date.now();
-async function readCodex() {
+function codexConfigured(auth) {
+  return !!(auth?.tokens?.refresh_token || auth?.tokens?.access_token && fresh(jwtExpiry(auth.tokens.access_token), CODEX_MARGIN_MS));
+}
+async function readCodex(path = codexAuthPath()) {
   try {
-    return JSON.parse(await readFile2(codexAuthPath(), "utf8"));
+    return JSON.parse(await readFile(path, "utf8"));
   } catch (error2) {
     if (error2.code === "ENOENT") return void 0;
-    throw new Error(`${codexAuthPath()} is unreadable; run \`codex login\` again.`);
+    throw new Error(`${path} is unreadable; run \`codex login\` again.`);
   }
 }
-async function codexCredential(signal) {
-  const quick = await readCodex();
+async function codexCredential(signal, path = codexAuthPath()) {
+  const quick = await readCodex(path);
   const token = quick?.tokens?.access_token;
   if (token && fresh(jwtExpiry(token), CODEX_MARGIN_MS))
     return {
@@ -25958,8 +27574,8 @@ async function codexCredential(signal) {
       expiresAt: jwtExpiry(token)
     };
   if (!quick?.tokens?.refresh_token) return void 0;
-  return withFileLock(codexAuthPath(), async () => {
-    const auth = await readCodex();
+  return withFileLock(path, async () => {
+    const auth = await readCodex(path);
     const current = auth?.tokens?.access_token;
     if (current && fresh(jwtExpiry(current), CODEX_MARGIN_MS))
       return {
@@ -25970,23 +27586,10 @@ async function codexCredential(signal) {
       };
     const refresh = auth?.tokens?.refresh_token;
     if (!refresh) return void 0;
-    const response = await fetch("https://auth.openai.com/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "refresh_token",
-        refresh_token: refresh,
-        client_id: CODEX_CLIENT_ID
-      }),
-      redirect: "error",
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3e4)]) : AbortSignal.timeout(3e4)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || typeof data.access_token !== "string" || typeof data.refresh_token !== "string")
-      throw new Error(`Codex token refresh failed (HTTP ${response.status}); run \`codex login\` again.`);
+    const data = await requestRefresh(refresh, signal);
     const accountId = auth.tokens?.account_id ?? jwtAccount(data.access_token);
     await writeFileAtomic(
-      codexAuthPath(),
+      path,
       JSON.stringify(
         {
           ...auth,
@@ -26006,60 +27609,393 @@ async function codexCredential(signal) {
     return { kind: "oauth", secret: data.access_token, accountId, expiresAt: jwtExpiry(data.access_token) };
   });
 }
-var OAUTH_REFRESHERS = {
-  "xai/imagine": refreshXai
-};
-var ClaudeCodeCredentialResolver = class {
-  store;
-  constructor(home) {
-    this.store = new CredentialStore(home);
+async function requestRefresh(refresh, signal) {
+  const response = await fetch("https://auth.openai.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: refresh,
+      client_id: CODEX_CLIENT_ID
+    }),
+    redirect: "error",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3e4)]) : AbortSignal.timeout(3e4)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || typeof data.access_token !== "string" || typeof data.refresh_token !== "string")
+    throw new Error(`Codex token refresh failed (HTTP ${response.status}); run \`codex login\` again.`);
+  return data;
+}
+async function refreshCodex(refresh, signal) {
+  const data = await requestRefresh(refresh, signal);
+  return {
+    access: data.access_token,
+    refresh: data.refresh_token,
+    expires: Date.now() + (typeof data.expires_in === "number" ? data.expires_in * 1e3 : 36e5) - CODEX_MARGIN_MS
+  };
+}
+
+// packages/integrations/services/src/sources/xai.ts
+var CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
+var TOKEN_URL = "https://auth.x.ai/oauth2/token";
+var REFRESH_SKEW_MS = 5 * 60 * 1e3;
+async function postForm(url, fields, signal) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+    redirect: "error",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3e4)]) : AbortSignal.timeout(3e4)
+  });
+  const body = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, body };
+}
+var failure2 = (action, r) => new Error(
+  `xAI OAuth ${action} failed (HTTP ${r.status})${typeof r.body.error === "string" ? `: ${r.body.error}` : ""}`
+);
+function tokens(body, previousRefresh) {
+  const access = body.access_token;
+  const refresh = body.refresh_token ?? previousRefresh;
+  if (typeof access !== "string" || !access || typeof refresh !== "string" || !refresh)
+    throw new Error("xAI OAuth returned no usable tokens.");
+  const lifetime = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 3600;
+  return { kind: "oauth", access, refresh, expires: Date.now() + lifetime * 1e3 - REFRESH_SKEW_MS };
+}
+async function refreshXai(refresh, signal) {
+  const r = await postForm(
+    TOKEN_URL,
+    { grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: refresh },
+    signal
+  );
+  if (!r.ok) throw failure2("token refresh", r);
+  return tokens(r.body, refresh);
+}
+
+// packages/integrations/services/src/sources/files.ts
+function sourcePaths(options) {
+  const env = options.env ?? process.env, root = options.userHome ?? homedir3();
+  return [
+    join5(env.CODEX_HOME ?? join5(root, ".codex"), "auth.json"),
+    join5(env.PI_CODING_AGENT_DIR ?? join5(root, ".pi", "agent"), "auth.json"),
+    join5(env.XDG_DATA_HOME ?? join5(root, ".local", "share"), "opencode", "auth.json"),
+    join5(options.home, "credentials.json"),
+    env.OPENAI_CODEX_COMPUTER_APP ?? "/Applications/ChatGPT.app"
+  ];
+}
+async function readObject(path) {
+  try {
+    const value = JSON.parse(await readFile2(path, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Expected a JSON object");
+    return value;
+  } catch (error2) {
+    if (error2.code === "ENOENT") return {};
+    throw new Error(
+      `Cannot discover services from ${path}: ${error2 instanceof Error ? error2.message : String(error2)}`
+    );
   }
-  async resolve(request, context) {
-    context.signal?.throwIfAborted();
-    const channel = `${request.provider}/${request.channel}`;
-    const hint = CHANNELS[channel]?.login;
-    if (!hint)
-      return { status: "unsupported", guidance: `cc-enhance has no credential source for ${channel}.` };
-    try {
-      const credential = channel === "openai/codex" ? await codexCredential(context.signal) : await this.stored(channel, context.signal);
-      if (!credential) return { status: "missing", guidance: `Not logged in for ${channel}. ${hint}` };
-      if (!request.acceptedKinds.includes(credential.kind))
+}
+function resolver(def, resolve2, guidance) {
+  return {
+    async resolve(request, context) {
+      context.signal?.throwIfAborted();
+      if (request.provider !== def.provider || request.channel !== def.channel || !request.acceptedKinds.includes(def.kind))
         return {
           status: "unsupported",
-          guidance: `${channel} does not accept ${credential.kind} credentials. ${hint}`
+          guidance: "Selected service does not support this authentication channel."
         };
-      return { status: "ready", credential };
-    } catch (error2) {
-      context.signal?.throwIfAborted();
-      return { status: "login_required", guidance: `${error2.message} ${hint}` };
+      try {
+        const credential = await resolve2(context.signal);
+        context.signal?.throwIfAborted();
+        if (!credential?.secret) return { status: "missing", guidance };
+        return { status: "ready", credential };
+      } catch (error2) {
+        context.signal?.throwIfAborted();
+        return {
+          status: "login_required",
+          guidance: `${error2 instanceof Error ? error2.message : String(error2)} ${guidance}`
+        };
+      }
     }
+  };
+}
+function connection(id, source, def, credentials) {
+  return {
+    id,
+    source: source === "Agent Enhance" ? "agent-enhance" : source.toLowerCase(),
+    label: `${def.provider} \xB7 ${def.channel} \xB7 ${source}${def.baseUrl ? ` \xB7 ${new URL(def.baseUrl).hostname}` : ""}`,
+    ...def,
+    credentials
+  };
+}
+var oauthConfigured = (entry) => !!(entry.refresh || entry.access && (entry.expires === void 0 || entry.expires > Date.now()));
+async function piCredential(path, provider, def, env, signal) {
+  const entry = (await readObject(path))[provider];
+  if (!entry) return;
+  if (def.kind === "api_key") {
+    if (entry.type !== "api_key" || typeof entry.key !== "string") return;
+    return {
+      kind: "api_key",
+      secret: await resolveConfiguredValue(entry.key, sourceEnvironment(env, entry.env), signal),
+      baseUrl: def.baseUrl
+    };
   }
-  async stored(channel, signal) {
-    const entry = (await this.store.read()).credentials[channel];
-    if (!entry) return void 0;
-    if (entry.kind === "api_key") return { kind: "api_key", secret: entry.key, baseUrl: entry.baseUrl };
-    if (fresh(entry.expires, 0)) return { kind: "oauth", secret: entry.access, expiresAt: entry.expires };
-    const refresher = OAUTH_REFRESHERS[channel];
-    if (!refresher) throw new Error(`${channel} token expired.`);
-    const next = await this.store.update(async (file) => {
-      const current = file.credentials[channel];
-      if (current?.kind !== "oauth") throw new Error(`${channel} login was removed.`);
-      if (fresh(current.expires, 0)) return file;
-      return {
-        version: 1,
-        credentials: { ...file.credentials, [channel]: await refresher(current.refresh, signal) }
-      };
-    });
-    const refreshed = next.credentials[channel];
-    return { kind: "oauth", secret: refreshed.access, expiresAt: refreshed.expires };
+  if (entry.type !== "oauth") return;
+  const current = (value) => ({
+    kind: "oauth",
+    secret: value.access,
+    accountId: value.accountId ?? jwtAccount(value.access),
+    expiresAt: value.expires
+  });
+  if (entry.access && (entry.expires === void 0 || entry.expires > Date.now())) return current(entry);
+  if (!entry.refresh) return;
+  const release = await import_proper_lockfile.default.lock(path, {
+    realpath: false,
+    stale: 3e4,
+    retries: { retries: 15, factor: 1, minTimeout: 1e3, maxTimeout: 1e3 }
+  });
+  try {
+    signal?.throwIfAborted();
+    const file = await readObject(path), latest = file[provider];
+    if (!latest || latest.type !== "oauth") return;
+    if (latest.access && (latest.expires === void 0 || latest.expires > Date.now()))
+      return current(latest);
+    const refreshed = provider === "xai" ? await refreshXai(latest.refresh, signal) : await refreshCodex(latest.refresh, signal);
+    file[provider] = {
+      ...latest,
+      access: refreshed.access,
+      refresh: refreshed.refresh,
+      expires: refreshed.expires
+    };
+    await writeFileAtomic(path, JSON.stringify(file, null, 2) + "\n");
+    return current(file[provider]);
+  } finally {
+    await release();
   }
-};
+}
+function fileSources(options) {
+  const env = options.env ?? process.env;
+  const [codexPath, piPath, opencodePath, ownPath, desktopPath] = sourcePaths(options);
+  const sources = [
+    {
+      id: "codex",
+      async discover() {
+        const auth = await readCodex(codexPath), tokens2 = auth?.tokens;
+        if (!codexConfigured(auth)) return [];
+        const def = channels["openai-codex"];
+        return [
+          connection(
+            "codex:openai-codex",
+            "Codex",
+            def,
+            resolver(
+              def,
+              (signal) => codexCredential(signal, codexPath),
+              "Run codex login, then refresh services."
+            )
+          )
+        ];
+      }
+    },
+    {
+      id: "opencode",
+      async discover() {
+        const content = () => env.OPENCODE_AUTH_CONTENT ? Promise.resolve(JSON.parse(env.OPENCODE_AUTH_CONTENT)) : readObject(opencodePath);
+        const file = await content(), def = channels["opencode-go"];
+        const entry = file["opencode-go"];
+        if (entry?.type !== "api" || !entry.key) return [];
+        return [
+          connection(
+            "opencode:opencode-go",
+            "OpenCode",
+            def,
+            resolver(
+              def,
+              async () => {
+                const latest = (await content())["opencode-go"];
+                return latest?.type === "api" ? { kind: "api_key", secret: latest.key, baseUrl: def.baseUrl } : void 0;
+              },
+              "Configure the OpenCode Go connection in OpenCode."
+            )
+          )
+        ];
+      }
+    },
+    {
+      id: "agent-enhance",
+      async discover() {
+        const file = await readObject(ownPath);
+        if (!Object.keys(file).length) return [];
+        if (file.version !== 1 || !file.credentials || typeof file.credentials !== "object")
+          throw new Error(`Invalid credential source: ${ownPath}`);
+        const result = [];
+        for (const [channel, entry] of Object.entries(file.credentials)) {
+          const def = Object.values(channels).find(
+            (c) => `${c.provider}/${c.channel}` === channel && c.kind === entry.kind
+          );
+          if (!def || (entry.kind === "oauth" ? !oauthConfigured(entry) : !isConfiguredValue(entry.key, sourceEnvironment(env, entry.env))))
+            continue;
+          const selected = { ...def, baseUrl: entry.baseUrl ?? def.baseUrl };
+          result.push(
+            connection(
+              `agent-enhance:${channel}`,
+              "Agent Enhance",
+              selected,
+              resolver(
+                def,
+                async (signal) => {
+                  const latest = (await readObject(ownPath)).credentials?.[channel];
+                  if (!latest || latest.kind !== def.kind) return;
+                  if (latest.kind === "api_key")
+                    return {
+                      kind: "api_key",
+                      secret: await resolveConfiguredValue(
+                        latest.key,
+                        sourceEnvironment(env, latest.env),
+                        signal
+                      ),
+                      baseUrl: latest.baseUrl ?? def.baseUrl
+                    };
+                  if (latest.expires === void 0 || latest.expires > Date.now())
+                    return { kind: "oauth", secret: latest.access, expiresAt: latest.expires };
+                  if (def.provider !== "xai")
+                    throw new Error(`No OAuth refresh implementation for ${channel}`);
+                  return withFileLock(ownPath, async () => {
+                    const file2 = await readObject(ownPath), now = file2.credentials?.[channel];
+                    if (!now || now.kind !== "oauth") return;
+                    if (now.expires <= Date.now()) {
+                      file2.credentials[channel] = { ...now, ...await refreshXai(now.refresh, signal) };
+                      await writeFileAtomic(ownPath, JSON.stringify(file2, null, 2) + "\n");
+                    }
+                    const token = file2.credentials[channel];
+                    return { kind: "oauth", secret: token.access, expiresAt: token.expires };
+                  });
+                },
+                `Authenticate ${def.provider} in its original account source.`
+              )
+            )
+          );
+        }
+        return result;
+      }
+    },
+    {
+      id: "desktop",
+      async discover() {
+        return (options.platform ?? process.platform) === "darwin" && existsSync3(desktopPath) ? [
+          {
+            id: "local:chatgpt-desktop",
+            source: "desktop",
+            label: "ChatGPT desktop runtime",
+            provider: "openai",
+            channel: "chatgpt-desktop",
+            kind: "runtime",
+            credentials: new StaticCredentialResolver({})
+          }
+        ] : [];
+      }
+    }
+  ];
+  if (!options.nativePi)
+    sources.push(
+      {
+        id: "pi",
+        async discover() {
+          const file = await readObject(piPath), result = [];
+          for (const [provider, def] of Object.entries(channels)) {
+            const entry = file[provider];
+            if (!entry || (def.kind === "oauth" ? entry.type !== "oauth" || !oauthConfigured(entry) : entry.type !== "api_key" || !isConfiguredValue(entry.key, sourceEnvironment(env, entry.env))))
+              continue;
+            result.push(
+              connection(
+                `pi:${provider}`,
+                "Pi",
+                def,
+                resolver(
+                  def,
+                  (signal) => piCredential(piPath, provider, def, env, signal),
+                  `Authenticate ${provider} using Pi /login.`
+                )
+              )
+            );
+          }
+          return result;
+        }
+      },
+      {
+        id: "environment",
+        async discover() {
+          return Object.values(channels).filter((def) => def.env && env[def.env]).map(
+            (def) => connection(
+              `env:${def.env}`,
+              "Environment",
+              def,
+              resolver(
+                def,
+                async () => ({ kind: "api_key", secret: env[def.env] ?? "", baseUrl: def.baseUrl }),
+                `Set ${def.env}.`
+              )
+            )
+          );
+        }
+      }
+    );
+  return sources;
+}
+
+// packages/integrations/services/src/watch.ts
+import { existsSync as existsSync4, watch } from "node:fs";
+import { dirname as dirname4, join as join6, resolve } from "node:path";
+function watchServiceSources(paths, changed) {
+  let watchers = [], timer, closed = false;
+  const targets = [...new Set(paths.map((path) => resolve(path)))];
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!closed) {
+        start();
+        changed();
+      }
+    }, 150);
+    timer.unref();
+  };
+  const start = () => {
+    for (const watcher of watchers) watcher.close();
+    watchers = [];
+    const directories = /* @__PURE__ */ new Set();
+    for (const target of targets) {
+      let directory = dirname4(target);
+      while (!existsSync4(directory) && dirname4(directory) !== directory) directory = dirname4(directory);
+      directories.add(directory);
+    }
+    for (const directory of directories) {
+      try {
+        const watcher = watch(directory, { persistent: false }, (_event, file) => {
+          if (file) {
+            const touched = join6(directory, String(file));
+            if (!targets.some((target) => target === touched || target.startsWith(`${touched}/`))) return;
+          }
+          schedule();
+        });
+        watcher.on("error", schedule);
+        watchers.push(watcher);
+      } catch {
+      }
+    }
+  };
+  start();
+  return () => {
+    closed = true;
+    clearTimeout(timer);
+    for (const watcher of watchers) watcher.close();
+  };
+}
 
 // packages/hosts/claude-code/src/control.ts
 import { execFileSync } from "node:child_process";
 import { mkdirSync as mkdirSync2, readdirSync, readFileSync as readFileSync2, rmSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
-import { basename, join as join5 } from "node:path";
+import { basename, join as join7 } from "node:path";
 var SHELLS = /* @__PURE__ */ new Set(["sh", "bash", "zsh", "dash", "fish", "env"]);
 function processTable() {
   const table = /* @__PURE__ */ new Map();
@@ -26092,8 +28028,8 @@ function ancestors() {
   return result;
 }
 var socketPattern = /^(\d+)-([a-z_]+)\.sock$/;
-var socketPath = (pid, capability) => join5(runDirectory(), `${pid}-${capability}.sock`);
-var sessionPath = (pid) => join5(runDirectory(), `${pid}.session.json`);
+var socketPath = (pid, capability) => join7(runDirectory(), `${pid}-${capability}.sock`);
+var sessionPath = (pid) => join7(runDirectory(), `${pid}.session.json`);
 function sessionSockets() {
   let files;
   try {
@@ -26106,7 +28042,7 @@ function sessionSockets() {
     const match = socketPattern.exec(file);
     if (!match) continue;
     const pid = Number(match[1]);
-    byPid.set(pid, { ...byPid.get(pid), [match[2]]: join5(runDirectory(), file) });
+    byPid.set(pid, { ...byPid.get(pid), [match[2]]: join7(runDirectory(), file) });
   }
   for (const pid of ancestors()) if (byPid.has(pid)) return { pid, sockets: byPid.get(pid) };
 }
@@ -26150,7 +28086,7 @@ function listen(path, handler) {
   return server;
 }
 function send(path, request, timeoutMs = 5e3) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const socket = createConnection(path);
     let buffer = "";
     const timer = setTimeout(() => {
@@ -26168,7 +28104,7 @@ function send(path, request, timeoutMs = 5e3) {
       clearTimeout(timer);
       try {
         const reply = JSON.parse(buffer);
-        if (reply.ok) resolve(reply.result);
+        if (reply.ok) resolve2(reply.result);
         else reject(new Error(reply.error));
       } catch {
         reject(new Error("Malformed control reply."));
@@ -26223,20 +28159,20 @@ function claudeHistory(lines) {
 
 // packages/hosts/claude-code/src/preview.ts
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile as readFile3, rm as rm3, writeFile as writeFile2 } from "node:fs/promises";
+import { mkdtemp, readFile as readFile3, rm as rm2, writeFile } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join6 } from "node:path";
-import { promisify } from "node:util";
+import { join as join8 } from "node:path";
+import { promisify as promisify2 } from "node:util";
 var MAX_BYTES = 512 * 1024;
 async function preview(bytes, mime) {
   if (process.platform !== "darwin") return null;
-  const dir = await mkdtemp(join6(tmpdir2(), "cc-enhance-preview-"));
+  const dir = await mkdtemp(join8(tmpdir2(), "cc-enhance-preview-"));
   try {
-    const input = join6(dir, `in.${mime.split("/")[1] ?? "img"}`);
-    await writeFile2(input, bytes);
+    const input = join8(dir, `in.${mime.split("/")[1] ?? "img"}`);
+    await writeFile(input, bytes);
     for (const size of [1024, 768, 512]) {
-      const output = join6(dir, `out-${size}.jpg`);
-      await promisify(execFile)(
+      const output = join8(dir, `out-${size}.jpg`);
+      await promisify2(execFile)(
         "sips",
         ["-Z", String(size), "-s", "format", "jpeg", input, "--out", output],
         {
@@ -26250,30 +28186,16 @@ async function preview(bytes, mime) {
   } catch {
     return null;
   } finally {
-    await rm3(dir, { recursive: true, force: true });
+    await rm2(dir, { recursive: true, force: true });
   }
 }
 
 // packages/hosts/claude-code/src/display.ts
-var LABELS = {
-  gen_image: "\u56FE\u7247\u751F\u6210",
-  gen_video: "\u89C6\u9891\u751F\u6210",
-  gen_voice: "\u8BED\u97F3\u5408\u6210",
-  search_web: "\u8054\u7F51\u641C\u7D22",
-  view_pdf: "PDF \u7406\u89E3",
-  view_video: "\u89C6\u9891\u7406\u89E3",
-  view_image: "\u56FE\u7247\u7406\u89E3",
-  use_computer: "\u684C\u9762\u64CD\u4F5C",
-  manage_computer: "\u684C\u9762\u7BA1\u7406",
-  fast: "\u8BF7\u6C42\u589E\u5F3A",
-  verbosity: "\u8BF7\u6C42\u589E\u5F3A",
-  image_detail: "\u8BF7\u6C42\u589E\u5F3A"
-};
-function toolTitle(name, providers = []) {
-  return [LABELS[name], name].filter(Boolean).join(" ") + (providers.length ? ` \xB7 ${providers.join("/")}` : "");
+function toolTitle(name, providers = [], label = name) {
+  return [label === name ? name : label + " " + name, providers.length ? "\xB7 " + providers.join("/") : ""].filter(Boolean).join(" ");
 }
 var FRONT = ["title", "prompt", "search_query", "text", "task", "path", "image", "images", "code"];
-var BACK = ["options", "provider"];
+var BACK = ["options", "provider", "service"];
 function orderSchema(schema) {
   const properties = schema.properties;
   if (!properties) return schema;
@@ -26320,10 +28242,16 @@ Guidelines:
 }
 async function serve(options) {
   const { home, catalog } = options;
-  const store = new ConfigStore(home, HOST_ID);
-  const manager = new ModuleManager(home, catalog, options.moduleDirectory);
+  const store = new PreferenceStore(home, HOST_ID, emptyPreferences);
+  const manager = new ModuleCatalog(catalog, options.moduleDirectory);
   const registry2 = new CapabilityRegistry();
-  const credentials = new ClaudeCodeCredentialResolver(home);
+  const credentials = new StaticCredentialResolver({});
+  const runtime = new ServiceRuntime({
+    modules: manager,
+    registry: registry2,
+    services: (entry) => ({ artifactRoot: artifactRoot(home, entry.capability, entry.provider), preview })
+  });
+  const sourceOptions = { home };
   const pid = hostPid();
   const errors = /* @__PURE__ */ new Map();
   const server = new Server(
@@ -26334,21 +28262,21 @@ async function serve(options) {
   let signature = "";
   let tools = [];
   const computer = () => registry2.list().find((e) => e.instance.manage);
-  const providers = (capability) => registry2.list().filter((e) => e.module.manifest.capability === capability).map((e) => e.module.manifest.provider);
+  const providers = (capability) => registry2.list().filter((e) => e.module.manifest.capability === capability).map((e) => e.module.manifest.provider).filter((provider, index, all) => all.indexOf(provider) === index);
   const listing = () => [
     ...tools.map((tool) => ({
       name: tool.name,
       description: describe2(tool),
       inputSchema: orderSchema(JSON.parse(JSON.stringify(tool.parameters))),
       annotations: {
-        title: toolTitle(tool.name, providers(tool.name)),
+        title: toolTitle(tool.name, providers(tool.name), tool.label),
         ...SERIAL_TOOLS.has(tool.name) ? {} : { readOnlyHint: true }
       }
     })),
     ...computer() ? [
       {
         name: "manage_computer",
-        annotations: { title: toolTitle("manage_computer") },
+        annotations: { title: toolTitle("manage_computer", [], "\u684C\u9762\u7BA1\u7406") },
         description: "Manage the use_computer bridge: status, reset (stop runtime and drop JS state), ask (confirm each app access), auto (auto-approve ordinary app access, default), revoke (clear session app grants and switch to ask).",
         inputSchema: {
           type: "object",
@@ -26368,48 +28296,17 @@ async function serve(options) {
     });
   };
   let syncing = Promise.resolve();
-  const synchronize = () => syncing = syncing.then(async () => {
-    let config2;
+  const synchronize = () => syncing = syncing.catch(() => {
+  }).then(async () => {
     try {
-      config2 = store.load();
+      await runtime.synchronize(fileSources(sourceOptions), store.load(), {
+        features: SUPPORTED_REQUIREMENTS
+      });
+      errors.delete("config");
+      await publish();
     } catch (error2) {
       errors.set("config", errorText(error2));
-      return;
     }
-    errors.delete("config");
-    for (const key of Object.keys(registry2.defaults)) delete registry2.defaults[key];
-    Object.assign(registry2.defaults, config2.defaults);
-    const wanted = new Set(
-      config2.autoload.filter((id) => catalog.modules.some((e) => e.id === id && e.kind === "tool"))
-    );
-    for (const entry of registry2.list()) {
-      const id = entry.module.manifest.id;
-      if (wanted.has(id)) continue;
-      try {
-        await registry2.unload(id);
-        errors.delete(id);
-      } catch (error2) {
-        errors.set(id, errorText(error2));
-      }
-    }
-    for (const id of wanted) {
-      if (registry2.get(id)) continue;
-      try {
-        const entry = manager.find(id);
-        const missing = entry.requires?.filter((r) => !SUPPORTED_REQUIREMENTS.has(r)) ?? [];
-        if (entry.kind !== "tool" || missing.length)
-          throw new Error(`Claude Code host lacks: ${missing.join(", ") || "request interception"}`);
-        const module = await manager.load(id);
-        registry2.load(module, {
-          artifactRoot: artifactRoot(home, module.manifest.capability, module.manifest.provider),
-          preview
-        });
-        errors.delete(id);
-      } catch (error2) {
-        errors.set(id, errorText(error2));
-      }
-    }
-    await publish();
   });
   const context = async (signal) => {
     const session = readSession(pid);
@@ -26440,7 +28337,7 @@ async function serve(options) {
     };
   };
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    await syncing;
+    await synchronize();
     return { tools: listing() };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -26455,7 +28352,7 @@ async function serve(options) {
         return { content: [{ type: "text", text: await target.instance.manage(action) }] };
       }
       const tool = tools.find((t) => t.name === name);
-      if (!tool) throw new Error(`Tool ${name} is not enabled; use /cc-enhance to enable a provider.`);
+      if (!tool) throw new Error(`Tool ${name} has no available service connection; use /cc-enhance status.`);
       const token = extra._meta?.progressToken;
       let progress = 0;
       const onUpdate = token === void 0 ? void 0 : (update) => {
@@ -26470,16 +28367,27 @@ async function serve(options) {
       return toMcp(await tool.execute(String(extra.requestId), args, extra.signal, onUpdate, ctx));
     } catch (error2) {
       return { isError: true, content: [{ type: "text", text: errorText(error2) }] };
+    } finally {
+      await synchronize();
     }
   });
   const control = async (request) => {
     await syncing;
-    if (request.op === "settled") await registry2.lifecycle("task_settled", () => true);
-    else if (request.op === "notice") return registry2.list().flatMap((e) => e.instance.notice?.() ?? []);
+    if (request.op === "settled") {
+      await registry2.lifecycle("task_settled", () => true);
+      await synchronize();
+    } else if (request.op === "refresh") {
+      await synchronize();
+      return runtime.describe();
+    } else if (request.op === "notice") return registry2.list().flatMap((e) => e.instance.notice?.() ?? []);
     else if (request.op === "status")
       return {
-        loaded: registry2.list().map((e) => e.module.manifest.id),
-        errors: Object.fromEntries(errors),
+        loaded: registry2.list().map((e) => e.id),
+        services: runtime.snapshot.connections.map(
+          ({ credentials: _credentials, ...connection2 }) => connection2
+        ),
+        capabilities: runtime.states,
+        errors: { ...runtime.snapshot.errors, ...Object.fromEntries(errors) },
         status: Object.fromEntries(
           registry2.list().flatMap((e) => e.instance.status ? [[e.module.manifest.id, e.instance.status()]] : [])
         )
@@ -26493,24 +28401,22 @@ async function serve(options) {
   removeStaleSockets();
   const sock = socketPath(pid, SERVER_NAME);
   const controlServer = listen(sock, control);
-  mkdirSync3(dirname4(store.path), { recursive: true, mode: 448 });
-  let timer;
-  const watcher = watch(dirname4(store.path), (_event, file) => {
-    if (file && !String(file).startsWith(`${HOST_ID}.json`)) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => void synchronize(), 150);
+  const stopWatching = watchServiceSources([store.path, ...sourcePaths(sourceOptions)], () => {
+    void synchronize();
   });
   await synchronize();
   let closing = false;
   const shutdown = async () => {
     if (closing) return;
     closing = true;
-    watcher.close();
+    stopWatching();
     controlServer.close();
     rmSync2(sock, { force: true });
     const deadline = setTimeout(() => process.exit(0), 5e3);
     deadline.unref();
-    await registry2.dispose().catch(() => {
+    await syncing.catch(() => {
+    });
+    await runtime.dispose().catch(() => {
     });
     process.exit(0);
   };
@@ -26557,320 +28463,115 @@ ${notices.join("\n")}
   }
 }
 
-// packages/hosts/claude-code/src/login.ts
-import { spawn } from "node:child_process";
-import { readFile as readFile4 } from "node:fs/promises";
-import { homedir as homedir3 } from "node:os";
-import { join as join7 } from "node:path";
-var usage = [
-  "/cc-enhance login                       show login state of every provider",
-  "/cc-enhance login openai                check the Codex CLI login (~/.codex/auth.json)",
-  "/cc-enhance login xai                   start xAI device login (SuperGrok / X Premium)",
-  "/cc-enhance login opencode <api-key>    OpenCode Go key",
-  "/cc-enhance login minimax <key> [--global]   MiniMax Token Plan key (sk-cp-\u2026); --global uses api.minimax.io",
-  "/cc-enhance login zai <key> [--cn]      Z.ai GLM Coding Plan key; --cn uses open.bigmodel.cn",
-  "/cc-enhance login import-pi             copy API keys from Pi (~/.pi/agent/auth.json)",
-  "/cc-enhance logout <provider>           remove a stored credential"
-].join("\n");
-var channelOf = (provider) => Object.keys(CHANNELS).find((c) => CHANNELS[c].provider === provider);
-async function loginStatus(home) {
-  const resolver = new ClaudeCodeCredentialResolver(home);
-  const lines = ["Provider credentials (" + resolver.store.path + "):"];
-  for (const channel of Object.keys(CHANNELS)) {
-    const [provider, name] = channel.split("/");
-    const result = await resolver.resolve(
-      { provider, channel: name, acceptedKinds: ["oauth", "api_key"] },
-      { interactive: false }
-    );
-    lines.push(
-      `  ${channel.padEnd(20)} ${result.status === "ready" ? `ready (${result.credential.kind}${result.credential.baseUrl ? `, ${result.credential.baseUrl}` : ""})` : `${result.status} \u2014 ${result.guidance}`}`
-    );
+// packages/integrations/services/src/management.ts
+var serviceUsage = "services | status | refresh | prefer <capability> <service|auto> | exclude|include <capability> [service]";
+function manageServicePreferences(args, store, runtime) {
+  const [action, capability, service, ...rest] = args;
+  if (action === "services")
+    return runtime.snapshot.connections.map((c) => `${c.id} \xB7 ${c.label}`).join("\n") || "No service connections discovered. Sign in using the original provider application or configure an API key in the host/environment.";
+  if (action === "status") {
+    const p = store.load();
+    return `${runtime.describe() || "No services discovered."}
+Preferred: ${JSON.stringify(p.preferred)}
+Excluded: ${JSON.stringify(p.excluded)}`;
   }
-  return lines.join("\n");
-}
-async function saveKey(home, provider, entry) {
-  const channel = channelOf(provider);
-  await new CredentialStore(home).set(channel, entry);
-  return `Saved ${channel} API key${entry.baseUrl ? ` (${entry.baseUrl})` : ""}. Active on the next tool call; no restart needed.`;
-}
-async function login(home, args) {
-  const [provider, ...rest] = args;
-  const flags = new Set(rest.filter((a) => a.startsWith("--")));
-  const key = rest.find((a) => !a.startsWith("--"));
-  if (!provider) return await loginStatus(home) + "\n\n" + usage;
-  switch (provider) {
-    case "openai": {
-      const resolver = new ClaudeCodeCredentialResolver(home);
-      const result = await resolver.resolve(
-        { provider: "openai", channel: "codex", acceptedKinds: ["oauth"] },
-        { interactive: false }
-      );
-      return result.status === "ready" ? `Codex login OK (${codexAuthPath()}). OpenAI capabilities use your ChatGPT subscription.` : `${result.guidance}
-Run \`codex login\` in a terminal (or \`! codex login\` in Claude Code), then retry.`;
-    }
-    case "opencode":
-      if (!key) return "Usage: /cc-enhance login opencode <api-key>";
-      return saveKey(home, "opencode", { kind: "api_key", key });
-    case "minimax":
-      if (!key) return "Usage: /cc-enhance login minimax <sk-cp-key> [--global]";
-      if (!key.startsWith("sk-cp-") && !key.startsWith("eyJ"))
-        return "MiniMax media tools need a Token Plan key (sk-cp-\u2026), not a platform API key.";
-      return saveKey(home, "minimax", {
-        kind: "api_key",
-        key,
-        baseUrl: flags.has("--global") ? "https://api.minimax.io" : "https://api.minimaxi.com"
-      });
-    case "zai":
-      if (!key) return "Usage: /cc-enhance login zai <api-key> [--cn]";
-      return saveKey(home, "zai", {
-        kind: "api_key",
-        key,
-        baseUrl: flags.has("--cn") ? "https://open.bigmodel.cn" : "https://api.z.ai"
-      });
-    case "xai": {
-      const device = await requestDeviceCode();
-      if (flags.has("--wait")) {
-        console.log(`Open ${device.verificationUri} and confirm code ${device.userCode}. Waiting\u2026`);
-        await new CredentialStore(home).set("xai/imagine", await pollDeviceCode(device));
-        return "xAI login complete.";
-      }
-      const child = spawn(
-        process.execPath,
-        [...process.execArgv, process.argv[1], "poll-xai", JSON.stringify(device)],
-        {
-          detached: true,
-          stdio: "ignore",
-          env: process.env
-        }
-      );
-      child.unref();
-      return [
-        `1. Open: ${device.verificationUri}`,
-        `2. Confirm code: ${device.userCode}`,
-        `3. Sign in with SuperGrok / X Premium and approve. Valid for ${Math.round(device.expiresInSeconds / 60)} minutes.`,
-        "Login is saved automatically in the background; run /cc-enhance login afterwards to confirm xai/imagine is ready."
-      ].join("\n");
-    }
-    case "import-pi":
-      return importPi(home);
-    default:
-      return `Unknown provider ${provider}.
-${usage}`;
+  if (!["prefer", "exclude", "include"].includes(action ?? "")) return;
+  if (!capability || rest.length || !runtime.options.modules.catalog.modules.some((e) => e.capability === capability))
+    throw new Error(serviceUsage);
+  if (service && !(action === "prefer" && service === "auto") && !runtime.snapshot.connections.some(
+    (c) => c.id === service && runtime.options.modules.catalog.modules.some(
+      (e) => e.capability === capability && e.provider === c.provider && (e.auth?.channel ?? e.runtime) === c.channel
+    )
+  ))
+    throw new Error(`Service ${service} does not provide ${capability}.`);
+  if (action === "prefer") {
+    if (!service) throw new Error(serviceUsage);
+    store.update((p) => {
+      const preferred = { ...p.preferred };
+      if (service === "auto") delete preferred[capability];
+      else preferred[capability] = service;
+      return { ...p, preferred };
+    });
+    return `Preferred ${capability}: ${service}.`;
   }
-}
-async function logout(home, provider) {
-  const channel = provider && channelOf(provider);
-  if (!channel || channel === "openai/codex")
-    return "Usage: /cc-enhance logout xai|opencode|minimax|zai (OpenAI uses the Codex CLI login: `codex logout`).";
-  await new CredentialStore(home).set(channel, void 0);
-  return `Removed ${channel}.`;
-}
-async function pollXai(home, raw) {
-  const device = JSON.parse(raw);
-  await new CredentialStore(home).set("xai/imagine", await pollDeviceCode(device));
-}
-var PI_KEYS = [
-  ["opencode-go", "opencode/go", void 0],
-  ["minimax-cn", "minimax/token-plan", "https://api.minimaxi.com"],
-  ["minimax", "minimax/token-plan", "https://api.minimax.io"],
-  ["zai", "zai/coding-plan", "https://api.z.ai"],
-  ["zai-coding-cn", "zai/coding-plan", "https://open.bigmodel.cn"]
-];
-async function importPi(home) {
-  const path = join7(process.env.PI_CODING_AGENT_DIR ?? join7(homedir3(), ".pi", "agent"), "auth.json");
-  let auth;
-  try {
-    auth = JSON.parse(await readFile4(path, "utf8"));
-  } catch {
-    return `No readable Pi credentials at ${path}.`;
-  }
-  const imported = [];
-  const skipped = [];
-  await new CredentialStore(home).update((file) => {
-    const credentials = { ...file.credentials };
-    const done = /* @__PURE__ */ new Set();
-    for (const [piId, channel, baseUrl] of PI_KEYS) {
-      const entry = auth[piId];
-      if (!entry || done.has(channel)) continue;
-      if (entry.type !== "api_key" || typeof entry.key !== "string" || !entry.key || /^[!$]/.test(entry.key)) {
-        skipped.push(`${piId} (not a literal API key)`);
-        continue;
-      }
-      credentials[channel] = { kind: "api_key", key: entry.key, ...baseUrl ? { baseUrl } : {} };
-      done.add(channel);
-      imported.push(`${piId} \u2192 ${channel}${baseUrl ? ` (${baseUrl})` : ""}`);
-    }
-    return { version: 1, credentials };
-  });
-  if (auth.xai) skipped.push("xai (OAuth is not shared; run /cc-enhance login xai)");
-  if (auth["openai-codex"])
-    skipped.push("openai-codex (cc-enhance uses the Codex CLI login; see /cc-enhance login openai)");
-  return [
-    imported.length ? `Imported:
-  ${imported.join("\n  ")}` : "No API keys imported.",
-    ...skipped.length ? [`Skipped:
-  ${skipped.join("\n  ")}`] : []
-  ].join("\n");
+  const key = service ? `${capability}@${service}` : capability;
+  store.update((p) => ({
+    ...p,
+    excluded: action === "exclude" ? [.../* @__PURE__ */ new Set([...p.excluded, key])] : p.excluded.filter((k) => k !== key)
+  }));
+  return `${action === "exclude" ? "Excluded" : "Included"} ${key}.`;
 }
 
 // packages/hosts/claude-code/src/manage.ts
-var USAGE = `Usage:
-  /cc-enhance status                                 modules, credentials, defaults, live session state
-  /cc-enhance catalog                                every capability/provider in this release
-  /cc-enhance <provider> <capability> enable         install if missing + autoload (applies live)
-  /cc-enhance <provider> <capability> disable        stop loading; keeps installation
-  /cc-enhance <provider> <capability> install|uninstall|update|status
-  /cc-enhance defaults <capability> <provider>       default provider when several are enabled
-  /cc-enhance updates | update --installed           compare / update installed modules to this release
-  /cc-enhance computer status|reset|ask|auto|revoke  manage the live use_computer bridge
-  /cc-enhance login [...] | logout <provider>        provider credentials (run "login" for details)`;
-function unsupportedReason(entry) {
-  if (entry.kind !== "tool")
-    return "request controls need request interception, which Claude Code does not expose";
-  const missing = entry.requires?.filter((r) => !SUPPORTED_REQUIREMENTS.has(r)) ?? [];
-  if (missing.length) return `host lacks ${missing.join(", ")}`;
-  if (entry.platforms && !entry.platforms.includes(process.platform))
-    return `requires ${entry.platforms.join(", ")}`;
-}
+var USAGE = `/cc-enhance ${serviceUsage}; computer status|reset|ask|auto|revoke`;
 async function manage(args, options) {
-  const { home, catalog } = options;
-  const manager = new ModuleManager(home, catalog, options.moduleDirectory);
-  const store = new ConfigStore(home, HOST_ID);
-  const setAutoload = (id2, on) => store.update((c) => ({
-    ...c,
-    autoload: on ? [.../* @__PURE__ */ new Set([...c.autoload, id2])] : c.autoload.filter((x) => x !== id2)
-  }));
-  const state = (entry2, config2) => {
-    const installed = manager.installed(entry2.id);
-    return [
-      config2.autoload.includes(entry2.id) ? "enabled" : "disabled",
-      installed ? "installed" : "not installed",
-      installed && installed.sha256 !== entry2.sha256 ? "update available" : void 0,
-      unsupportedReason(entry2) ? `unsupported: ${unsupportedReason(entry2)}` : void 0
-    ].filter(Boolean).join(", ");
-  };
-  const live = async () => {
+  const store = new PreferenceStore(options.home, HOST_ID, emptyPreferences);
+  const runtime = new ServiceRuntime({
+    modules: new ModuleCatalog(options.catalog, options.moduleDirectory),
+    registry: new CapabilityRegistry(),
+    services: (entry) => ({ artifactRoot: artifactRoot(options.home, entry.capability, entry.provider) })
+  });
+  const notify = async () => {
     const session = sessionSockets();
-    if (!session) return "Live session: no cc-enhance servers found for this Claude Code session.";
-    const lines = [`Live session (Claude Code pid ${session.pid}):`];
-    for (const path of Object.values(session.sockets)) {
-      try {
-        const status2 = await send(path, { op: "status" });
-        lines.push(
-          `  loaded: ${status2.loaded.length ? status2.loaded.join(", ") : "none"}` + Object.entries(status2.errors).map(([id2, error2]) => `
-    ! ${id2}: ${error2}`).join("")
-        );
-      } catch (error2) {
-        lines.push(`  server unreachable (${error2.message})`);
-      }
-    }
-    return lines.join("\n");
-  };
-  const status = async (only) => {
-    const config2 = store.load();
-    const credentials = new ClaudeCodeCredentialResolver(home);
-    const lines = [];
-    for (const entry2 of only ? [only] : catalog.modules) {
-      const auth = entry2.auth ? (await credentials.resolve(entry2.auth, { interactive: false })).status : entry2.capability === "use_computer" ? "ChatGPT desktop runtime (checked on first use)" : "none";
-      lines.push(
-        `${entry2.id.padEnd(22)} ${LABELS[entry2.capability] ?? ""}  ${state(entry2, config2)}; auth: ${auth}`
-      );
-    }
-    if (!only)
-      lines.push(
-        "",
-        `Defaults: ${JSON.stringify(config2.defaults)}`,
-        `Home: ${home}`,
-        "",
-        await live(),
-        "",
-        USAGE
-      );
-    return lines.join("\n");
-  };
-  const [first, second, action, ...rest] = args;
-  if (!first || first === "help") return USAGE;
-  if (first === "status") return status();
-  if (first === "catalog")
-    return catalog.modules.map(
-      (e) => `${e.id.padEnd(22)} ${e.version}  ${(e.bytes / 1024).toFixed(1)} KiB  ${e.auth ? `${e.auth.provider}/${e.auth.channel}` : "no auth"}${unsupportedReason(e) ? `  (unsupported: ${unsupportedReason(e)})` : ""}`
+    if (!session) return "";
+    const results = await Promise.allSettled(
+      Object.values(session.sockets).map((path) => send(path, { op: "refresh" }))
+    );
+    return results.flatMap(
+      (result) => result.status === "rejected" ? [`Live refresh failed: ${String(result.reason)}`] : []
     ).join("\n");
-  if (first === "login") return login(home, args.slice(1));
-  if (first === "logout") return logout(home, second);
-  if (first === "updates") {
-    const updates = manager.updates();
-    return updates.length ? `Updates available: ${updates.map((e) => e.id).join(", ")}` : "Installed modules match this release.";
-  }
-  if (first === "update" && second === "--installed") {
-    const updated = await manager.update();
-    return updated.length ? `Updated ${updated.join(", ")}. Running servers pick up new code after /reload-plugins or a new session.` : "Installed modules already match this release.";
-  }
-  if (first === "defaults") {
-    if (!second || !action) return "Usage: /cc-enhance defaults <capability> <provider>";
-    manager.find(`${second}/${action}`);
-    store.update((c) => ({ ...c, defaults: { ...c.defaults, [second]: action } }));
-    return `Default provider for ${second}: ${action}.`;
-  }
-  if (first === "computer") {
-    const session = sessionSockets();
-    const path = session?.sockets[SERVER_NAME];
-    if (!path) return "cc-enhance server is not running in this Claude Code session.";
-    return String(await send(path, { op: "manage", action: second ?? "status" }, 6e4));
-  }
-  if (!second || !action) return USAGE;
-  const entry = manager.find(`${second}/${first}`);
-  const id = entry.id;
-  switch (action) {
-    case "enable": {
-      const reason = unsupportedReason(entry);
-      if (reason) throw new Error(`${id} cannot run in Claude Code: ${reason}.`);
-      const installed = manager.installed(id);
-      if (installed && installed.sha256 !== entry.sha256)
-        throw new Error(
-          `${id} is installed from another release; run /cc-enhance ${first} ${second} update first.`
-        );
-      if (!installed) await manager.install(id);
-      await manager.load(id);
-      setAutoload(id, true);
-      const auth = entry.auth ? await new ClaudeCodeCredentialResolver(home).resolve(entry.auth, { interactive: false }) : void 0;
-      return [
-        `Enabled ${id}. The ${second} tool updates live in running sessions.`,
-        auth && auth.status !== "ready" ? `Credentials: ${auth.guidance}` : void 0
-      ].filter(Boolean).join("\n");
+  };
+  try {
+    const [action, value] = args;
+    if (!action || action === "help") return USAGE;
+    if (action === "computer" && args.length === 2) {
+      const path = sessionSockets()?.sockets[SERVER_NAME];
+      if (!path) return "cc-enhance server is not running in this Claude Code session.";
+      return String(await send(path, { op: "manage", action: value }, 6e4));
     }
-    case "disable":
-      setAutoload(id, false);
-      return `Disabled ${id}; installation kept.`;
-    case "install":
-      await manager.install(id);
-      return `Installed ${id} (not enabled).`;
-    case "uninstall":
-      setAutoload(id, false);
-      manager.uninstall(id);
-      return `Uninstalled ${id}. Artifacts are kept.`;
-    case "update": {
-      const updated = await manager.update([id]);
-      return updated.length ? `Updated ${id}; running servers use it after /reload-plugins.` : `${id} is up to date.`;
+    await runtime.synchronize(fileSources({ home: options.home }), store.load(), {
+      features: SUPPORTED_REQUIREMENTS
+    });
+    if (action === "refresh" && args.length === 1) {
+      const live = await notify();
+      return [runtime.describe() || "No services discovered.", live].filter(Boolean).join("\n");
     }
-    case "status":
-      return status(entry);
-    default:
-      return `Unknown action ${action}${rest.length ? " " + rest.join(" ") : ""}.
-${USAGE}`;
+    const result = manageServicePreferences(args, store, runtime);
+    if (result === void 0) throw new Error(USAGE);
+    if (!["status", "services"].includes(action)) return [result, await notify()].filter(Boolean).join("\n");
+    if (action === "status") {
+      const session = sessionSockets();
+      if (!session) return `${result}
+Live session: no cc-enhance server found.`;
+      const lines = [result, `Live session (Claude Code pid ${session.pid}):`];
+      for (const path of Object.values(session.sockets)) {
+        try {
+          const state = await send(path, { op: "status" });
+          lines.push(
+            `  loaded: ${state.loaded.join(", ") || "none"}`,
+            ...Object.entries(state.errors).map(([id, error2]) => `  ${id}: ${error2}`)
+          );
+        } catch (error2) {
+          lines.push(`  server unreachable: ${String(error2)}`);
+        }
+      }
+      return lines.join("\n");
+    }
+    return result;
+  } finally {
+    await runtime.dispose();
   }
 }
 
 // packages/hosts/claude-code/src/index.ts
-var VERSION = "0.2.0";
 async function main(argv) {
   const home = enhanceHome();
   const dist = distDirectory();
-  const catalog = JSON.parse(readFileSync3(join8(dist, "catalog.json"), "utf8"));
-  const options = { home, catalog, moduleDirectory: join8(dist, "modules") };
+  const catalog = JSON.parse(readFileSync3(join9(dist, "catalog.json"), "utf8"));
+  const options = { home, catalog, moduleDirectory: join9(dist, "modules") };
   const [command, ...rest] = argv;
-  if (command === "serve") return serve({ ...options, version: VERSION });
+  if (command === "serve") return serve({ ...options, version: catalog.release });
   if (command === "hook") return hook(rest[0]);
-  if (command === "poll-xai") return pollXai(home, rest[0] ?? "");
   if (command === "cli") {
     const args = rest.flatMap((a) => a.split(/\s+/)).filter(Boolean);
     try {

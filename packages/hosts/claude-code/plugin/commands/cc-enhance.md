@@ -1,6 +1,6 @@
 ---
-description: Manage cc-enhance capabilities (enable providers, login, status, computer bridge)
-argument-hint: "status | <provider> <capability> enable|disable | defaults <cap> <provider> | login [provider] [key] | computer <action>"
+description: Discover service connections and manage capability preferences
+argument-hint: "services | status | refresh | prefer <capability> <service|auto> | exclude|include <capability> [service] | computer <action>"
 allowed-tools: Bash(node:*)
 ---
 

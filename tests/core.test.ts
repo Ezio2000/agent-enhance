@@ -1,14 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
-import { ConfigStore } from "../packages/core/src/config.ts";
 import { StaticCredentialResolver, requireCredential } from "../packages/core/src/auth.ts";
-import { ModuleManager, type Catalog } from "../packages/core/src/modules.ts";
 import type { CapabilityModule, ExecutionContext } from "../packages/core/src/contracts.ts";
 import openai from "../packages/capabilities/gen_image/openai/src/index.ts";
 import xai from "../packages/capabilities/gen_image/xai/src/index.ts";
@@ -16,9 +11,9 @@ import webOpenai from "../packages/capabilities/search_web/openai/src/index.ts";
 import webZai from "../packages/capabilities/search_web/zai/src/index.ts";
 import { transformControlledRequest } from "../packages/core/src/controls.ts";
 import { annotateError } from "../packages/core/src/errors.ts";
-import { fastControl } from "../packages/capabilities/fast/openai/src/control.ts";
-import { verbosityControl } from "../packages/capabilities/verbosity/openai/src/control.ts";
-import { imageDetailControl } from "../packages/capabilities/image_detail/openai/src/control.ts";
+import { fastControl } from "../packages/hosts/pi/src/requests/fast.ts";
+import { verbosityControl } from "../packages/hosts/pi/src/requests/verbosity.ts";
+import { imageDetailControl } from "../packages/hosts/pi/src/requests/image-detail.ts";
 import { supportsModelOption } from "../packages/transports/openai/src/model-support.ts";
 const context: ExecutionContext = {
   cwd: process.cwd(),
@@ -166,7 +161,7 @@ test("routing is explicit/default/single; cross-provider options and mismatched 
     /INVALID_ARGUMENTS/,
   );
   assert.equal(calls, 0);
-  registry.defaults.gen_image = "xai";
+  registry.setPreferred({ gen_image: "xai" });
   const result = await tool.execute(
     "x",
     { prompt: "x", options: { xai: { resolution: "2k" } } },
@@ -332,82 +327,106 @@ test("credentials are resolved each time and never cross channels or accepted ki
       String(i),
     );
 });
-test("host configs are isolated, atomically merged, and malformed/locked files survive unchanged", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-config-"));
-  try {
-    const a = new ConfigStore(home, "pi"),
-      b = new ConfigStore(home, "test-host");
-    a.update((c) => ({ ...c, controls: { fast: "on" } }));
-    a.update((c) => ({ ...c, autoload: ["gen_image/openai"] }));
-    assert.deepEqual(a.load().controls, { fast: "on" });
-    assert.deepEqual(b.load().controls, {});
-    const original = await readFile(a.path, "utf8");
-    await writeFile(`${a.path}.lock`, "");
-    assert.throws(() => a.update((c) => c), /CONFIG_LOCKED/);
-    assert.equal(await readFile(a.path, "utf8"), original);
-    await rm(`${a.path}.lock`);
-    await writeFile(a.path, "broken");
-    assert.throws(() => a.update((c) => c), /CONFIG_INVALID/);
-    assert.equal(await readFile(a.path, "utf8"), "broken");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
+test("exact service bindings distinguish accounts and use the chosen resolver without fallback", async () => {
+  const registry = new CapabilityRegistry();
+  const module = fake(xai, async () => ({ content: [], details: {} }));
+  const connected = (id: string, secret: string) => ({
+    id,
+    label: id,
+    credentials: new StaticCredentialResolver({ "xai/imagine": { kind: "oauth" as const, secret } }),
+  });
+  const original = module.create;
+  module.create = (services) => {
+    const instance = original(services);
+    instance.tool!.execute = async (_id, _args, _signal, _update, ctx) => {
+      const credential = await requireCredential(ctx.credentials, {
+        provider: "xai",
+        channel: "imagine",
+        acceptedKinds: ["oauth"],
+      });
+      return { content: [], details: { secret: credential.secret } };
+    };
+    return instance;
+  };
+  registry.load(module, services, connected("account:a", "a"));
+  registry.load(module, services, connected("account:b", "b"));
+  const tool = registry.tools()[0]!;
+  assert.deepEqual(tool.parameters.properties.provider.enum, ["xai"]);
+  assert.deepEqual(tool.parameters.properties.service.enum, ["account:a", "account:b"]);
+  await assert.rejects(
+    tool.execute("ambiguous", { prompt: "x" }, undefined, undefined, context),
+    /PROVIDER_SELECTION/,
+  );
+  const result = await tool.execute(
+    "selected",
+    { prompt: "x", service: "account:b" },
+    undefined,
+    undefined,
+    context,
+  );
+  assert.equal(result.details.secret, "b");
+  assert.equal(result.details.service, "account:b");
+  registry.setPreferred({ gen_image: "account:a" });
+  assert.equal(
+    (await tool.execute("preferred", { prompt: "x" }, undefined, undefined, context)).details.secret,
+    "a",
+  );
+  registry.setBinding("gen_image/xai@account:b", {
+    id: "account:b",
+    label: "b",
+    credentials: new StaticCredentialResolver({}),
+  });
+  await assert.rejects(
+    tool.execute("missing", { prompt: "x", service: "account:b" }, undefined, undefined, context),
+    /AUTH_MISSING/,
+  );
+  registry.suspend("gen_image/xai@account:a");
+  await assert.rejects(
+    tool.execute("suspended", { prompt: "x", service: "account:a" }, undefined, undefined, context),
+    /STALE_TOOL/,
+  );
+  await registry.dispose();
 });
-test("module install is explicit, integrity pinned, isolated from Pi and unload preserves artifacts", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-modules-"));
-  try {
-    const catalog = JSON.parse(await readFile("dist/catalog.json", "utf8")) as Catalog;
-    let network = 0;
-    const manager = new ModuleManager(home, catalog, join(process.cwd(), "dist/modules"), async () => {
-      network++;
-      throw new Error("network");
-    });
-    await assert.rejects(manager.load("gen_image/openai"), /NOT_INSTALLED/);
-    assert.equal(network, 0);
-    await manager.install("gen_image/openai");
-    const module = await manager.load("gen_image/openai");
-    assert.equal(module.manifest.id, "gen_image/openai");
-    assert.equal(manager.installed("gen_image/xai"), undefined);
-    assert.equal(network, 0);
-    const entry = manager.find("gen_image/openai");
-    const path = join(home, "packages", `${entry.sha256}-${entry.file}`);
-    await writeFile(path, "tampered");
-    await assert.rejects(manager.load("gen_image/openai"), /INTEGRITY/);
-    manager.uninstall("gen_image/openai");
-    assert.equal(manager.installed("gen_image/openai"), undefined);
-    assert.equal(await readFile(path, "utf8"), "tampered");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
+
+test("standalone unload blocks new calls while asynchronous disposal is in progress", async () => {
+  let finish!: () => void;
+  const gate = new Promise<void>((done) => {
+    finish = done;
+  });
+  const registry = new CapabilityRegistry();
+  registry.load(
+    { ...fake(xai), create: (services) => ({ ...fake(xai).create(services), dispose: () => gate }) },
+    services,
+  );
+  const tool = registry.tools()[0]!;
+  const unloading = registry.unload("gen_image/xai");
+  assert.equal(registry.tools().length, 0);
+  await assert.rejects(tool.execute("late", { prompt: "x" }, undefined, undefined, context), /STALE_TOOL/);
+  finish();
+  await unloading;
+  assert.equal(registry.list().length, 0);
 });
-test("download uses pinned HTTPS source without credentials and rejects corrupt downloads", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-download-"));
-  try {
-    const catalog = JSON.parse(await readFile("dist/catalog.json", "utf8")) as Catalog;
-    catalog.revision = "a".repeat(40);
-    const entry = catalog.modules.find((e) => e.id === "fast/openai")!;
-    const bytes = await readFile(join("dist/modules", entry.file));
-    const manager = new ModuleManager(home, catalog, undefined, async (url, init) => {
-      assert.equal(
-        String(url),
-        `https://raw.githubusercontent.com/Ezio2000/agent-enhance/${catalog.revision}/dist/modules/${entry.file}`,
-      );
-      assert.equal(init?.redirect, "error");
-      assert.equal(init?.headers, undefined);
-      return new Response(bytes);
-    });
-    await manager.install(entry.id);
-    assert.equal((await manager.load(entry.id)).manifest.kind, "request-control");
-    const corrupt = new ModuleManager(home, catalog, undefined, async () => new Response("corrupt"));
-    await corrupt.install(entry.id); // Valid cached bytes avoid a redundant download.
-    const path = join(home, "packages", `${entry.sha256}-${entry.file}`);
-    await writeFile(path, "tampered");
-    const lock = await readFile(manager.lockPath, "utf8");
-    await assert.rejects(corrupt.install(entry.id), /INTEGRITY/);
-    assert.equal(await readFile(manager.lockPath, "utf8"), lock);
-    await manager.install(entry.id); // Explicit install repairs a corrupt cache.
-    assert.equal((await manager.load(entry.id)).manifest.id, entry.id);
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
+
+test("concurrent calls with the same host call ID remain busy until both settle", async () => {
+  const registry = new CapabilityRegistry();
+  const finish: Array<() => void> = [];
+  registry.load(
+    fake(
+      xai,
+      () =>
+        new Promise((resolve) => {
+          finish.push(() => resolve({ content: [], details: {} }));
+        }),
+    ),
+    services,
+  );
+  const tool = registry.tools()[0]!;
+  const a = tool.execute("same", { prompt: "x" }, undefined, undefined, context);
+  const b = tool.execute("same", { prompt: "x" }, undefined, undefined, context);
+  finish[0]!();
+  await a;
+  await assert.rejects(registry.unload("gen_image/xai"), /MODULE_BUSY/);
+  finish[1]!();
+  await b;
+  await registry.unload("gen_image/xai");
 });

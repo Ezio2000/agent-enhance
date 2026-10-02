@@ -1,471 +1,265 @@
 import type {
   ExtensionAPI,
-  ExtensionContext,
   ExtensionCommandContext,
+  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { CapabilityModule } from "../../../core/src/contracts.ts";
-import type { HostConfig } from "../../../core/src/config.ts";
-import type { ModuleManager, CatalogEntry } from "../../../core/src/modules.ts";
-import type { CapabilityRegistry } from "../../../core/src/registry.ts";
-import { PiCredentialResolver } from "./auth.ts";
+import type { PiPreferences, PreferenceStore } from "../../../integrations/services/src/preferences.ts";
+import type { ServiceRuntime } from "../../../integrations/services/src/runtime.ts";
+import { manageServicePreferences, serviceUsage } from "../../../integrations/services/src/management.ts";
+import { requestControls } from "./requests/index.ts";
 import type { Subagents } from "./subagents/index.ts";
 
 interface ManagementOptions {
-  manager: ModuleManager;
-  registry: CapabilityRegistry;
-  config(): HostConfig;
-  save(update: (config: HostConfig) => HostConfig): void;
-  load(id: string, ctx: ExtensionContext): Promise<void>;
-  restore(module: CapabilityModule, ctx: ExtensionContext): Promise<void>;
+  runtime(): ServiceRuntime;
+  store: PreferenceStore<PiPreferences>;
+  preferences(): PiPreferences;
+  subagents: Subagents;
+  synchronize(ctx: ExtensionContext): Promise<void>;
   refresh(ctx: ExtensionContext): void;
   report(ctx: ExtensionContext, text: string, error?: boolean): void;
   signal(): AbortSignal;
-  subagents: Subagents;
 }
-const groups = [
-  { label: "图片生成 / Images", capabilities: ["gen_image"] },
-  { label: "视频生成 / Video", capabilities: ["gen_video"] },
-  { label: "语音合成 / Voice", capabilities: ["gen_voice"] },
-  { label: "联网搜索 / Search", capabilities: ["search_web"] },
-  { label: "文件理解 / File understanding", capabilities: ["view_pdf", "view_video", "view_image"] },
-  { label: "桌面操作 / Computer use", capabilities: ["use_computer"] },
-  { label: "子代理 / Subagents", capabilities: [] },
-  { label: "请求增强 / Request enhancements", capabilities: ["fast", "verbosity", "image_detail"] },
-];
-const usage =
-  "/pi-enhance <provider> <capability> enable|disable|install|load [--save]|unload [--save]|uninstall|update|status|manage; /pi-enhance subagents enable|disable|status|model [<provider/id>|inherit]|cancel <batch-id>; /pi-enhance defaults <capability> <provider>; /pi-enhance status|catalog|updates|update --installed";
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const entryCapability = (id: string) => id.split("/")[0]!;
-
-/** Commands/panels are separate from Pi tool registration and lifecycle bridging. */
+const usage = `/pi-enhance ${serviceUsage}; fast on|off; verbosity off|low|medium|high; image_detail off|original; subagents enable|disable|status|model [provider/id|inherit]|cancel <batch-id>; computer status|reset|ask|auto|revoke`;
 export function registerManagement(pi: ExtensionAPI, options: ManagementOptions): void {
-  const { manager, registry, config, save, load, refresh, report } = options;
-  const setAutoload = (id: string, enabled: boolean) =>
-    save((c) => ({
-      ...c,
-      autoload: enabled ? [...new Set([...c.autoload, id])] : c.autoload.filter((value) => value !== id),
-    }));
-  const state = (entry: CatalogEntry) => {
-    const installed = manager.installed(entry.id);
-    return [
-      installed ? "installed" : "not installed",
-      registry.get(entry.id) ? "loaded" : "unloaded",
-      config().autoload.includes(entry.id) ? "autoload:on" : "autoload:off",
-      installed && installed.sha256 !== entry.sha256 ? "update available" : undefined,
-    ]
-      .filter(Boolean)
-      .join(", ");
-  };
-  const requirements = (entry: CatalogEntry) =>
-    [
-      `${entry.id} · ${entry.version} · ${(entry.bytes / 1024).toFixed(1)} KiB`,
-      `Platform: ${entry.platforms?.join(", ") ?? "all supported Node.js platforms"}`,
-      entry.auth
-        ? `Auth: ${entry.auth.provider}/${entry.auth.channel} (${entry.auth.acceptedKinds.join("/")}); configure via /login`
-        : entry.capability === "use_computer"
-          ? "Requires compatible ChatGPT desktop runtime, local login and macOS permissions; checked on first use"
-          : "Auth: follows the supported main-model request",
-      `State: ${state(entry)}`,
-    ].join("\n");
-  const status = async (ctx: ExtensionContext, only?: CatalogEntry) => {
-    const credentials = new PiCredentialResolver(ctx.modelRegistry);
-    const lines: string[] = [];
-    for (const entry of only ? [only] : manager.catalog.modules) {
-      let auth = "not checked";
-      if (entry.auth)
-        auth = (await credentials.resolve(entry.auth, { signal: ctx.signal, interactive: false })).status;
-      else auth = entry.capability === "use_computer" ? "runtime checked on first use" : "main-model auth";
-      const availability =
-        entry.kind === "tool"
-          ? `, tool:${registry.get(entry.id) && pi.getActiveTools().includes(entry.capability) ? "active" : "inactive (unloaded, model rule or host exclusion)"}`
-          : "";
-      lines.push(`${entry.id}: ${state(entry)}, auth:${auth}${availability}`);
-      if (only && registry.get(entry.id)?.instance.status)
-        lines.push(JSON.stringify(registry.get(entry.id)!.instance.status!(), null, 2));
-    }
-    if (!only)
-      lines.push(
-        `Defaults: ${JSON.stringify(config().defaults)}`,
-        `Controls: ${JSON.stringify(config().controls)}`,
-        `Home: ${manager.home}`,
-        options.subagents.status(ctx),
-      );
-    return lines.join("\n");
-  };
-  const update = async (ctx: ExtensionContext, ids?: string[]) => {
-    const updated = await manager.update(ids, options.signal());
-    report(
-      ctx,
-      updated.length
-        ? `Updated ${updated.join(", ")}. Loaded instances are unchanged; new code is used on the next load/reload. Autoload and control preferences retained.`
-        : "Installed modules match this host catalog. No downloads. Update the pi-enhance package first to obtain a newer catalog.",
-    );
-  };
-  const remove = async (id: string, ctx: ExtensionContext, persist: boolean, uninstall: boolean) => {
-    registry.assertIdle(id);
-    options.subagents.assertModuleIdle(entryCapability(id));
-    const wasAutoload = config().autoload.includes(id);
-    const previous = registry.get(id);
-    const active = pi.getActiveTools();
-    let saved = false;
-    try {
-      // Persist first: a locked/corrupt config must not tear down a working instance.
-      if (persist) {
-        setAutoload(id, false);
-        saved = true;
-      }
-      await registry.unload(id);
-      refresh(ctx);
-      if (uninstall) manager.uninstall(id);
-    } catch (error) {
-      const failures: string[] = [errorText(error)];
-      try {
-        if (saved) setAutoload(id, wasAutoload);
-      } catch (rollback) {
-        failures.push(`Autoload recovery failed: ${errorText(rollback)}`);
-      }
-      try {
-        // Use the original module object, not a potentially changed on-disk installation.
-        if (previous && !registry.get(id)) {
-          await options.restore(previous.module, ctx);
-          pi.setActiveTools(active);
-        }
-      } catch (rollback) {
-        failures.push(`Runtime recovery failed; reload explicitly: ${errorText(rollback)}`);
-      }
-      throw new Error(failures.join("\n"));
-    }
-  };
-  const modulePanel = async (entry: CatalogEntry, ctx: ExtensionCommandContext) => {
-    const installed = manager.installed(entry.id);
-    const loaded = registry.get(entry.id);
-    const choices = [
-      ...(!loaded || !config().autoload.includes(entry.id) ? ["enable"] : []),
-      ...(!installed ? ["install"] : []),
-      ...(installed && !loaded ? ["load", "load --save"] : []),
-      ...(loaded || config().autoload.includes(entry.id) ? ["disable"] : []),
-      ...(loaded ? ["unload"] : []),
-      ...(installed ? ["update", "uninstall"] : []),
-      ...(entry.kind === "tool" ? ["set default"] : []),
-      ...(loaded?.instance.control ? ["settings"] : []),
-      ...(loaded?.instance.manage ? ["ask", "auto", "reset", "revoke"] : []),
-      "status",
-    ];
-    const action = await ctx.ui.select(
-      `${requirements(entry)}\nEnable installs only this module; no model calls. Saved control values are retained.`,
-      choices,
-    );
-    if (!action) return;
-    if (action === "set default") await run(`defaults ${entry.capability} ${entry.provider}`, ctx);
-    else await run(`${entry.provider} ${entry.capability}${action === "settings" ? "" : ` ${action}`}`, ctx);
-  };
+  const { store, subagents, report } = options;
   const subagentsPanel = async (ctx: ExtensionCommandContext) => {
-    const saved = config().subagentModel;
-    const available =
-      saved &&
-      options.subagents.availableModels(ctx).some((model) => `${model.provider}/${model.id}` === saved);
+    const saved = options.preferences().subagents.model;
     const choice = await ctx.ui.select(
-      `子代理 / Subagents · ${options.subagents.isEnabled() ? "已启用" : "未启用"}\n默认模型：${saved ?? "继承当前 Pi 模型"}${saved && !available ? "（当前不可用）" : ""}`,
-      ["选择默认模型", options.subagents.isEnabled() ? "禁用" : "启用", "状态"],
+      `子代理 / Subagents · ${subagents.isEnabled() ? "已启用" : "未启用"}\n默认模型：${saved ?? "继承当前 Pi 模型"}`,
+      ["选择默认模型", subagents.isEnabled() ? "禁用" : "启用", "状态"],
     );
     if (choice === "选择默认模型") await run("subagents model", ctx);
     else if (choice === "启用") await run("subagents enable", ctx);
     else if (choice === "禁用") await run("subagents disable", ctx);
     else if (choice === "状态") await run("subagents status", ctx);
   };
-  const panel = async (ctx: ExtensionCommandContext) => {
-    const known = new Set(groups.flatMap((group) => group.capabilities));
-    const available = [
-      ...groups,
-      ...manager.catalog.modules
-        .filter((e) => !known.has(e.capability))
-        .map((e) => ({ label: e.capability, capabilities: [e.capability] })),
-    ].filter(
-      (group) =>
-        group.label === "子代理 / Subagents" ||
-        manager.catalog.modules.some((e) => group.capabilities.includes(e.capability)),
+  const capabilityPanel = async (ctx: ExtensionCommandContext) => {
+    const runtime = options.runtime();
+    const capabilities = [
+      ...new Map(runtime.options.modules.catalog.modules.map((e) => [e.capability, e])).values(),
+    ];
+    const labels = capabilities.map(
+      (e) =>
+        `${e.label} / ${e.capability} · ${runtime.states.filter((s) => s.module.startsWith(`${e.capability}/`) && s.status === "available").length} 个可用连接`,
     );
-    const selected = await ctx.ui.select("Pi Enhance · 按功能选择", [
-      ...available.map((g) => g.label),
-      "status",
-      "catalog",
-      "updates",
-      "update --installed",
-    ]);
-    if (!selected) return;
-    const group = available.find((g) => g.label === selected);
-    if (!group) {
-      await run(selected, ctx);
-      return;
+    const choice = await ctx.ui.select("能力 / Capabilities", labels);
+    const entry = capabilities[labels.indexOf(choice ?? "")];
+    if (!entry) return;
+    const excluded = options.preferences().excluded.includes(entry.capability);
+    const action = await ctx.ui.select(
+      `${entry.label} · 偏好连接：${options.preferences().preferred[entry.capability] ?? "自动选择"}`,
+      ["选择偏好连接", "使用自动选择", excluded ? "恢复自动提供" : "排除能力", "状态"],
+    );
+    if (action === "使用自动选择") await run(`prefer ${entry.capability} auto`, ctx);
+    else if (action === "排除能力" || action === "恢复自动提供")
+      await run(`${excluded ? "include" : "exclude"} ${entry.capability}`, ctx);
+    else if (action === "状态")
+      report(
+        ctx,
+        runtime.states
+          .filter((s) => s.module.startsWith(`${entry.capability}/`))
+          .map((s) => `${s.module} @ ${s.service ?? "—"}: ${s.status}${s.reason ? ` (${s.reason})` : ""}`)
+          .join("\n"),
+      );
+    else if (action === "选择偏好连接") {
+      const ids = new Set(
+        runtime.states
+          .filter((s) => s.module.startsWith(`${entry.capability}/`) && s.service)
+          .map((s) => s.service),
+      );
+      const connections = runtime.snapshot.connections.filter((c) => ids.has(c.id));
+      const labels = connections.map((c) => `${c.id} · ${c.label}`);
+      const selected = await ctx.ui.select("选择服务连接", labels);
+      const connection = connections[labels.indexOf(selected ?? "")];
+      if (connection) await run(`prefer ${entry.capability} ${connection.id}`, ctx);
     }
-    if (group.label === "子代理 / Subagents") {
-      await subagentsPanel(ctx);
-      return;
-    }
-    const entries = manager.catalog.modules.filter((e) => group.capabilities.includes(e.capability));
-    const labels = entries.map((e) => `${e.capability} / ${e.provider} · ${state(e)}`);
-    const choice = await ctx.ui.select(group.label, labels);
-    const entry = entries[labels.indexOf(choice ?? "")];
-    if (entry) await modulePanel(entry, ctx);
   };
-  const run = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+  const panel = async (ctx: ExtensionCommandContext) => {
+    const choice = await ctx.ui.select("Pi Enhance · 服务与偏好", [
+      "服务商 / Services",
+      "能力 / Capabilities",
+      "请求增强 / Requests",
+      "子代理 / Subagents",
+      "状态 / Status",
+      "刷新 / Refresh",
+      "桌面管理 / Computer",
+    ]);
+    if (choice === "服务商 / Services") await run("services", ctx);
+    else if (choice === "能力 / Capabilities") await capabilityPanel(ctx);
+    else if (choice === "子代理 / Subagents") await subagentsPanel(ctx);
+    else if (choice === "状态 / Status") await run("status", ctx);
+    else if (choice === "刷新 / Refresh") await run("refresh", ctx);
+    else if (choice === "桌面管理 / Computer") {
+      const action = await ctx.ui.select("桌面管理", ["status", "reset", "ask", "auto", "revoke"]);
+      if (action) await run(`computer ${action}`, ctx);
+    } else if (choice === "请求增强 / Requests") {
+      const selected = await ctx.ui.select(
+        "请求增强",
+        requestControls.map((c) => `${c.id}: ${options.preferences().requests[c.id] ?? "off"}`),
+      );
+      const control = requestControls.find((c) => selected?.startsWith(`${c.id}:`));
+      if (control) await run(control.id, ctx);
+    }
+  };
+  const run = async (text: string, ctx: ExtensionCommandContext): Promise<void> => {
     options.signal().throwIfAborted();
-    const words = args.trim().split(/\s+/).filter(Boolean);
+    const words = text.trim().split(/\s+/).filter(Boolean);
     if (!words.length) {
-      if (ctx.mode !== "tui") report(ctx, usage);
-      else await panel(ctx);
+      if (ctx.mode === "tui") await panel(ctx);
+      else report(ctx, usage);
       return;
     }
-    if (words[0] === "subagents") {
-      const action = words[1];
-      if (action === "status" && words.length === 2) {
-        report(ctx, options.subagents.status(ctx));
+    const [action, value, extra] = words;
+    if (action === "subagents") {
+      if (value === "status" && words.length === 2) {
+        report(ctx, subagents.status(ctx));
         return;
       }
-      if (action === "model" && words.length <= 3) {
-        const models = options.subagents.availableModels(ctx);
-        let selected = words[2];
+      if (value === "model" && words.length <= 3) {
+        const models = subagents.availableModels(ctx);
+        let selected = extra;
         if (!selected) {
           if (ctx.mode !== "tui")
             throw new Error("Use /pi-enhance subagents model <provider/id>|inherit outside TUI.");
           const inherit = "inherit current Pi model";
           const labels = models.map(
-            (model) =>
-              `${model.provider}/${model.id} · ${model.name} · ${model.input.join("/")} · ${model.reasoning ? "thinking" : "no thinking"}`,
+            (m) =>
+              `${m.provider}/${m.id} · ${m.name} · ${m.input.join("/")} · ${m.reasoning ? "thinking" : "no thinking"}`,
           );
-          const choice = await ctx.ui.select(`Subagent default model: ${config().subagentModel ?? inherit}`, [
-            inherit,
-            ...labels,
-          ]);
+          const choice = await ctx.ui.select(
+            `Subagent default model: ${options.preferences().subagents.model ?? inherit}`,
+            [inherit, ...labels],
+          );
           if (!choice) return;
           if (choice === inherit) selected = "inherit";
           else {
             const model = models[labels.indexOf(choice)];
-            if (!model) throw new Error("Invalid model selection; no preference was changed.");
+            if (!model) throw new Error("Invalid model selection.");
             selected = `${model.provider}/${model.id}`;
           }
         }
-        if (selected !== "inherit" && !models.some((model) => `${model.provider}/${model.id}` === selected))
+        if (selected !== "inherit" && !models.some((m) => `${m.provider}/${m.id}` === selected))
           throw new Error(`Model ${selected} is not enabled and available in this Pi session.`);
-        save((c) => {
-          if (selected !== "inherit") return { ...c, subagentModel: selected };
-          const { subagentModel: _previous, ...rest } = c;
-          return rest;
-        });
+        store.update((p) => ({
+          ...p,
+          subagents: { enabled: p.subagents.enabled, ...(selected === "inherit" ? {} : { model: selected }) },
+        }));
+        await options.synchronize(ctx);
         report(
           ctx,
           `Saved subagent default model: ${selected === "inherit" ? "inherit current Pi model" : selected}. No model calls.`,
         );
         return;
       }
-      if ((action === "enable" || action === "disable") && words.length === 2) {
-        const enabled = action === "enable";
-        const previous = options.subagents.isEnabled();
-        try {
-          options.subagents.setEnabled(enabled);
-          refresh(ctx);
-          save((c) => ({ ...c, subagents: enabled }));
-        } catch (error) {
-          options.subagents.setEnabled(previous);
-          refresh(ctx);
-          throw error;
-        }
-        if (!enabled) options.subagents.cancelAll();
-        report(
-          ctx,
-          `Subagents ${enabled ? "enabled" : "disabled"}. ${enabled ? "No models are called until call_subagents runs." : "Running batches were cancelled."}`,
-        );
+      if ((value === "enable" || value === "disable") && words.length === 2) {
+        store.update((p) => ({ ...p, subagents: { ...p.subagents, enabled: value === "enable" } }));
+        await options.synchronize(ctx);
+        report(ctx, `Subagents ${value === "enable" ? "enabled" : "disabled"}.`);
         return;
       }
-      if (action === "cancel" && words.length === 3) {
+      if (value === "cancel" && extra && words.length === 3) {
         report(
           ctx,
-          options.subagents.cancel(words[2]!)
-            ? `Cancellation requested for batch ${words[2]}. Running tasks may still be stopping.`
-            : `No active batch ${words[2]}.`,
+          subagents.cancel(extra)
+            ? `Cancelling subagent batch ${extra}.`
+            : `No active subagent batch ${extra}.`,
         );
         return;
       }
       throw new Error(usage);
     }
-    if (words[0] === "status" && words.length === 1) {
-      report(ctx, await status(ctx));
-      return;
-    }
-    if (words[0] === "catalog" && words.length === 1) {
-      report(ctx, manager.catalog.modules.map(requirements).join("\n\n"));
-      return;
-    }
-    if (words[0] === "updates" && words.length === 1) {
-      const entries = manager.updates();
-      report(
-        ctx,
-        entries.length
-          ? entries
-              .map(
-                (e) =>
-                  `${e.id}: ${manager.installed(e.id)!.sha256.slice(0, 12)} → ${e.sha256.slice(0, 12)} (${(e.bytes / 1024).toFixed(1)} KiB)`,
-              )
-              .join("\n")
-          : "No updates in this host catalog. Update the pi-enhance package first to obtain a newer catalog.",
-      );
-      return;
-    }
-    if (words.join(" ") === "update --installed") {
-      await update(ctx);
-      return;
-    }
-    if (words[0] === "defaults" && words.length === 3) {
-      const [, capability, provider] = words;
-      if (manager.find(`${capability}/${provider}`).kind !== "tool")
-        throw new Error("Only tools have default providers.");
-      save((c) => ({ ...c, defaults: { ...c.defaults, [capability!]: provider! } }));
-      report(ctx, `Saved default ${capability}: ${provider}. No backend calls were made.`);
-      return;
-    }
-    if (words.length < 2 || words.length > 4 || (words.length === 4 && words[3] !== "--save"))
-      throw new Error(usage);
-    const [provider, capability, action] = words;
-    const id = `${capability}/${provider}`,
-      entry = manager.find(id);
-    const persist = words[3] === "--save";
-    if (persist && action !== "load" && action !== "unload")
-      throw new Error("--save is valid only with load/unload.");
-    if (!action || action === "manage") {
-      if (ctx.mode !== "tui") throw new Error("Explicit action/value required outside TUI.");
-      const control = registry.get(id)?.instance.control;
-      // Preserve the existing direct request-control picker and its single-selection behavior.
-      if (!action && control) {
-        const choice = await ctx.ui.select(`${id}: ${config().controls[control.id] ?? "off"}`, [
-          ...control.choices,
-        ]);
-        if (choice) await run(`${provider} ${capability} ${choice}`, ctx);
-      } else await modulePanel(entry, ctx);
-      return;
-    }
-    if (action === "install") {
-      await manager.install(id, options.signal());
-      report(
-        ctx,
-        `Installed ${id}; not loaded by this operation. Run /pi-enhance ${provider} ${capability} enable.`,
-      );
-      return;
-    }
-    if (action === "update") {
-      await update(ctx, [id]);
-      return;
-    }
-    if (action === "enable" || action === "load") {
-      if (entry.platforms && !entry.platforms.includes(process.platform))
-        throw new Error(`Module requires ${entry.platforms.join(", ")}.`);
-      const wasLoaded = !!registry.get(id);
-      if (action === "enable" && !manager.installed(id)) await manager.install(id, options.signal());
-      options.signal().throwIfAborted();
-      await load(id, ctx);
-      try {
-        if (persist || action === "enable") setAutoload(id, true);
-      } catch (error) {
-        if (!wasLoaded) {
-          await registry.unload(id);
-          refresh(ctx);
-        }
-        throw error;
+    const control = requestControls.find((c) => c.id === action);
+    if (control) {
+      if (words.length > 2) throw new Error(usage);
+      let selected = value;
+      if (!selected) {
+        if (ctx.mode !== "tui")
+          throw new Error(`Use /pi-enhance ${action} <${control.choices.join("|")}> outside TUI.`);
+        selected = await ctx.ui.select(
+          `${control.id}: ${options.preferences().requests[control.id] ?? "off"}`,
+          [...control.choices],
+        );
+        if (!selected) return;
       }
+      if (!control.choices.includes(selected)) throw new Error(`Choose ${control.choices.join(" / ")}`);
+      store.update((p) => {
+        const requests = { ...p.requests };
+        if (selected === "off") delete requests[control.id];
+        else requests[control.id] = selected!;
+        return { ...p, requests };
+      });
+      await options.synchronize(ctx);
       report(
         ctx,
-        `${action === "enable" ? "Enabled" : "Loaded"} ${id}${persist || action === "enable" ? "; saved for future Pi sessions" : "; session only"}. No model calls. Saved control values retained.${entry.auth ? ` Auth required: ${entry.auth.provider}/${entry.auth.channel}; use /login and status to check readiness.` : ""}`,
+        `Saved ${control.id}: ${selected}. ${selected === "off" ? "No request override." : (control.enabledNotice ?? "Only applied to supported API/models.")}`,
       );
       return;
     }
-    if (action === "disable" || action === "unload" || action === "uninstall") {
-      await remove(id, ctx, persist || action !== "unload", action === "uninstall");
-      report(
-        ctx,
-        `${action}: ${id}. Historical artifacts retained.${action === "disable" ? " Installation and control preferences retained." : ""}`,
-      );
+    if (action === "computer" && words.length === 2) {
+      const instance = options
+        .runtime()
+        .options.registry.list()
+        .find((e) => e.instance.manage)?.instance;
+      if (!instance) throw new Error("No ChatGPT desktop runtime was discovered.");
+      report(ctx, await instance.manage!(value!));
       return;
     }
-    if (action === "status") {
-      report(ctx, await status(ctx, entry));
+    if (action === "refresh" && words.length === 1) {
+      await options.synchronize(ctx);
+      report(ctx, options.runtime().describe() || "No services discovered.");
       return;
     }
-    const instance = registry.get(id)?.instance;
-    if (!instance) throw new Error(`Load ${id} first. No implicit downloads or loading.`);
-    if (instance.control) {
-      const control = instance.control,
-        value = control.aliases?.[action] ?? action;
-      if (!control.choices.includes(value)) throw new Error(`Choose ${control.choices.join(" / ")}`);
-      save((c) => ({ ...c, controls: { ...c.controls, [control.id]: value } }));
-      refresh(ctx);
-      report(
-        ctx,
-        `Saved ${control.id}: ${value}. ${value === "off" ? "No request override." : (control.enabledNotice ?? "Only applied to supported API/models.")}`,
-      );
-      return;
-    }
-    if (instance.manage) {
-      report(ctx, await instance.manage(action));
-      return;
-    }
-    throw new Error(usage);
+    const result = manageServicePreferences(words, store, options.runtime());
+    if (result === undefined) throw new Error(usage);
+    if (!["status", "services"].includes(action!)) await options.synchronize(ctx);
+    report(
+      ctx,
+      action === "status"
+        ? `${result}\nRequests: ${JSON.stringify(options.preferences().requests)}\n${subagents.status(ctx)}`
+        : result,
+    );
   };
   let busy = false;
   pi.registerCommand("pi-enhance", {
-    description: "Optional capabilities: browse, enable, disable and update installed modules",
+    description: "Discover services and manage capability preferences",
     getArgumentCompletions(prefix) {
       const candidates = [
         "status",
-        "catalog",
-        "updates",
-        "update --installed",
+        "services",
+        "refresh",
         "subagents enable",
         "subagents disable",
         "subagents status",
         "subagents model",
         "subagents model inherit",
-        ...manager.catalog.modules.flatMap((e) =>
-          [
-            "",
-            "enable",
-            "disable",
-            "install",
-            "load",
-            "load --save",
-            "unload",
-            "unload --save",
-            "uninstall",
-            "update",
-            "status",
-            "manage",
-            ...(e.kind === "request-control"
-              ? e.capability === "verbosity"
-                ? ["off", "low", "medium", "high"]
-                : ["off", "on"]
-              : e.capability === "use_computer"
-                ? ["ask", "auto", "reset", "revoke"]
-                : []),
-          ].map((a) => `${e.provider} ${e.capability}${a ? ` ${a}` : ""}`),
+        ...requestControls.flatMap((c) => [c.id, ...c.choices.map((v) => `${c.id} ${v}`)]),
+        ...new Set(
+          options
+            .runtime()
+            .options.modules.catalog.modules.flatMap((e) => [
+              `prefer ${e.capability} auto`,
+              `exclude ${e.capability}`,
+              `include ${e.capability}`,
+            ]),
         ),
-        ...manager.catalog.modules
-          .filter((e) => e.kind === "tool")
-          .map((e) => `defaults ${e.capability} ${e.provider}`),
+        ...options
+          .runtime()
+          .states.flatMap((s) => (s.service ? [`prefer ${s.module.split("/")[0]} ${s.service}`] : [])),
       ];
-      const items = candidates
-        .filter((c) => c.startsWith(prefix.trimStart()))
-        .map((value) => ({ value, label: value }));
-      return items.length ? items : null;
+      return candidates.filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
     },
-    handler: async (args, ctx) => {
+    async handler(text, ctx) {
       if (busy) {
-        report(ctx, "Another pi-enhance operation is running. Retry after it finishes.", true);
+        report(ctx, "Another preference operation is running.", true);
         return;
       }
       busy = true;
       try {
         await ctx.waitForIdle();
-        await run(args, ctx);
+        await options.synchronize(ctx);
+        await run(text, ctx);
       } catch (error) {
-        report(ctx, errorText(error), true);
+        report(ctx, error instanceof Error ? error.message : String(error), true);
       } finally {
         busy = false;
       }

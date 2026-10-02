@@ -1,10 +1,11 @@
 // Explicit live-only end-to-end probe for one pi-enhance tool inside an SDK child session.
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
-import { ModuleManager, type Catalog } from "../packages/core/src/modules.ts";
+import module from "../packages/capabilities/search_web/zai/src/index.ts";
+import { PiCredentialResolver } from "../packages/hosts/pi/src/auth.ts";
 import { runSubagent } from "../packages/hosts/pi/src/subagents/runner.ts";
 
 if (!process.argv.includes("--live")) {
@@ -13,13 +14,17 @@ if (!process.argv.includes("--live")) {
 }
 const home = await mkdtemp(join(tmpdir(), "enhance-subagent-search-"));
 try {
-  const catalog = JSON.parse(await readFile("dist/catalog.json", "utf8")) as Catalog;
-  const manager = new ModuleManager(home, catalog, join(process.cwd(), "dist/modules"));
-  await manager.install("search_web/zai");
-  const module = await manager.load("search_web/zai");
-  const registry = new CapabilityRegistry();
-  registry.load(module, { artifactRoot: join(home, "artifacts") });
   const runtime = await ModelRuntime.create({ allowModelNetwork: false });
+  const registry = new CapabilityRegistry();
+  registry.load(
+    module,
+    { artifactRoot: join(home, "artifacts") },
+    {
+      id: "pi:zai",
+      label: "Pi ZAI",
+      credentials: new PiCredentialResolver(new ModelRegistry(runtime), "zai"),
+    },
+  );
   const model = (await runtime.getAvailable()).find((m) => m.provider === "zai" && m.id === "glm-5.3-flash");
   if (!model) throw new Error("zai/glm-5.3-flash is not available in Pi.");
   const result = await runSubagent(

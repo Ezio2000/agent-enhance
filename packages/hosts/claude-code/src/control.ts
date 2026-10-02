@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";
 import { basename, join } from "node:path";
 import { runDirectory } from "./paths.ts";
-import { writeFileAtomic } from "./lock.ts";
+import { writeFileAtomic } from "../../../integrations/services/src/sources/lock.ts";
 
 // MCP servers, hooks and management commands of one Claude Code session are all descendants of the
 // same Claude Code process. Its PID keys the per-session control sockets and session file.
@@ -81,7 +81,11 @@ export function readSession(pid: number): SessionInfo {
 }
 
 export type ControlRequest =
-  { op: "settled" } | { op: "notice" } | { op: "status" } | { op: "manage"; action: string };
+  | { op: "refresh" }
+  | { op: "settled" }
+  | { op: "notice" }
+  | { op: "status" }
+  | { op: "manage"; action: string };
 export type ControlHandler = (request: ControlRequest) => Promise<unknown>;
 export function listen(path: string, handler: ControlHandler): Server {
   mkdirSync(runDirectory(), { recursive: true, mode: 0o700 });

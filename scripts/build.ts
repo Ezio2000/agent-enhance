@@ -1,22 +1,21 @@
 import { build } from "esbuild";
-import { readdir, mkdir, readFile, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { readdir, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Catalog } from "../packages/core/src/modules.ts";
+import { CATALOG_VERSION, type Catalog } from "../packages/integrations/services/src/catalog.ts";
+import type { CapabilityModule } from "../packages/core/src/contracts.ts";
+
 const root = process.cwd();
+await rm("dist/modules", { recursive: true, force: true });
 await mkdir("dist/modules", { recursive: true });
-let revision = process.env.MODULE_REVISION ?? "development";
-try {
-  if (!process.env.MODULE_REVISION)
-    revision = JSON.parse(await readFile("dist/catalog.json", "utf8")).revision;
-} catch {
-  /* first build */
-}
-const catalog: Catalog = { version: 1, revision, repository: "Ezio2000/agent-enhance", modules: [] };
+const release = JSON.parse(await readFile("package.json", "utf8")).version as string;
+const catalog: Catalog = { version: CATALOG_VERSION, release, modules: [] };
 for (const capability of (await readdir("packages/capabilities")).sort()) {
-  for (const provider of (await readdir(join("packages/capabilities", capability))).sort()) {
+  for (const provider of (await readdir(join("packages/capabilities", capability), { withFileTypes: true }))
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()) {
     const dir = join("packages/capabilities", capability, provider, "src");
-    const { manifest } = await import(join(root, dir, "manifest.ts"));
+    const module = (await import(join(root, dir, "index.ts"))).default as CapabilityModule;
     const file = `${capability}--${provider}.mjs`;
     await build({
       entryPoints: [join(dir, "index.ts")],
@@ -25,15 +24,14 @@ for (const capability of (await readdir("packages/capabilities")).sort()) {
       platform: "node",
       format: "esm",
       target: "node22",
-      minify: false,
       legalComments: "inline",
     });
-    const bytes = await readFile(join("dist/modules", file));
     catalog.modules.push({
-      ...manifest,
+      ...module.manifest,
       file,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-      bytes: bytes.length,
+      bytes: (await readFile(join("dist/modules", file))).length,
+      label: module.definition.label,
+      group: module.definition.group,
     });
   }
 }
@@ -54,9 +52,11 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  packages: "external",
+  external: ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox", "typebox/*"],
+  banner: {
+    js: 'import { createRequire as __piRequire } from "node:module"; const require = __piRequire(import.meta.url);',
+  },
 });
-// Claude Code host: fully self-contained (MCP SDK included), run from the plugin checkout with plain node.
 await build({
   entryPoints: ["packages/hosts/claude-code/src/index.ts"],
   outfile: "dist/cc-enhance.mjs",
@@ -70,5 +70,5 @@ await build({
   },
 });
 console.log(
-  `Built Pi and Claude Code adapters and ${catalog.modules.length} independently installable, integrity-pinned modules.`,
+  `Built Pi and Claude Code adapters with ${catalog.modules.length} bundled, lazily loaded capability modules.`,
 );

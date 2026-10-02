@@ -3,16 +3,26 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resizeImage, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CapabilityRegistry } from "../../../core/src/registry.ts";
-import { ConfigStore, enhanceHome } from "../../../core/src/config.ts";
-import { ModuleManager, type Catalog } from "../../../core/src/modules.ts";
+import { StaticCredentialResolver } from "../../../core/src/auth.ts";
 import { transformControlledRequest } from "../../../core/src/controls.ts";
-import type { CapabilityModule, ExecutionContext, ModelInfo } from "../../../core/src/contracts.ts";
-import { PiCredentialResolver } from "./auth.ts";
+import type { ExecutionContext, ModelInfo, ToolDefinition, ToolResult } from "../../../core/src/contracts.ts";
+import {
+  PreferenceStore,
+  enhanceHome,
+  emptyPiPreferences,
+  type PiPreferences,
+} from "../../../integrations/services/src/preferences.ts";
+import { ModuleCatalog, type Catalog } from "../../../integrations/services/src/catalog.ts";
+import { ServiceRuntime } from "../../../integrations/services/src/runtime.ts";
+import type { ServiceSource } from "../../../integrations/services/src/contracts.ts";
+import { fileSources, sourcePaths } from "../../../integrations/services/src/sources/files.ts";
+import { watchServiceSources } from "../../../integrations/services/src/watch.ts";
+import { piServiceSource, piSourcePaths } from "./auth.ts";
 import { piHistory } from "./history.ts";
 import { installEnhanceFooter, type FooterLabel } from "./footer.ts";
 import { registerManagement } from "./management.ts";
+import { requestControls, verifyRequestPreferences } from "./requests/index.ts";
 import { Subagents } from "./subagents/index.ts";
-
 const command = "pi-enhance";
 const releaseGuidance =
   "When changing agent-enhance/pi-enhance for installation in Pi, follow the repository's docs/release.md: run checks, commit and push to https://github.com/Ezio2000/agent-enhance, then install or update Pi from that Git remote. Never persistently install the local working tree. If pushing is not authorized or fails, ask or stop rather than substituting a local installation.";
@@ -33,7 +43,7 @@ export function executionContext(ctx: ExtensionContext): ExecutionContext {
     sessionId: ctx.sessionManager.getSessionId(),
     host: "pi",
     model: modelInfo(ctx.model),
-    credentials: new PiCredentialResolver(ctx.modelRegistry),
+    credentials: new StaticCredentialResolver({}),
     signal: ctx.signal,
     history: piHistory(ctx.sessionManager.buildContextEntries()),
     choose: ctx.hasUI ? (title, choices, signal) => ctx.ui.select(title, choices, { signal }) : undefined,
@@ -42,22 +52,35 @@ export function executionContext(ctx: ExtensionContext): ExecutionContext {
 export interface PiOptions {
   home: string;
   catalog: Catalog;
-  moduleDirectory?: string;
+  moduleDirectory: string;
+  sources?(ctx: ExtensionContext): readonly ServiceSource[];
 }
 export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
-  const store = new ConfigStore(options.home, "pi");
-  let config = store.load();
-  const registry = new CapabilityRegistry(config.defaults);
-  const manager = new ModuleManager(options.home, options.catalog, options.moduleDirectory);
+  const store = new PreferenceStore(options.home, "pi", emptyPiPreferences, verifyRequestPreferences);
+  let preferences = store.load();
+  const registry = new CapabilityRegistry();
+  const modules = new ModuleCatalog(options.catalog, options.moduleDirectory);
+  const runtimeOptions = {
+    modules,
+    registry,
+    services: (entry: Catalog["modules"][number]) => ({
+      artifactRoot: join(options.home, "artifacts", "pi", entry.capability, entry.provider),
+      preview: (bytes: Uint8Array, mime: string) =>
+        resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 }),
+    }),
+  };
+  let runtime = new ServiceRuntime(runtimeOptions);
   const subagents = new Subagents(pi, registry);
-  subagents.setEnabled(config.subagents === true);
-  subagents.setDefaultModel(config.subagentModel);
   let previousProvider: string | undefined;
-  let disposed = false;
-  let operations = new AbortController();
+  let disposed = false,
+    operations = new AbortController();
   let registered = new Set<string>();
   const knownNames = new Set<string>();
   let footerLabels: readonly FooterLabel[] = [];
+  let currentContext: ExtensionContext | undefined, stopWatching: (() => void) | undefined;
+  const sourceOptions = { home: options.home, nativePi: true };
+  const sources = (ctx: ExtensionContext) =>
+    options.sources?.(ctx) ?? [piServiceSource(ctx), ...fileSources(sourceOptions)];
   const report = (ctx: ExtensionContext, text: string, error = false) => {
     if (ctx.hasUI) ctx.ui.notify(text, error ? "error" : "info");
     else {
@@ -67,52 +90,42 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   };
   const statusLine = (ctx: ExtensionContext) => {
     const model = modelInfo(ctx.model);
-    footerLabels = registry
-      .list()
-      .filter((e) => {
-        const control = e.instance.control;
-        return (
-          control &&
-          model?.provider === "openai" &&
-          model.channel === "codex" &&
-          model.api === "codex-responses" &&
-          control.supported(model)
-        );
-      })
-      .map((e): FooterLabel => {
-        const control = e.instance.control!,
-          value = config.controls[control.id] ?? "off";
-        return {
-          id: control.id,
-          value: control.formatValue ? control.formatValue(value, model!) : value,
-          active: value !== "off",
-        };
-      });
+    footerLabels =
+      model?.provider === "openai" && model.channel === "codex" && model.api === "codex-responses"
+        ? requestControls
+            .filter((control) => control.supported(model))
+            .map((control) => {
+              const value = preferences.requests[control.id] ?? "off";
+              return {
+                id: control.id,
+                value: control.formatValue?.(value, model) ?? value,
+                active: value !== "off",
+              };
+            })
+        : [];
     if (ctx.hasUI)
       ctx.ui.setStatus(
         command,
         footerLabels.length ? footerLabels.map((l) => `${l.id}:${l.value}`).join(" ") : undefined,
       );
   };
-  /** Tools whose manifest excludes them for the active model's input modalities stay unregistered. */
-  const excludedCapabilities = (ctx: ExtensionContext): Set<string> => {
-    const input = modelInfo(ctx.model)?.input;
-    if (!input?.length) return new Set();
-    return new Set(
-      registry
-        .list()
-        .filter(
-          (e) =>
-            e.instance.tool &&
-            e.module.manifest.modelInputExcludes?.some((modality) => input.includes(modality)),
-        )
-        .map((e) => e.module.manifest.capability),
-    );
+  const executeTool = async (
+    tool: ToolDefinition<any, any>,
+    id: string,
+    args: any,
+    signal: AbortSignal | undefined,
+    update: ((result: ToolResult<any>) => void) | undefined,
+    ctx: ExtensionContext,
+  ) => {
+    try {
+      return await tool.execute(id, args, signal, update, executionContext(ctx));
+    } finally {
+      scheduleSynchronization();
+    }
   };
   const refresh = (ctx: ExtensionContext) => {
-    const excluded = excludedCapabilities(ctx);
     const hostTools = subagents.tools();
-    const tools = [...registry.tools().filter((tool) => !excluded.has(tool.name)), ...hostTools];
+    const tools = [...registry.tools(), ...hostTools];
     const active = new Set(pi.getActiveTools());
     for (const tool of tools) {
       const collision = pi.getAllTools().find((t) => t.name === tool.name);
@@ -125,7 +138,7 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
         pi.registerTool({
           ...capabilityTool,
           execute: (id, args, signal, update, piContext) =>
-            capabilityTool.execute(id, args, signal, update, executionContext(piContext)),
+            executeTool(capabilityTool, id, args, signal, update, piContext),
         });
       }
       if (!registered.has(tool.name)) active.add(tool.name);
@@ -137,103 +150,83 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
     pi.setActiveTools([...active]);
     statusLine(ctx);
   };
-  const synchronize = refresh;
-  const activate = async (module: CapabilityModule, ctx: ExtensionContext) => {
-    const manifest = module.manifest,
-      id = manifest.id;
-    registry.load(module, {
-      artifactRoot: join(options.home, "artifacts", "pi", manifest.capability, manifest.provider),
-      preview: (bytes, mime) =>
-        resizeImage(bytes, mime, { maxWidth: 1024, maxHeight: 1024, maxBytes: 512 * 1024 }),
-    });
-    try {
-      synchronize(ctx);
-      if (manifest.modelInputExcludes?.length)
-        report(
-          ctx,
-          `${id}: registered only while the active model lacks ${manifest.modelInputExcludes.join("/")} input.`,
-        );
-    } catch (error) {
-      await registry.unload(id);
-      throw error;
-    }
+  const scheduleSynchronization = () => {
+    const ctx = currentContext;
+    if (!disposed && ctx)
+      void synchronize(ctx).catch((error) => {
+        if (!disposed && currentContext === ctx) report(ctx, String(error), true);
+      });
   };
-  const load = async (id: string, ctx: ExtensionContext) => {
-    const manifest = manager.find(id);
-    const unsupported = manifest.requires?.filter((r) => !support.has(r));
-    if (unsupported?.length) throw new Error(`Host lacks: ${unsupported.join(", ")}`);
-    const module = await manager.load(id);
-    operations.signal.throwIfAborted();
-    if (registry.get(id)) return;
-    await activate(module, ctx);
-  };
-  const saveConfig = (update: Parameters<ConfigStore["update"]>[0]) => {
-    config = store.update(update);
-    subagents.setDefaultModel(config.subagentModel);
-    for (const key of Object.keys(registry.defaults)) delete registry.defaults[key];
-    Object.assign(registry.defaults, config.defaults);
+  const synchronize = async (ctx: ExtensionContext) => {
+    if (disposed) return;
+    currentContext = ctx;
+    preferences = store.load();
+    subagents.setEnabled(preferences.subagents.enabled);
+    subagents.setDefaultModel(preferences.subagents.model);
+    await runtime.synchronize(
+      sources(ctx),
+      preferences,
+      { features: support, model: modelInfo(ctx.model) },
+      operations.signal,
+    );
+    if (!disposed && ctx === currentContext) refresh(ctx);
   };
   registerManagement(pi, {
-    manager,
-    registry,
-    config: () => config,
-    save: saveConfig,
-    load,
-    restore: activate,
+    runtime: () => runtime,
+    store,
+    preferences: () => preferences,
+    subagents,
+    synchronize,
     refresh,
     report,
     signal: () => operations.signal,
-    subagents,
   });
   pi.on("session_start", async (_event, ctx) => {
-    disposed = false;
-    if (operations.signal.aborted) operations = new AbortController();
-    previousProvider = ctx.model?.provider;
-    config = store.load();
-    subagents.setEnabled(config.subagents === true);
-    subagents.setDefaultModel(config.subagentModel);
-    subagents.startSession(ctx.sessionManager.getSessionId());
-    Object.assign(registry.defaults, config.defaults);
-    for (const id of config.autoload) {
-      try {
-        await load(id, ctx);
-      } catch (error) {
-        report(ctx, `${id}: ${(error as Error).message}`, true);
-      }
+    if (disposed) {
+      operations = new AbortController();
+      runtime = new ServiceRuntime(runtimeOptions);
     }
-    statusLine(ctx);
+    disposed = false;
+    previousProvider = ctx.model?.provider;
+    preferences = store.load();
+    subagents.setEnabled(preferences.subagents.enabled);
+    subagents.setDefaultModel(preferences.subagents.model);
+    subagents.startSession(ctx.sessionManager.getSessionId());
+    await synchronize(ctx);
+    stopWatching?.();
+    stopWatching = watchServiceSources(
+      [store.path, ...sourcePaths(sourceOptions), ...piSourcePaths()],
+      scheduleSynchronization,
+    );
     installEnhanceFooter(ctx, command, () => footerLabels);
   });
   pi.on("model_select", async (event, ctx) => {
-    const currentModel = (event.model ?? ctx.model) as ExtensionContext["model"];
-    const current = currentModel?.provider;
-    if (previousProvider !== undefined && current !== previousProvider)
+    const model = (event.model ?? ctx.model) as ExtensionContext["model"];
+    if (previousProvider !== undefined && model?.provider !== previousProvider)
       await registry.lifecycle("provider_change");
-    previousProvider = current;
-    statusLine({ ...ctx, model: currentModel });
-    // Availability rules derived from the new model (e.g. view_image for text-only models)
-    // re-synchronize registration; user-disabled tools still stay disabled inside refresh.
-    synchronize({ ...ctx, model: currentModel });
+    previousProvider = model?.provider;
+    await synchronize({ ...ctx, model });
   });
   pi.on("before_provider_request", (event, ctx) => {
     if (disposed) return;
-    const controls = registry.list().flatMap((e) => (e.instance.control ? [e.instance.control] : []));
     const payload = transformControlledRequest(
       event.payload,
       modelInfo(ctx.model),
-      controls,
-      config.controls,
+      requestControls,
+      preferences.requests,
     );
     if (payload !== event.payload) return payload;
   });
-  pi.on("before_agent_start", (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     event.systemPromptOptions.sections.pi_enhance_release = releaseGuidance;
+    await synchronize(ctx);
     const notices = registry.list().flatMap((e) => e.instance.notice?.() ?? []);
     if (notices.length)
       return { message: { customType: "pi-enhance:recovery", content: notices.join("\n"), display: false } };
   });
   pi.on("agent_settled", async (_event, ctx) => {
     await registry.lifecycle("task_settled", () => ctx.isIdle());
+    await synchronize(ctx);
   });
   pi.on("session_tree", async () => {
     subagents.cancelAll();
@@ -241,10 +234,12 @@ export function createPiEnhance(pi: ExtensionAPI, options: PiOptions): void {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     disposed = true;
+    stopWatching?.();
+    currentContext = undefined;
     subagents.shutdown();
     operations.abort();
     try {
-      await registry.dispose();
+      await runtime.dispose();
     } finally {
       if (ctx.hasUI) {
         ctx.ui.setStatus(command, undefined);

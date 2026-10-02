@@ -1,3 +1,4 @@
+import { clientInfo } from "../../../../transports/version.ts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Runtime } from "./runtime.ts";
 
@@ -99,7 +100,7 @@ export class ComputerMcp {
       {
         protocolVersion: "2024-11-05",
         capabilities: { elicitation: {} },
-        clientInfo: { name: "agent-enhance", version: "0.2.0" },
+        clientInfo,
       },
       30_000,
       signal,

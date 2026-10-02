@@ -37,94 +37,15 @@ var StaticCredentialResolver = class {
   }
 };
 
-// packages/core/src/config.ts
-import {
-  closeSync,
-  constants,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync
-} from "node:fs";
-import { dirname, join } from "node:path";
-import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
-function enhanceHome() {
-  return process.env.AGENT_ENHANCE_HOME ?? join(homedir(), ".agent-enhance");
-}
-var emptyConfig = () => ({ version: 1, autoload: [], defaults: {}, controls: {} });
-function readJson(path, fallback) {
-  if (!existsSync(path)) return fallback();
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    return JSON.parse(readFileSync(fd, "utf8"));
-  } catch {
-    throw new EnhanceError("CONFIG_INVALID", `Cannot read ${path}; original file was not changed.`);
-  } finally {
-    closeSync(fd);
-  }
-}
-function updateJson(path, fallback, update) {
-  mkdirSync(dirname(path), { recursive: true, mode: 448 });
-  const lockPath = `${path}.lock`;
-  let lock;
-  try {
-    lock = openSync(lockPath, "wx", 384);
-  } catch {
-    throw new EnhanceError("CONFIG_LOCKED", `Retry after the other writer finishes: ${path}`);
-  }
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    const value = update(readJson(path, fallback));
-    const fd = openSync(temp, "wx", 384);
-    try {
-      writeFileSync(fd, JSON.stringify(value, null, 2) + "\n");
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    renameSync(temp, path);
-    return value;
-  } finally {
-    if (existsSync(temp)) unlinkSync(temp);
-    closeSync(lock);
-    unlinkSync(lockPath);
-  }
-}
-function validate(config) {
-  if (config?.version !== 1 || !Array.isArray(config.autoload) || config.autoload.some((x) => typeof x !== "string") || !config.defaults || !config.controls || typeof config.defaults !== "object" || typeof config.controls !== "object" || Array.isArray(config.defaults) || Array.isArray(config.controls) || Object.values(config.defaults).some((x) => typeof x !== "string") || Object.values(config.controls).some((x) => typeof x !== "string") || config.subagents !== void 0 && typeof config.subagents !== "boolean" || config.subagentModel !== void 0 && (typeof config.subagentModel !== "string" || !/^[^\s/]+\/\S+$/.test(config.subagentModel)))
-    throw new EnhanceError("CONFIG_INVALID", "Unsupported host configuration; not overwritten.");
-  return config;
-}
-var ConfigStore = class {
-  path;
-  constructor(home, host) {
-    if (!/^[a-z][a-z0-9-]*$/.test(host)) throw new Error("Invalid host ID");
-    this.path = join(home, "hosts", `${host}.json`);
-  }
-  load() {
-    return validate(readJson(this.path, emptyConfig));
-  }
-  update(update) {
-    return updateJson(this.path, emptyConfig, (c) => validate(update(validate(c))));
-  }
-};
-
 // packages/core/src/controls.ts
 function transformControlledRequest(payload, model, controls, state) {
-  if (!model || model.provider !== "openai" || model.channel !== "codex" || model.api !== "codex-responses")
-    return payload;
+  if (!model) return payload;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
   let result = payload;
-  if (!Array.isArray(result.input) || result.model !== model.id) return payload;
   for (const control of controls) {
     const value = state[control.id] ?? "off";
     if (value !== "off" && control.choices.includes(value) && control.supported(model))
-      result = control.transform(result, value);
+      result = control.transform(result, value, model);
   }
   return result;
 }
@@ -169,174 +90,6 @@ function createProgressTicker(tick) {
     }
   };
 }
-
-// packages/core/src/modules.ts
-import { createHash, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join as join2 } from "node:path";
-import { pathToFileURL } from "node:url";
-var emptyLock = () => ({ version: 1, modules: {} });
-var moduleId = /^[a-z_]+\/[a-z]+$/;
-var hash = /^[a-f0-9]{64}$/;
-function validateLock(lock) {
-  if (lock?.version !== 1 || !lock.modules || typeof lock.modules !== "object" || Array.isArray(lock.modules) || Object.entries(lock.modules).some(
-    ([id, entry]) => !moduleId.test(id) || !entry || typeof entry.version !== "string" || !hash.test(entry.sha256) || entry.file !== `${id.replace("/", "--")}.mjs`
-  ))
-    throw new EnhanceError("LOCK_INVALID", "Invalid module lock; not overwritten.");
-  return lock;
-}
-var sameInstallation = (a, b) => a?.sha256 === b?.sha256 && a?.version === b?.version && a?.file === b?.file;
-var ModuleManager = class {
-  constructor(home, catalog, bundledDirectory, fetchImpl = fetch) {
-    this.home = home;
-    this.catalog = catalog;
-    this.bundledDirectory = bundledDirectory;
-    this.fetchImpl = fetchImpl;
-    this.lockPath = join2(home, "modules.lock.json");
-    if (catalog.version !== 1 || catalog.repository !== "Ezio2000/agent-enhance" || !Array.isArray(catalog.modules))
-      throw new EnhanceError("CATALOG_INVALID", "Untrusted module catalog.");
-    const ids = /* @__PURE__ */ new Set();
-    for (const entry of catalog.modules) {
-      if (!moduleId.test(entry.id) || entry.id !== `${entry.capability}/${entry.provider}` || entry.apiVersion !== 1 || typeof entry.version !== "string" || entry.file !== `${entry.id.replace("/", "--")}.mjs` || !hash.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > 25 * 1024 * 1024 || ids.has(entry.id))
-        throw new EnhanceError("CATALOG_INVALID", "Invalid module entry.");
-      ids.add(entry.id);
-    }
-  }
-  lockPath;
-  find(id) {
-    const entry = this.catalog.modules.find((e) => e.id === id);
-    if (!entry) throw new EnhanceError("MODULE_UNKNOWN", `Unknown capability/provider: ${id}`);
-    return entry;
-  }
-  readLock() {
-    return validateLock(readJson(this.lockPath, emptyLock));
-  }
-  installed(id) {
-    return this.readLock().modules[id];
-  }
-  /** Local catalog comparison only: no network, imports, or authentication. */
-  updates() {
-    const lock = this.readLock();
-    return this.catalog.modules.filter((e) => lock.modules[e.id] && lock.modules[e.id].sha256 !== e.sha256);
-  }
-  path(entry) {
-    return join2(this.home, "packages", `${entry.sha256}-${entry.file}`);
-  }
-  verify(bytes, entry) {
-    if (bytes.byteLength !== entry.bytes || createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
-      throw new EnhanceError("MODULE_INTEGRITY", `Integrity verification failed: ${entry.id}`);
-  }
-  /** Stage verified bytes without changing installation records or executing the module. */
-  async stage(entry, signal) {
-    signal?.throwIfAborted();
-    try {
-      this.verify(await readFile(this.path(entry), { signal }), entry);
-      return;
-    } catch (error) {
-      if (error.code !== "ENOENT" && !(error instanceof EnhanceError && error.code === "MODULE_INTEGRITY"))
-        throw error;
-    }
-    let bytes;
-    if (this.bundledDirectory) {
-      try {
-        bytes = await readFile(join2(this.bundledDirectory, entry.file), { signal });
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
-    if (!bytes) {
-      if (!/^[a-f0-9]{40}$/.test(this.catalog.revision))
-        throw new EnhanceError(
-          "MODULE_SOURCE",
-          "This development catalog has no immutable download revision. Build locally first."
-        );
-      const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(6e4)]) : AbortSignal.timeout(6e4);
-      const url = `https://raw.githubusercontent.com/${this.catalog.repository}/${this.catalog.revision}/dist/modules/${entry.file}`;
-      const response = await this.fetchImpl(url, { redirect: "error", signal: requestSignal });
-      if (!response.ok || !response.body)
-        throw new EnhanceError("MODULE_DOWNLOAD", `Module download returned HTTP ${response.status}.`);
-      const chunks = [];
-      let size = 0;
-      for await (const chunk of response.body) {
-        requestSignal.throwIfAborted();
-        size += chunk.byteLength;
-        if (size > entry.bytes)
-          throw new EnhanceError("MODULE_INTEGRITY", "Downloaded module exceeds its declared size.");
-        chunks.push(chunk);
-      }
-      bytes = Buffer.concat(chunks);
-    }
-    this.verify(bytes, entry);
-    signal?.throwIfAborted();
-    await mkdir(join2(this.home, "packages"), { recursive: true, mode: 448 });
-    const target = this.path(entry), temp = `${target}.${randomUUID2()}.tmp`;
-    try {
-      await writeFile(temp, bytes, { mode: 384, flag: "wx", signal });
-      await rename(temp, target);
-    } finally {
-      await rm(temp, { force: true });
-    }
-  }
-  async commit(entries, before, signal) {
-    if (!entries.length) return;
-    for (const entry of entries) await this.stage(entry, signal);
-    signal?.throwIfAborted();
-    updateJson(this.lockPath, emptyLock, (raw) => {
-      const current = validateLock(raw);
-      for (const entry of entries)
-        if (!sameInstallation(current.modules[entry.id], before.modules[entry.id]))
-          throw new EnhanceError(
-            "MODULE_CONFLICT",
-            `Installation changed during download: ${entry.id}. Retry explicitly.`
-          );
-      const modules = { ...current.modules };
-      for (const entry of entries)
-        modules[entry.id] = { version: entry.version, sha256: entry.sha256, file: entry.file };
-      return { version: 1, modules };
-    });
-  }
-  async install(id, signal) {
-    await this.commit([this.find(id)], this.readLock(), signal);
-  }
-  /** Updates installed modules only; loaded instances remain untouched until a later load. */
-  async update(ids, signal) {
-    const before = this.readLock();
-    const entries = [
-      ...new Set(ids ?? this.catalog.modules.filter((e) => before.modules[e.id]).map((e) => e.id))
-    ].map((id) => {
-      const entry = this.find(id);
-      if (!before.modules[id])
-        throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before updating.`);
-      return entry;
-    }).filter((entry) => before.modules[entry.id].sha256 !== entry.sha256);
-    await this.commit(entries, before, signal);
-    return entries.map((e) => e.id);
-  }
-  async load(id) {
-    const entry = this.find(id), installed = this.installed(id);
-    if (!installed)
-      throw new EnhanceError("MODULE_NOT_INSTALLED", `Install ${id} explicitly before loading.`);
-    if (installed.sha256 !== entry.sha256)
-      throw new EnhanceError("MODULE_VERSION", `Update or reinstall ${id} to match this host catalog.`);
-    this.verify(await readFile(this.path(entry)), entry);
-    const loaded = (await import(pathToFileURL(this.path(entry)).href)).default;
-    if (JSON.stringify(loaded?.manifest) !== JSON.stringify(
-      Object.fromEntries(
-        Object.entries(entry).filter(([key]) => !["file", "sha256", "bytes"].includes(key))
-      )
-    ))
-      throw new EnhanceError("MODULE_CONTRACT", "Downloaded manifest does not match catalog.");
-    return loaded;
-  }
-  uninstall(id) {
-    this.find(id);
-    updateJson(this.lockPath, emptyLock, (raw) => {
-      const modules = { ...validateLock(raw).modules };
-      delete modules[id];
-      return { version: 1, modules };
-    });
-  }
-};
 
 // node_modules/typebox/build/system/memory/memory.mjs
 var memory_exports = {};
@@ -6805,10 +6558,10 @@ function ErrorUniqueItems(_stack, context, schemaPath, instancePath, schema, val
     return true;
   const set = /* @__PURE__ */ new Set();
   const duplicateItems = value.reduce((result, value2, index) => {
-    const hash2 = hash_exports.Hash(value2);
-    if (set.has(hash2))
+    const hash = hash_exports.Hash(value2);
+    if (set.has(hash))
       return [...result, index];
-    set.add(hash2);
+    set.add(hash);
     return result;
   }, []);
   const isUniqueItems = guard_exports.IsEqual(duplicateItems.length, 0);
@@ -8472,10 +8225,10 @@ var RepairError = class extends Error {
 function MakeUnique(values) {
   const [hashes, result] = [/* @__PURE__ */ new Set(), []];
   for (const value of values) {
-    const hash2 = Hash2(value);
-    if (hashes.has(hash2))
+    const hash = Hash2(value);
+    if (hashes.has(hash))
       continue;
-    hashes.add(hash2);
+    hashes.add(hash);
     result.push(value);
   }
   return result;
@@ -8695,19 +8448,34 @@ __export(value_exports, {
   Repair: () => Repair
 });
 
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
+function defineModule(definition, manifest, create) {
+  return {
+    definition,
+    manifest: {
+      ...manifest,
+      apiVersion: MODULE_API_VERSION,
+      id: `${definition.id}/${manifest.provider}`,
+      capability: definition.id
+    },
+    create
+  };
+}
+
 // packages/core/src/registry.ts
-var COMMON_FIELDS = {
-  gen_image: ["prompt", "images", "model", "timeout_seconds"],
-  search_web: ["search_query", "open"]
-};
 var strings = (values) => typebox_exports.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 var CapabilityRegistry = class {
   entries = /* @__PURE__ */ new Map();
-  pending = /* @__PURE__ */ new Set();
-  defaults;
-  constructor(defaults = {}) {
-    this.defaults = { ...defaults };
+  pending = /* @__PURE__ */ new Map();
+  suspended = /* @__PURE__ */ new Set();
+  preferred;
+  constructor(preferred = {}) {
+    this.preferred = { ...preferred };
+  }
+  setPreferred(preferred) {
+    this.preferred = { ...preferred };
   }
   list() {
     return [...this.entries.values()];
@@ -8715,17 +8483,30 @@ var CapabilityRegistry = class {
   get(id) {
     return this.entries.get(id);
   }
-  load(module, services) {
+  load(module, services, binding) {
     const { manifest } = module;
-    if (manifest.apiVersion !== 1 || manifest.id !== `${manifest.capability}/${manifest.provider}` || !/^[a-z][a-z0-9_]*$/.test(manifest.capability))
+    if (manifest.apiVersion !== MODULE_API_VERSION || module.definition.id !== manifest.capability || manifest.id !== `${manifest.capability}/${manifest.provider}` || !/^[a-z][a-z0-9_]*$/.test(manifest.capability))
       throw new EnhanceError("MODULE_CONTRACT", "Invalid module identity or API version.");
-    if (this.entries.has(manifest.id)) return;
+    const id = binding ? `${manifest.id}@${binding.id}` : manifest.id;
+    if (this.entries.has(id)) return;
     if (manifest.platforms && !manifest.platforms.includes(process.platform))
       throw new EnhanceError("PLATFORM", `Module requires ${manifest.platforms.join(", ")}.`);
     const instance = module.create(services);
-    if (manifest.kind === "tool" && (!instance.tool || instance.tool.name !== manifest.capability))
+    if (!instance.tool || instance.tool.name !== manifest.capability)
       throw new EnhanceError("MODULE_CONTRACT", "Tool name must match capability.");
-    this.entries.set(manifest.id, { module, instance });
+    this.entries.set(id, { id, module, instance, binding });
+  }
+  setBinding(id, binding) {
+    const entry = this.entries.get(id);
+    if (!entry || entry.binding?.id !== binding.id)
+      throw new EnhanceError("MODULE_CONTRACT", "Binding identity cannot change.");
+    entry.binding = binding;
+  }
+  suspend(id) {
+    this.suspended.add(id);
+  }
+  resume(id) {
+    this.suspended.delete(id);
   }
   assertIdle(id) {
     if (this.pending.has(id))
@@ -8734,8 +8515,10 @@ var CapabilityRegistry = class {
   async unload(id) {
     this.assertIdle(id);
     const entry = this.entries.get(id);
+    this.suspend(id);
     await entry?.instance.dispose?.();
     this.entries.delete(id);
+    this.suspended.delete(id);
   }
   async lifecycle(event, isIdle) {
     const results = await Promise.allSettled(this.list().map((e) => e.instance.lifecycle?.(event, isIdle)));
@@ -8747,8 +8530,10 @@ var CapabilityRegistry = class {
       );
   }
   async dispose() {
+    for (const id of this.entries.keys()) this.suspend(id);
     const results = await Promise.allSettled(this.list().map((e) => e.instance.dispose?.()));
     this.entries.clear();
+    this.suspended.clear();
     const errors = results.filter((r) => r.status === "rejected");
     if (errors.length)
       throw new AggregateError(
@@ -8759,23 +8544,42 @@ var CapabilityRegistry = class {
   tools() {
     const groups = /* @__PURE__ */ new Map();
     for (const entry of this.list())
-      if (entry.instance.tool) {
+      if (entry.instance.tool && !this.suspended.has(entry.id)) {
         const cap = entry.module.manifest.capability;
         groups.set(cap, [...groups.get(cap) ?? [], entry]);
       }
-    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([cap, entries]) => this.merge(cap, entries));
+    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(
+      ([cap, entries]) => this.merge(
+        cap,
+        entries.sort(
+          (a, b) => a.module.manifest.provider.localeCompare(b.module.manifest.provider) || (a.binding?.id ?? "").localeCompare(b.binding?.id ?? "")
+        )
+      )
+    );
   }
   merge(capability, entries) {
-    const providers = entries.map((e) => e.module.manifest.provider);
+    const implementations = [...new Map(entries.map((e) => [e.module.manifest.provider, e])).values()];
+    const providers = implementations.map((e) => e.module.manifest.provider);
+    const definition = entries[0].module.definition;
     const first = entries[0].instance.tool;
     const properties = { provider: typebox_exports.Optional(strings(providers)) };
+    if (entries.some((e) => e.binding))
+      properties.service = typebox_exports.Optional(
+        typebox_exports.Unsafe({
+          type: "string",
+          enum: [...new Set(entries.map((e) => e.binding?.id ?? e.module.manifest.provider))],
+          description: "Select an exact service connection: " + entries.map(
+            (e) => `${e.binding?.id ?? e.module.manifest.provider} (${e.binding?.label ?? e.module.manifest.provider})`
+          ).join(", ")
+        })
+      );
     const options = {};
-    for (const { module, instance } of entries) {
+    for (const { module, instance } of implementations) {
       const schema = instance.tool.parameters;
       const specific = {};
       const required = schema.required ?? [];
       for (const [key, field] of Object.entries(schema.properties)) {
-        const common = COMMON_FIELDS[capability];
+        const common = definition.commonFields;
         if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : typebox_exports.Optional(field);
         else if (!properties[key]) properties[key] = required.includes(key) ? field : typebox_exports.Optional(field);
@@ -8785,39 +8589,18 @@ var CapabilityRegistry = class {
           typebox_exports.Object(specific, { additionalProperties: false })
         );
     }
-    if (capability === "gen_image") {
-      properties.images = typebox_exports.Optional(
-        typebox_exports.Array(
-          typebox_exports.Object(
-            {
-              path: typebox_exports.Optional(typebox_exports.String({ minLength: 1 })),
-              image_url: typebox_exports.Optional(typebox_exports.String({ minLength: 1 }))
-            },
-            { additionalProperties: false }
-          ),
-          {
-            minItems: 1,
-            // A provider without reference-image support (e.g. minimax) contributes a floor of 1.
-            maxItems: Math.max(
-              ...entries.map(
-                (e) => e.instance.tool.parameters.properties.images?.maxItems ?? 1
-              )
-            )
-          }
-        )
-      );
-      properties.model = typebox_exports.Optional(
-        strings(entries.flatMap((e) => e.instance.tool.parameters.properties.model?.enum ?? []))
-      );
-    }
+    Object.assign(
+      properties,
+      definition.composeParameters?.(implementations.map((e) => e.instance.tool.parameters))
+    );
     if (Object.keys(options).length)
       properties.options = typebox_exports.Optional(typebox_exports.Object(options, { additionalProperties: false }));
     const parameters = typebox_exports.Object(properties, { additionalProperties: false });
     return {
       name: capability,
-      label: capability,
-      description: `Providers: ${providers.join(", ")}. Set provider or omit it for the configured default; a failed call never falls back to another provider.${COMMON_FIELDS[capability] ? ` Provider-specific parameters go in options.<provider>.` : ""}
-` + entries.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
+      label: definition.label,
+      description: `Providers: ${providers.join(", ")}. Choose provider/service when several connections are available; a saved preference or a sole connection can be used implicitly. Failed calls never fall back.${definition.commonFields ? ` Provider-specific parameters go in options.<provider>.` : ""}
+` + implementations.map((e) => `[${e.module.manifest.provider}] ${e.instance.tool.description}`).join("\n"),
       promptSnippet: first.promptSnippet,
       promptGuidelines: [...new Set(entries.flatMap((e) => e.instance.tool.promptGuidelines ?? []))],
       parameters,
@@ -8829,17 +8612,23 @@ var CapabilityRegistry = class {
             "Arguments do not match the current loaded capability schema."
           );
         const args = raw;
-        const provider = args.provider ?? this.defaults[capability] ?? (providers.length === 1 ? providers[0] : void 0);
-        const entry = entries.find((e) => e.module.manifest.provider === provider);
-        if (!entry)
+        const candidates = entries.filter(
+          (e) => !args.provider || e.module.manifest.provider === args.provider
+        );
+        const service = args.service ?? this.preferred[capability];
+        const matches = service ? candidates.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === service) : candidates;
+        const selectable = !args.service && args.provider && !matches.length ? candidates : matches;
+        if (selectable.length !== 1)
           throw new EnhanceError(
             "PROVIDER_SELECTION",
-            `Choose a loaded provider for ${capability}: ${providers.join(", ")}.`
+            `Choose an exact provider/service for ${capability}; ${selectable.length ? "several connections match" : "selected connection is unavailable"}.`
           );
-        const id = entry.module.manifest.id;
-        if (this.entries.get(id) !== entry)
+        const entry = selectable[0];
+        const provider = entry.module.manifest.provider;
+        const id = entry.id;
+        if (this.entries.get(id) !== entry || this.suspended.has(id))
           throw new EnhanceError("STALE_TOOL", "Capability changed; use the refreshed tool schema.");
-        const { provider: ignored, options: rawOptions, ...common } = args;
+        const { provider: ignored, service: ignoredService, options: rawOptions, ...common } = args;
         const selectedOptions = object(rawOptions) ? rawOptions : {};
         if (Object.keys(selectedOptions).some((key) => key !== provider))
           throw new EnhanceError("PROVIDER_OPTIONS", "Only options for the selected provider are accepted.");
@@ -8850,12 +8639,21 @@ var CapabilityRegistry = class {
             "PROVIDER_ARGUMENTS",
             `Arguments are unsupported by ${provider}; check model and input limits.`
           );
-        const activeContext = { ...context, signal };
-        this.pending.add(`${id}:${callId}`);
-        this.pending.add(id);
+        const activeContext = {
+          ...context,
+          signal,
+          credentials: entry.binding?.credentials ?? context.credentials
+        };
+        this.pending.set(id, (this.pending.get(id) ?? 0) + 1);
         const normalize = (result) => ({
           ...result,
-          details: { ...result.details, version: 1, capability, provider }
+          details: {
+            ...result.details,
+            version: 1,
+            capability,
+            provider,
+            ...entry.binding ? { service: entry.binding.id } : {}
+          }
         });
         try {
           return normalize(
@@ -8868,8 +8666,9 @@ var CapabilityRegistry = class {
             )
           );
         } finally {
-          this.pending.delete(`${id}:${callId}`);
-          if (![...this.pending].some((key) => key.startsWith(`${id}:`))) this.pending.delete(id);
+          const remaining = (this.pending.get(id) ?? 1) - 1;
+          if (remaining) this.pending.set(id, remaining);
+          else this.pending.delete(id);
         }
       }
     };
@@ -8877,16 +8676,12 @@ var CapabilityRegistry = class {
 };
 export {
   CapabilityRegistry,
-  ConfigStore,
   EnhanceError,
-  ModuleManager,
+  MODULE_API_VERSION,
   StaticCredentialResolver,
   annotateError,
   createProgressTicker,
-  emptyConfig,
-  enhanceHome,
-  readJson,
+  defineModule,
   requireCredential,
-  transformControlledRequest,
-  updateJson
+  transformControlledRequest
 };

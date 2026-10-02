@@ -6,9 +6,14 @@ import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { createPiEnhance } from "../packages/hosts/pi/src/index.ts";
 import { PiCredentialResolver } from "../packages/hosts/pi/src/auth.ts";
-import { ConfigStore } from "../packages/core/src/config.ts";
-import type { Catalog } from "../packages/core/src/modules.ts";
-async function harness(home: string) {
+import { PreferenceStore, emptyPiPreferences } from "../packages/integrations/services/src/preferences.ts";
+import { StaticCredentialResolver } from "../packages/core/src/auth.ts";
+import { channels } from "../packages/integrations/services/src/sources/channels.ts";
+import { piServiceSource } from "../packages/hosts/pi/src/auth.ts";
+import type { Catalog } from "../packages/integrations/services/src/catalog.ts";
+const preferences = (home: string) => new PreferenceStore(home, "pi", emptyPiPreferences);
+async function harness(home: string, initial: string[] = []) {
+  let available = initial;
   const catalog = JSON.parse(await readFile("dist/catalog.json", "utf8")) as Catalog;
   const tools = new Map<string, any>();
   let active = ["read", "unrelated"];
@@ -92,7 +97,36 @@ async function harness(home: string) {
     waitForIdle: async () => {},
     isIdle: () => true,
   } as unknown as ExtensionCommandContext;
-  createPiEnhance(pi, { home, catalog, moduleDirectory: join(process.cwd(), "dist/modules") });
+  createPiEnhance(pi, {
+    home,
+    catalog,
+    moduleDirectory: join(process.cwd(), "dist/modules"),
+    sources: () => [
+      {
+        id: "pi",
+        async discover() {
+          return available.map((providerId) => {
+            const def = channels[providerId]!;
+            return {
+              id: `pi:${providerId}`,
+              provider: def.provider,
+              channel: def.channel,
+              kind: def.kind,
+              source: "pi",
+              label: providerId,
+              credentials: new StaticCredentialResolver({
+                [`${def.provider}/${def.channel}`]: {
+                  kind: def.kind,
+                  secret: "fixture",
+                  baseUrl: def.baseUrl,
+                },
+              }),
+            };
+          });
+        },
+      },
+    ],
+  });
   const emit = async (name: string, event = {}) => {
     for (const fn of events.get(name) ?? []) await fn(event, ctx);
   };
@@ -103,6 +137,9 @@ async function harness(home: string) {
   };
   return {
     tools,
+    services: (...providers: string[]) => {
+      available = providers;
+    },
     commands,
     command,
     emit,
@@ -133,11 +170,11 @@ test("host-only subagents stay off by default, enable explicitly and persist wit
     assert.ok(h.active().includes("view_subagent_models"));
     assert.ok(h.active().includes("view_subagents"));
     assert.ok(h.active().includes("cancel_subagents"));
-    assert.equal(new ConfigStore(home, "pi").load().subagents, true);
+    assert.equal(preferences(home).load().subagents.enabled, true);
     assert.match(await h.command("subagents status"), /enabled/);
     assert.match(await h.command("subagents disable"), /disabled/);
     assert.ok(!h.active().includes("call_subagents"));
-    assert.equal(new ConfigStore(home, "pi").load().subagents, false);
+    assert.equal(preferences(home).load().subagents.enabled, false);
     await h.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });
@@ -151,9 +188,9 @@ test("subagent default model picker, explicit selection, scope validation, persi
     await h.emit("session_start");
     assert.match(await h.command("subagents model"), /outside TUI/);
     assert.match(await h.command("subagents model unknown/nope"), /not enabled and available/);
-    assert.equal(new ConfigStore(home, "pi").load().subagentModel, undefined);
+    assert.equal(preferences(home).load().subagents.model, undefined);
     assert.match(await h.command("subagents model minimax-cn/MiniMax-M2.7"), /Saved subagent default model/);
-    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "minimax-cn/MiniMax-M2.7");
+    assert.equal(preferences(home).load().subagents.model, "minimax-cn/MiniMax-M2.7");
     assert.match(await h.command("subagents status"), /MiniMax-M2\.7 \(available\)/);
     (h.ctx as any).scopedModels = [{ model: { provider: "openai-codex", id: "gpt-6-astra" } }];
     assert.match(await h.command("subagents status"), /unavailable in this Pi session/);
@@ -162,16 +199,16 @@ test("subagent default model picker, explicit selection, scope validation, persi
     (h.ctx as any).mode = "tui";
     h.choose((items) => items.find((value) => value.startsWith("openai-codex/gpt-6-astra")));
     assert.match(await h.command("subagents model"), /openai-codex\/gpt-6-astra/);
-    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "openai-codex/gpt-6-astra");
+    assert.equal(preferences(home).load().subagents.model, "openai-codex/gpt-6-astra");
     const reopened = await harness(home);
     await reopened.emit("session_start");
     assert.match(await reopened.command("subagents status"), /default model: openai-codex\/gpt-6-astra/);
     await reopened.emit("session_shutdown");
     h.chooseOnce(undefined);
     assert.equal(await h.command("subagents model"), "");
-    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "openai-codex/gpt-6-astra");
+    assert.equal(preferences(home).load().subagents.model, "openai-codex/gpt-6-astra");
     assert.match(await h.command("subagents model inherit"), /inherit current Pi model/);
-    assert.equal(new ConfigStore(home, "pi").load().subagentModel, undefined);
+    assert.equal(preferences(home).load().subagents.model, undefined);
     await h.emit("session_shutdown");
     const restored = await harness(home);
     await restored.emit("session_start");
@@ -202,127 +239,19 @@ test("Pi adds scoped remote-release guidance to the system prompt without replac
     await rm(home, { recursive: true, force: true });
   }
 });
-test("Pi commands install/load two providers but expose only one image tool; unload/reload updates schema", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-pi-"));
-  try {
-    const h = await harness(home);
-    await h.emit("session_start");
-    assert.equal(h.tools.size, 0);
-    assert.equal(h.commands.size, 1);
-    assert.match(await h.command("openai gen_image load"), /NOT_INSTALLED/);
-    await h.command("openai gen_image install");
-    assert.equal(h.tools.size, 0);
-    assert.match(await h.command("openai gen_image load --save"), /Loaded/);
-    assert.ok(h.active().includes("gen_image"));
-    await h.command("xai gen_image install");
-    await h.command("xai gen_image load");
-    assert.equal(h.tools.size, 1);
-    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai", "xai"]);
-    assert.deepEqual(new ConfigStore(home, "pi").load().autoload, ["gen_image/openai"]);
-    await h.command("openai gen_image unload --save");
-    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["xai"]);
-    await h.command("xai gen_image unload");
-    assert.ok(!h.active().includes("gen_image"));
-    await h.command("xai gen_image load");
-    assert.ok(h.active().includes("gen_image"));
-    assert.ok(h.active().includes("unrelated"));
-    await h.emit("session_shutdown");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-test("Pi model changes do not reactivate disabled tools; saved autoload survives a new host", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-pi-"));
-  try {
-    const h = await harness(home);
-    await h.emit("session_start");
-    await h.command("openai gen_image install");
-    await h.command("openai gen_image load --save");
-    h.setActive(["read"]);
-    await h.emit("model_select", { model: { provider: "xai", id: "test" } });
-    assert.deepEqual(h.active(), ["read"]);
-    await h.emit("session_shutdown");
-    const resumed = await harness(home);
-    await resumed.emit("session_start");
-    assert.ok(resumed.active().includes("gen_image"));
-    assert.deepEqual(resumed.tools.get("gen_image").parameters.properties.provider.enum, ["openai"]);
-    await resumed.emit("session_shutdown");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-test("Pi preferences accept explicit values headlessly and do not silently load/download", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-pi-"));
-  try {
-    const h = await harness(home);
-    await h.emit("session_start");
-    assert.match(await h.command("openai fast on"), /Load fast\/openai first/);
-    await h.command("openai fast install");
-    await h.command("openai fast load --save");
-    assert.match(await h.command("openai fast on"), /Saved fast: on/);
-    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
-    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
-    await h.emit("model_select", { model: { provider: "kimi-coding", id: "k3", api: "custom" } });
-    assert.equal(h.statuses().at(-1)?.[1], undefined);
-    await h.emit("model_select", {
-      model: {
-        provider: "openai-codex",
-        id: "gpt-6-astra",
-        api: "openai-codex-responses",
-        input: ["text"],
-      },
-    });
-    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
-    for (const id of ["gpt-6-sol", "gpt-6-luna"]) {
-      await h.emit("model_select", {
-        model: { provider: "openai-codex", id, api: "openai-codex-responses", input: ["text", "image"] },
-      });
-      assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
-    }
-    await h.command("openai fast off");
-    assert.equal(h.statuses().at(-1)?.[1], "fast:off");
-    assert.match(await h.command("openai fast"), /Explicit action/);
-    assert.match(await h.command("openai fast nonsense"), /Choose/);
-    assert.match(await h.command("defaults gen_image openai"), /Saved default/);
-    assert.ok(
-      h.commands
-        .get("pi-enhance")
-        .getArgumentCompletions("openai fast ")
-        .some((i: any) => i.value === "openai fast on"),
-    );
-    await h.emit("session_shutdown");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-test("Pi control panel applies one selection and returns instead of reopening", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-pi-"));
-  try {
-    const h = await harness(home);
-    (h.ctx as any).mode = "tui";
-    await h.emit("session_start");
-    await h.command("openai fast install");
-    await h.command("openai fast load");
-    h.chooseOnce("on");
-    await h.command("openai fast");
-    h.chooseOnce(undefined);
-    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
-    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
-    await h.emit("session_shutdown");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
 test("Pi auth isolates channels, delegates refresh, sanitizes errors and respects cancellation", async () => {
   const calls: string[] = [];
-  const resolver = new PiCredentialResolver({
-    async getProviderAuth(provider: string) {
-      calls.push(provider);
-      return {
-        auth: { apiKey: "header.payload.signature", headers: { "chatgpt-account-id": "acct" } },
-      } as any;
+  const resolver = new PiCredentialResolver(
+    {
+      async getProviderAuth(provider: string) {
+        calls.push(provider);
+        return {
+          auth: { apiKey: "header.payload.signature", headers: { "chatgpt-account-id": "acct" } },
+        } as any;
+      },
     },
-  });
+    "openai-codex",
+  );
   const requirement = { provider: "openai" as const, channel: "codex", acceptedKinds: ["oauth" as const] };
   for (let i = 0; i < 2; i++)
     assert.equal((await resolver.resolve(requirement, { interactive: false })).status, "ready");
@@ -331,210 +260,302 @@ test("Pi auth isolates channels, delegates refresh, sanitizes errors and respect
     (await resolver.resolve({ ...requirement, channel: "api" }, { interactive: false })).status,
     "unsupported",
   );
-  const bad = new PiCredentialResolver({
-    async getProviderAuth() {
-      throw new Error("SECRET_TOKEN");
+  const bad = new PiCredentialResolver(
+    {
+      async getProviderAuth() {
+        throw new Error("SECRET_TOKEN");
+      },
     },
-  });
+    "openai-codex",
+  );
   const result = await bad.resolve(requirement, { interactive: false });
   assert.equal(result.status, "login_required");
   assert.ok(!JSON.stringify(result).includes("SECRET_TOKEN"));
-  const key = new PiCredentialResolver({
-    async getProviderAuth() {
-      return { auth: { apiKey: "sk-platform" } } as any;
+  const key = new PiCredentialResolver(
+    {
+      async getProviderAuth() {
+        return { auth: { apiKey: "sk-platform" } } as any;
+      },
     },
-  });
+    "openai-codex",
+  );
   assert.equal((await key.resolve(requirement, { interactive: false })).status, "login_required");
   const signal = AbortSignal.abort();
   await assert.rejects(resolver.resolve(requirement, { interactive: false, signal }), /abort/i);
-  const waiting = new PiCredentialResolver({ getProviderAuth: () => new Promise(() => {}) });
+  const waiting = new PiCredentialResolver({ getProviderAuth: () => new Promise(() => {}) }, "openai-codex");
   const controller = new AbortController();
   const pending = waiting.resolve(requirement, { interactive: false, signal: controller.signal });
   controller.abort();
   await assert.rejects(pending, /abort/i);
 });
 
-test("one-step enable is selective and idempotent; disable/uninstall preserve user artifacts and preferences", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-enable-"));
+test("Pi discovers credentials automatically, merges providers and updates after logout without installation", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-discovery-pi-"));
   try {
     const h = await harness(home);
     await h.emit("session_start");
-    assert.match(await h.command("openai gen_image enable"), /Enabled gen_image\/openai/);
-    assert.deepEqual(
-      (await readdir(join(home, "packages"))).map((f) => f.split("-").slice(1).join("-")),
-      ["gen_image--openai.mjs"],
-    );
-    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai"]);
-    await h.command("openai gen_image enable");
-    assert.deepEqual(new ConfigStore(home, "pi").load().autoload, ["gen_image/openai"]);
-    await h.command("openai fast enable");
-    assert.equal(
-      new ConfigStore(home, "pi").load().controls.fast,
-      undefined,
-      "enable must not turn on priority billing",
-    );
-    await h.command("openai fast on");
-    await h.command("openai fast disable");
-    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
-    await h.command("openai fast enable");
-    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
-    await h.command("openai gen_image disable");
-    assert.ok(!h.active().includes("gen_image"));
-    assert.ok(!new ConfigStore(home, "pi").load().autoload.includes("gen_image/openai"));
-    assert.match(
-      await h.command("openai gen_image status"),
-      /installed, unloaded, autoload:off, auth:missing/,
-    );
-    const artifacts = join(home, "artifacts/pi/gen_image/openai");
-    await mkdir(artifacts, { recursive: true });
-    await writeFile(join(artifacts, "keep.txt"), "keep");
-    await h.command("openai gen_image uninstall");
-    assert.match(await h.command("openai gen_image status"), /not installed/);
-    assert.equal(await readFile(join(artifacts, "keep.txt"), "utf8"), "keep");
-    assert.equal((await readdir(join(home, "packages"))).length, 2, "cache retained");
-    await h.emit("session_shutdown");
-    const next = await harness(home);
-    await next.emit("session_start");
-    assert.ok(!next.active().includes("gen_image"));
-    assert.equal(next.statuses().at(-1)?.[1], "fast:on(2.5x)");
-    await next.emit("session_shutdown");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
-test("failed enable/save and uninstall recover state without changing other modules", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-recovery-"));
-  try {
-    const h = await harness(home),
-      store = new ConfigStore(home, "pi");
-    await h.emit("session_start");
-    store.update((c) => c);
-    await writeFile(`${store.path}.lock`, "");
-    assert.match(await h.command("openai gen_image enable"), /CONFIG_LOCKED/);
-    assert.ok(!h.active().includes("gen_image"));
-    assert.deepEqual(store.load().autoload, []);
-    await rm(`${store.path}.lock`);
-    await h.command("openai gen_image enable");
-    await h.command("xai gen_image enable");
-    await writeFile(`${store.path}.lock`, "");
-    assert.match(await h.command("openai gen_image disable"), /CONFIG_LOCKED/);
-    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai", "xai"]);
-    assert.deepEqual(store.load().autoload, ["gen_image/openai", "gen_image/xai"]);
-    await rm(`${store.path}.lock`);
-    await writeFile(join(home, "modules.lock.json.lock"), "");
-    assert.match(await h.command("openai gen_image uninstall"), /CONFIG_LOCKED/);
-    assert.deepEqual(
-      new Set(h.tools.get("gen_image").parameters.properties.provider.enum),
-      new Set(["openai", "xai"]),
-    );
-    assert.ok(h.active().includes("gen_image"));
-    assert.deepEqual(new Set(store.load().autoload), new Set(["gen_image/openai", "gen_image/xai"]));
-    await rm(join(home, "modules.lock.json.lock"));
-    await h.emit("session_shutdown");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
-test("feature-first panel shows requirements, performs one action and cancels without installation", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-panel-"));
-  try {
-    const h = await harness(home);
-    (h.ctx as any).mode = "tui";
-    await h.emit("session_start");
-    h.choose(
-      (items) => items.find((x) => x.includes("Images")),
-      (items) => items.find((x) => x.includes("/ xai")),
-      undefined,
-    );
-    await h.command("");
     assert.equal(h.tools.size, 0);
-    await assert.rejects(readFile(join(home, "modules.lock.json")), /ENOENT/);
-    assert.match(h.dialogs.at(-1)!.title, /KiB/);
-    assert.match(h.dialogs.at(-1)!.title, /Auth: xai\/imagine/);
-    assert.match(h.dialogs.at(-1)!.title, /Platform:/);
-    h.choose(
-      (items) => items.find((x) => x.includes("Images")),
-      (items) => items.find((x) => x.includes("/ xai")),
-      "enable",
-    );
-    assert.match(await h.command(""), /Enabled gen_image\/xai/);
-    assert.equal(h.dialogs.length, 6, "one selection closes the panel");
+    h.services("openai-codex", "xai");
+    await h.command("refresh");
+    assert.ok(h.active().includes("gen_image"));
+    assert.equal([...h.tools.values()].filter((t) => t.name === "gen_image").length, 1);
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai", "xai"]);
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.service.enum, [
+      "pi:openai-codex",
+      "pi:xai",
+    ]);
+    assert.match(await h.command("services"), /pi:openai-codex/);
+    assert.deepEqual(await readdir(home), [], "discovery does not persist derived state");
+    h.services("xai");
+    await h.command("refresh");
     assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["xai"]);
-    h.choose("set default");
-    await h.command("xai gen_image manage");
-    assert.equal(new ConfigStore(home, "pi").load().defaults.gen_image, "xai");
-    h.choose("disable");
-    await h.command("xai gen_image manage");
+    h.services();
+    await h.command("refresh");
     assert.ok(!h.active().includes("gen_image"));
+    assert.ok(h.active().includes("unrelated"));
+    assert.match(await h.command("openai gen_image enable"), /services.*status/);
     await h.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-test("subagents are one feature group in the panel; actions and model picker remain one-shot", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-subagents-panel-"));
+test("Pi respects host tool exclusions and model-derived vision availability", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-availability-pi-"));
   try {
-    const h = await harness(home);
+    const h = await harness(home, ["openai-codex", "zai"]);
+    await h.emit("session_start");
+    assert.ok(!h.active().includes("view_image"));
+    h.setActive(["read", "unrelated"]);
+    await h.emit("model_select", { model: { provider: "zai", id: "text-only", input: ["text"] } });
+    assert.ok(
+      !h.active().includes("gen_image"),
+      "model changes preserve manually deactivated existing tools",
+    );
+    assert.ok(h.active().includes("view_image"));
+    await h.emit("model_select", { model: { provider: "zai", id: "vision", input: ["text", "image"] } });
+    assert.ok(!h.active().includes("view_image"));
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Pi preferences persist exact service selection and exclusions; cancelling a picker changes nothing", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-preferences-pi-"));
+  try {
+    const h = await harness(home, ["openai-codex", "xai"]);
+    await h.emit("session_start");
+    assert.match(await h.command("prefer gen_image pi:xai"), /Preferred/);
+    assert.equal(preferences(home).load().preferred.gen_image, "pi:xai");
+    assert.match(await h.command("prefer gen_image pi:zai"), /does not provide/);
+    assert.match(await h.command("exclude gen_image pi:openai-codex"), /Excluded/);
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["xai"]);
+    await h.command("exclude gen_image");
+    assert.ok(!h.active().includes("gen_image"));
+    await h.command("include gen_image");
+    assert.ok(h.active().includes("gen_image"));
+    await h.command("include gen_image pi:openai-codex");
+    assert.deepEqual(h.tools.get("gen_image").parameters.properties.provider.enum, ["openai", "xai"]);
     (h.ctx as any).mode = "tui";
-    await h.emit("session_start");
-    h.choose((items) => {
-      assert.equal(items.filter((item) => item.includes("Subagents")).length, 1);
-      assert.ok(!items.some((item) => item.startsWith("subagents ")));
-      return items.find((item) => item.includes("Subagents"));
-    }, undefined);
+    const before = await readFile(preferences(home).path, "utf8");
+    h.chooseOnce(undefined);
     await h.command("");
-    assert.equal(h.dialogs.length, 2);
-    assert.equal(new ConfigStore(home, "pi").load().subagents, undefined);
-    h.choose((items) => items.find((item) => item.includes("Subagents")), "启用");
-    assert.match(await h.command(""), /enabled/);
-    assert.equal(h.dialogs.length, 4);
-    assert.ok(h.active().includes("call_subagents"));
-    h.choose(
-      (items) => items.find((item) => item.includes("Subagents")),
-      "选择默认模型",
-      (items) => items.find((item) => item.startsWith("minimax-cn/MiniMax-M2.7")),
-    );
-    assert.match(await h.command(""), /Saved subagent default model/);
-    assert.equal(h.dialogs.length, 7);
-    assert.equal(new ConfigStore(home, "pi").load().subagentModel, "minimax-cn/MiniMax-M2.7");
+    assert.equal(await readFile(preferences(home).path, "utf8"), before);
+    await h.emit("session_shutdown");
+    const reopened = await harness(home, ["openai-codex", "xai"]);
+    await reopened.emit("session_start");
+    assert.equal(preferences(home).load().preferred.gen_image, "pi:xai");
+    await reopened.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("request settings need no modules or credentials and apply only to supported requests", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-requests-pi-"));
+  try {
+    const h = await harness(home);
+    await h.emit("session_start");
+    assert.match(await h.command("fast on"), /Saved fast: on/);
+    assert.equal(preferences(home).load().requests.fast, "on");
+    assert.match(h.statuses().at(-1)?.[1] ?? "", /fast:on\(2\.5x\)/);
+    const handler = h.commands.get("pi-enhance").getArgumentCompletions;
+    assert.ok(handler("fast ").some((c: any) => c.value === "fast off"));
+    await h.command("verbosity high");
+    await h.command("image_detail original");
+    assert.equal(h.tools.size, 0);
+    await h.emit("model_select", { model: { provider: "kimi-coding", id: "k3", api: "custom" } });
+    assert.equal(h.statuses().at(-1)?.[1], undefined);
+    (h.ctx as any).mode = "tui";
+    h.chooseOnce(undefined);
+    assert.equal(await h.command("verbosity"), "");
+    assert.equal(preferences(home).load().requests.verbosity, "high");
+    await h.command("fast off");
+    assert.equal(preferences(home).load().requests.fast, undefined);
     await h.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-test("update commands compare local catalog, preserve preferences and never add uninstalled modules", async () => {
-  const home = await mkdtemp(join(tmpdir(), "enhance-update-command-"));
+test("preference write failures keep runtime and saved state intact", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-locked-pi-"));
   try {
-    const h = await harness(home);
+    const h = await harness(home, ["openai-codex"]);
     await h.emit("session_start");
-    assert.match(await h.command("openai fast update"), /NOT_INSTALLED/);
-    assert.match(await h.command("update --installed"), /No downloads/);
-    await h.command("openai fast enable");
-    await h.command("openai fast on");
-    await h.command("openai fast unload");
-    const path = join(home, "modules.lock.json");
-    const lock = JSON.parse(await readFile(path, "utf8"));
-    lock.modules["fast/openai"].sha256 = "f".repeat(64);
-    await writeFile(path, JSON.stringify(lock));
-    assert.match(await h.command("updates"), /fast\/openai: ffffffffffff/);
-    assert.match(
-      await h.command("openai fast enable"),
-      /MODULE_VERSION/,
-      "enable must not silently update existing installs",
+    await mkdir(join(home, "preferences"), { recursive: true });
+    await writeFile(`${preferences(home).path}.lock`, "busy");
+    assert.match(await h.command("exclude gen_image"), /CONFIG_LOCKED/);
+    assert.ok(h.active().includes("gen_image"));
+    assert.deepEqual(preferences(home).load().excluded, []);
+    await h.emit("session_shutdown");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Pi service discovery uses local metadata and binds domestic and international channels without resolving credentials", async () => {
+  let resolutions = 0;
+  const ctx = {
+    modelRegistry: {
+      getProviderAuthStatus: (id: string) => ({
+        configured: ["minimax", "minimax-cn", "zai", "zai-coding-cn"].includes(id),
+        source: "stored",
+      }),
+      getAll: () => [],
+      getRegisteredProviderConfig: () => undefined,
+      getProviderAuth: async () => {
+        resolutions++;
+        return undefined;
+      },
+    },
+  } as unknown as ExtensionCommandContext;
+  const connections = await piServiceSource(ctx, {
+    env: {},
+    modelConfig: {},
+    storedCredential: (id) =>
+      ["minimax", "minimax-cn", "zai", "zai-coding-cn"].includes(id)
+        ? { type: "api_key", key: "fixture" }
+        : undefined,
+  }).discover();
+  assert.deepEqual(
+    connections.map((c) => c.id),
+    ["pi:minimax-cn", "pi:minimax", "pi:zai", "pi:zai-coding-cn"],
+  );
+  assert.equal(resolutions, 0);
+  const resolution = await connections[1]!.credentials.resolve(
+    { provider: "minimax", channel: "token-plan", acceptedKinds: ["api_key"] },
+    { interactive: false },
+  );
+  assert.equal(resolution.status, "missing");
+  assert.equal(resolutions, 1);
+});
+
+test("Pi discovery reads current credential metadata instead of stale registry snapshots", async () => {
+  let stored: { type: string; key: string } | undefined;
+  const ctx = {
+    modelRegistry: {
+      getProviderAuthStatus: () => ({ configured: true, source: "stored" }),
+      getRegisteredProviderConfig: () => undefined,
+    },
+  } as unknown as ExtensionCommandContext;
+  const source = piServiceSource(ctx, {
+    env: {},
+    modelConfig: {},
+    storedCredential: (id) => (id === "minimax-cn" ? stored : undefined),
+  });
+  assert.deepEqual(await source.discover(), []);
+  stored = { type: "api_key", key: "sk-cp-fixture" };
+  assert.deepEqual(
+    (await source.discover()).map((c) => c.id),
+    ["pi:minimax-cn"],
+  );
+  stored = undefined;
+  assert.deepEqual(await source.discover(), []);
+});
+
+test("Pi discovers JSONC model keys and registered extension keys without resolving them", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-model-config-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = home;
+  let resolves = 0;
+  try {
+    await writeFile(
+      join(home, "models.json"),
+      '\uFEFF{ // a valid Pi config\n "providers": {"minimax-cn": {"apiKey": "${KEY}"}}\n}',
     );
-    assert.match(await h.command("update --installed"), /Updated fast\/openai/);
-    assert.equal(h.statuses().at(-1)?.[1], undefined, "update must not load");
-    assert.deepEqual(Object.keys(JSON.parse(await readFile(path, "utf8")).modules), ["fast/openai"]);
-    assert.equal(new ConfigStore(home, "pi").load().controls.fast, "on");
-    assert.deepEqual(new ConfigStore(home, "pi").load().autoload, ["fast/openai"]);
-    assert.match(await h.command("updates"), /No updates/);
-    assert.match(await h.command("openai fast load"), /Loaded/);
-    assert.equal(h.statuses().at(-1)?.[1], "fast:on(2.5x)");
-    assert.match(await h.command("openai fast enable --save"), /--save is valid only/);
+    const env: NodeJS.ProcessEnv = {};
+    const ctx = {
+      modelRegistry: {
+        getProviderAuthStatus: () => ({ configured: false }),
+        getRegisteredProviderConfig: () => undefined,
+        getProviderAuth: async () => {
+          resolves++;
+          return undefined;
+        },
+        refresh: async () => {
+          resolves++;
+        },
+      },
+    } as unknown as ExtensionCommandContext;
+    const source = piServiceSource(ctx, { env, storedCredential: () => undefined });
+    assert.deepEqual(await source.discover(), []);
+    env.KEY = "sk-cp-fixture";
+    assert.deepEqual(
+      (await source.discover()).map((c) => c.id),
+      ["pi:minimax-cn"],
+    );
+    assert.equal(resolves, 0);
+    const extensionCtx = {
+      modelRegistry: {
+        getProviderAuthStatus: (id: string) => ({ configured: id === "zai", source: "models_json_command" }),
+        getRegisteredProviderConfig: (id: string) => (id === "zai" ? { apiKey: "!get-key" } : undefined),
+      },
+    } as unknown as ExtensionCommandContext;
+    assert.deepEqual(
+      (
+        await piServiceSource(extensionCtx, {
+          env: {},
+          modelConfig: {},
+          storedCredential: () => undefined,
+        }).discover()
+      ).map((c) => c.id),
+      ["pi:zai"],
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Pi platform API-key fallback is not discovered as subscription OAuth", async () => {
+  const ctx = {
+    modelRegistry: {
+      getProviderAuthStatus: (id: string) => ({
+        configured: ["openai-codex", "xai"].includes(id),
+        source: "fallback",
+      }),
+      getRegisteredProviderConfig: () => ({ apiKey: "sk-platform" }),
+    },
+  } as unknown as ExtensionCommandContext;
+  assert.deepEqual(
+    await piServiceSource(ctx, { env: {}, modelConfig: {}, storedCredential: () => undefined }).discover(),
+    [],
+  );
+});
+
+test("invalid persisted request settings are reported without overwriting the file or working tools", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-invalid-request-"));
+  try {
+    const h = await harness(home, ["openai-codex"]);
+    await h.emit("session_start");
+    preferences(home).update((p) => ({ ...p, requests: { fast: "invalid" } }));
+    const before = await readFile(preferences(home).path, "utf8");
+    assert.match(await h.command("status"), /CONFIG_INVALID.*fast/);
+    assert.equal(await readFile(preferences(home).path, "utf8"), before);
+    assert.ok(h.active().includes("gen_image"));
     await h.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });

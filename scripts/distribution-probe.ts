@@ -1,6 +1,6 @@
-// Runs in a fresh process with an unpacked minimal package and an empty host home.
+// Offline acceptance of an unpacked release with its own lazily imported modules.
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createAgentSession,
@@ -9,28 +9,31 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { Catalog } from "../packages/core/src/modules.ts";
+import type { Catalog } from "../packages/integrations/services/src/catalog.ts";
 
-const [extension, home, source, mode] = process.argv.slice(2);
-if (!extension || !home || !source) throw new Error("Expected package, home and fixture source paths.");
+const [extension, home] = process.argv.slice(2);
+if (!extension || !home) throw new Error("Expected package and isolated home.");
 process.env.AGENT_ENHANCE_HOME = home;
-const catalog = JSON.parse(await readFile(join(extension, "dist/catalog.json"), "utf8")) as Catalog;
-const requested: string[] = [];
-const networkFetch = globalThis.fetch;
-globalThis.fetch = async (input, init) => {
-  const url = String(input);
-  const prefix = `https://raw.githubusercontent.com/${catalog.repository}/${catalog.revision}/dist/modules/`;
-  assert.ok(url.startsWith(prefix), `Unexpected network operation: ${url}`);
-  assert.equal(init?.redirect, "error");
-  assert.equal(init?.headers, undefined, "module downloads must not carry credentials");
-  const file = url.slice(prefix.length);
-  assert.ok(
-    catalog.modules.some((e) => e.file === file),
-    `Unexpected module: ${file}`,
-  );
-  requested.push(file);
-  return mode === "--download" ? networkFetch(input, init) : new Response(await readFile(join(source, file)));
+process.env.CODEX_HOME = join(home, "codex");
+process.env.PI_CODING_AGENT_DIR = home;
+process.env.XDG_DATA_HOME = join(home, "data");
+process.env.OPENAI_CODEX_COMPUTER_APP = join(home, "absent.app");
+for (const key of [
+  "OPENCODE_AUTH_CONTENT",
+  "OPENCODE_API_KEY",
+  "MINIMAX_CN_API_KEY",
+  "MINIMAX_API_KEY",
+  "ZAI_API_KEY",
+  "ZAI_CODING_CN_API_KEY",
+])
+  delete process.env[key];
+let network = 0;
+globalThis.fetch = async (input) => {
+  network++;
+  throw new Error(`Unexpected network request: ${String(input)}`);
 };
+const catalog = JSON.parse(await readFile(join(extension, "dist/catalog.json"), "utf8")) as Catalog;
+assert.equal((await readdir(join(extension, "dist/modules"))).length, catalog.modules.length);
 const settingsManager = SettingsManager.inMemory({
   packages: [],
   compaction: { enabled: false },
@@ -49,6 +52,13 @@ const resourceLoader = new DefaultResourceLoader({
 });
 await resourceLoader.reload();
 assert.deepEqual(resourceLoader.getExtensions().errors, []);
+await writeFile(
+  join(home, "auth.json"),
+  JSON.stringify({
+    "openai-codex": { type: "oauth", access: "fixture", refresh: "fixture", expires: Date.now() + 3600000 },
+    xai: { type: "oauth", access: "fixture", refresh: "fixture", expires: Date.now() + 3600000 },
+  }),
+);
 const modelRuntime = await ModelRuntime.create({
   authPath: join(home, "auth.json"),
   modelsPath: join(home, "models.json"),
@@ -70,44 +80,31 @@ try {
       throw new Error(String(error));
     },
   });
-  assert.equal(
-    session.getAllTools().filter((t) => catalog.modules.some((e) => e.capability === t.name)).length,
-    0,
-  );
-  assert.deepEqual(requested, [], "fresh startup must not download capabilities");
-  await session.prompt("/pi-enhance catalog");
-  assert.deepEqual(requested, [], "browsing metadata must not download capabilities");
-  await session.prompt("/pi-enhance openai gen_image enable");
-  assert.deepEqual(requested, ["gen_image--openai.mjs"]);
-  assert.equal((await readdir(join(home, "packages"))).length, 1);
-  assert.ok(session.getActiveToolNames().includes("gen_image"));
-  await session.prompt("/pi-enhance openai gen_image enable");
-  await session.prompt("/pi-enhance update --installed");
-  assert.equal(requested.length, 1, "repeated enable/update must not redownload current modules");
-  await session.prompt("/pi-enhance xai gen_image enable");
-  const image = session.getAllTools().filter((t) => t.name === "gen_image");
-  assert.equal(image.length, 1);
-  assert.deepEqual((image[0]!.parameters as any).properties.provider.enum, ["openai", "xai"]);
-  assert.deepEqual(requested, ["gen_image--openai.mjs", "gen_image--xai.mjs"]);
-  await session.prompt("/pi-enhance openai gen_image disable");
+  assert.equal(session.getAllTools().filter((t) => t.name === "gen_image").length, 1);
+  const image = session.getAllTools().find((t) => t.name === "gen_image")!;
+  assert.deepEqual((image.parameters as any).properties.provider.enum, ["openai", "xai"]);
+  await session.prompt("/pi-enhance services");
+  await session.prompt("/pi-enhance prefer gen_image pi:xai");
+  await session.prompt("/pi-enhance exclude gen_image pi:openai-codex");
   assert.deepEqual(
     (session.getAllTools().find((t) => t.name === "gen_image")!.parameters as any).properties.provider.enum,
     ["xai"],
   );
-  await session.prompt("/pi-enhance xai gen_image disable");
+  await session.prompt("/pi-enhance exclude gen_image");
   assert.ok(!session.getActiveToolNames().includes("gen_image"));
-  await session.prompt("/pi-enhance openai gen_image uninstall");
-  const config = JSON.parse(await readFile(join(home, "hosts/pi.json"), "utf8"));
-  const lock = JSON.parse(await readFile(join(home, "modules.lock.json"), "utf8"));
-  assert.deepEqual(config.autoload, []);
-  assert.deepEqual(Object.keys(lock.modules), ["gen_image/xai"]);
-  assert.equal((await readdir(join(home, "packages"))).length, 2, "uninstall retains content cache");
-  assert.ok(!session.messages.some((m) => m.role === "assistant"), "management must not invoke any model");
+  await session.prompt("/pi-enhance include gen_image");
+  assert.ok(session.getActiveToolNames().includes("gen_image"));
+  const preferences = JSON.parse(await readFile(join(home, "preferences/pi.json"), "utf8"));
+  assert.equal(preferences.preferred.gen_image, "pi:xai");
+  assert.deepEqual(preferences.excluded, ["gen_image@pi:openai-codex"]);
+  assert.ok(!(await readdir(home)).includes("packages"));
+  assert.ok(!(await readdir(home)).includes("modules.lock.json"));
+  assert.equal(network, 0);
+  assert.ok(!session.messages.some((m) => m.role === "assistant"));
   console.log(
-    `Minimal package, zero-capability startup, selective ${mode === "--download" ? "HTTPS" : "mocked HTTPS"} download, enable/disable/update: PASS`,
+    "Packed release: automatic discovery, merged providers, preference persistence, zero downloads/model calls. PASS",
   );
 } finally {
   await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
   session.dispose();
-  globalThis.fetch = networkFetch;
 }

@@ -5,13 +5,8 @@ var __export = (target, all) => {
 };
 
 // packages/capabilities/view_image/zai/src/manifest.ts
-var manifest = {
-  apiVersion: 1,
-  id: "view_image/zai",
-  capability: "view_image",
+var requirements = {
   provider: "zai",
-  kind: "tool",
-  version: "0.2.0",
   auth: {
     provider: "zai",
     channel: "coding-plan",
@@ -20,6 +15,28 @@ var manifest = {
   /** Hosts skip registering this tool while the active model already accepts image input. */
   modelInputExcludes: ["image"]
 };
+
+// packages/capabilities/view_image/definition.ts
+var definition = {
+  id: "view_image",
+  label: "\u56FE\u7247\u7406\u89E3",
+  group: "File understanding"
+};
+
+// packages/core/src/module.ts
+var MODULE_API_VERSION = 2;
+function defineModule(definition2, manifest, create) {
+  return {
+    definition: definition2,
+    manifest: {
+      ...manifest,
+      apiVersion: MODULE_API_VERSION,
+      id: `${definition2.id}/${manifest.provider}`,
+      capability: definition2.id
+    },
+    create
+  };
+}
 
 // packages/transports/zai/src/http.ts
 var ProtocolError = class extends Error {
@@ -9121,6 +9138,71 @@ function viewImageTool(deps) {
   };
 }
 
+// package.json
+var package_default = {
+  name: "pi-enhance",
+  version: "0.3.0",
+  description: "Host-neutral capabilities with automatic service discovery for Pi and Claude Code",
+  type: "module",
+  license: "MIT",
+  repository: "github:Ezio2000/agent-enhance",
+  keywords: [
+    "pi-package",
+    "agent-enhance",
+    "capabilities"
+  ],
+  engines: {
+    node: ">=22"
+  },
+  files: [
+    "dist/pi-enhance.mjs",
+    "dist/catalog.json",
+    "dist/modules",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
+  pi: {
+    extensions: [
+      "./dist/pi-enhance.mjs"
+    ]
+  },
+  scripts: {
+    build: "tsx scripts/build.ts",
+    typecheck: "tsc --noEmit",
+    test: "tsx --test tests/*.test.ts tests/capabilities/*/*/*.test.ts tests/transports/*/*.test.ts",
+    "check:boundaries": "tsx scripts/check-boundaries.ts",
+    check: "npm run format:check && npm run typecheck && npm run check:boundaries && npm run build && npm test && npm run verify:distribution",
+    smoke: "tsx scripts/smoke.ts",
+    "verify:distribution": "tsx scripts/verify-distribution.ts",
+    format: "prettier --write packages scripts tests docs README.md package.json tsconfig.json",
+    "format:check": "prettier --check packages scripts tests docs README.md package.json tsconfig.json"
+  },
+  peerDependencies: {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    typebox: "*"
+  },
+  devDependencies: {
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@types/node": "^22.0.0",
+    "@types/proper-lockfile": "^4.1.4",
+    esbuild: "^0.25.0",
+    prettier: "^3.9.8",
+    "proper-lockfile": "^4.1.2",
+    "strip-json-comments": "^5.0.3",
+    tsx: "^4.20.0",
+    typebox: "1.3.7",
+    typescript: "^5.9.0"
+  }
+};
+
+// packages/transports/version.ts
+var clientInfo = { name: "agent-enhance", version: package_default.version };
+var userAgent = `${clientInfo.name}/${clientInfo.version}`;
+
 // packages/core/src/auth.ts
 var EnhanceError = class extends Error {
   constructor(code, message) {
@@ -9166,19 +9248,16 @@ async function resolveZaiAuth(ctx) {
   );
   return {
     baseUrl: zaiCodingBase(credential.baseUrl),
-    headers: { Authorization: `Bearer ${credential.secret}`, "User-Agent": "agent-enhance/0.2.0" }
+    headers: { Authorization: `Bearer ${credential.secret}`, "User-Agent": userAgent }
   };
 }
 
 // packages/capabilities/view_image/zai/src/index.ts
-var index_default = {
-  manifest,
-  create: () => ({
-    tool: viewImageTool({
-      client: (ctx) => new VisionClient(() => resolveZaiAuth(ctx))
-    })
+var index_default = defineModule(definition, requirements, () => ({
+  tool: viewImageTool({
+    client: (ctx) => new VisionClient(() => resolveZaiAuth(ctx))
   })
-};
+}));
 export {
   index_default as default
 };

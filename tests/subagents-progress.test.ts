@@ -263,3 +263,41 @@ test("/new and shutdown abort old tasks and prevent late delivery and cross-sess
   await assert.rejects(h.execute("view_subagents", { batchId: call.details.batchId }), /not found/);
   h.agents.shutdown();
 });
+
+test("disabling subagents aborts current batches and suppresses late follow-up", async () => {
+  let finish!: () => void;
+  let signal!: AbortSignal;
+  const runner: typeof runSubagent = async (
+    _task,
+    index,
+    model,
+    _thinking,
+    _registry,
+    _parent,
+    abortSignal,
+  ) => {
+    signal = abortSignal;
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return {
+      index,
+      model: `${model.provider}/${model.id}`,
+      status: "completed",
+      text: "late",
+      turns: 0,
+      usage: { input: 0, output: 0, cost: 0 },
+    };
+  };
+  const h = setup(runner);
+  await h.execute("call_subagents", { tasks: [{ context: "Long task" }] });
+  await flush();
+  h.agents.setEnabled(false);
+  assert.ok(signal.aborted);
+  finish();
+  await flush();
+  assert.equal(h.messages.length, 0);
+  h.agents.setEnabled(true);
+  assert.deepEqual((await h.execute("view_subagents")).json.batches, []);
+  h.agents.shutdown();
+});

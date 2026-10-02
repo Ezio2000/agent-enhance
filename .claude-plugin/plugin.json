@@ -1,6 +1,6 @@
 {
   "name": "cc-enhance",
-  "description": "Agent Enhance host adapter for Claude Code: one MCP server per capability, per-provider modules, provider logins",
+  "description": "Agent Enhance for Claude Code: a single MCP server with automatic service discovery and capability preferences",
   "author": {
     "name": "Ezio2000"
   },
@@ -8,14 +8,6 @@
   "license": "MIT",
   "commands": [
     "./packages/hosts/claude-code/plugin/commands/cc-enhance.md",
-    "./packages/hosts/claude-code/plugin/commands/gen_image.md",
-    "./packages/hosts/claude-code/plugin/commands/gen_video.md",
-    "./packages/hosts/claude-code/plugin/commands/gen_voice.md",
-    "./packages/hosts/claude-code/plugin/commands/search_web.md",
-    "./packages/hosts/claude-code/plugin/commands/use_computer.md",
-    "./packages/hosts/claude-code/plugin/commands/view_image.md",
-    "./packages/hosts/claude-code/plugin/commands/view_pdf.md",
-    "./packages/hosts/claude-code/plugin/commands/view_video.md",
     "./packages/hosts/claude-code/plugin/commands/manage_computer.md"
   ],
   "hooks": "./packages/hosts/claude-code/plugin/hooks.json",

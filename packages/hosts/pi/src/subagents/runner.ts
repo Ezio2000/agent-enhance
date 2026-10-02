@@ -13,7 +13,7 @@ type ThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
 type Model = NonNullable<ExtensionContext["model"]>;
 import type { CapabilityRegistry } from "../../../../core/src/registry.ts";
 import type { ExecutionContext } from "../../../../core/src/contracts.ts";
-import { PiCredentialResolver } from "../auth.ts";
+import { StaticCredentialResolver } from "../../../../core/src/auth.ts";
 import { piHistory } from "../history.ts";
 
 export interface SubagentTask {
@@ -93,7 +93,7 @@ export async function runSubagent(
             cwd: ctx.cwd,
             sessionId: ctx.sessionManager.getSessionId(),
             host: "pi",
-            credentials: new PiCredentialResolver(ctx.modelRegistry),
+            credentials: new StaticCredentialResolver({}),
             signal: toolSignal,
             model: ctx.model
               ? {
