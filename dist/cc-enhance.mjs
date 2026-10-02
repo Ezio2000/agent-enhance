@@ -27118,6 +27118,7 @@ var CapabilityRegistry = class {
         })
       );
     const options = {};
+    const shared = /* @__PURE__ */ new Map();
     for (const { module, instance } of implementations) {
       const schema = instance.tool.parameters;
       const specific = {};
@@ -27126,12 +27127,21 @@ var CapabilityRegistry = class {
         const common = definition.commonFields;
         if (common && !common.includes(key))
           specific[key] = required2.includes(key) ? field : typebox_exports.Optional(field);
-        else if (!properties[key]) properties[key] = required2.includes(key) ? field : typebox_exports.Optional(field);
+        else shared.set(key, [...shared.get(key) ?? [], { field, required: required2.includes(key) }]);
       }
       if (Object.keys(specific).length)
         options[module.manifest.provider] = typebox_exports.Optional(
           typebox_exports.Object(specific, { additionalProperties: false })
         );
+    }
+    for (const [key, fields] of shared) {
+      const variants = fields.map(({ field: field2 }) => {
+        const { "~optional": ignored, ...schema } = field2;
+        return typebox_exports.Unsafe(schema);
+      });
+      const distinct = [...new Map(variants.map((field2) => [JSON.stringify(field2), field2])).values()];
+      const field = distinct.length === 1 ? distinct[0] : typebox_exports.Union(distinct);
+      properties[key] = fields.length === implementations.length && fields.every((field2) => field2.required) ? field : typebox_exports.Optional(field);
     }
     Object.assign(
       properties,

@@ -144,6 +144,7 @@ export class CapabilityRegistry {
         }),
       );
     const options: Record<string, TSchema> = {};
+    const shared = new Map<string, { field: TSchema; required: boolean }[]>();
     for (const { module, instance } of implementations) {
       const schema = instance.tool!.parameters;
       const specific: Record<string, TSchema> = {};
@@ -152,12 +153,25 @@ export class CapabilityRegistry {
         const common = definition.commonFields;
         if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : Type.Optional(field);
-        else if (!properties[key]) properties[key] = required.includes(key) ? field : Type.Optional(field);
+        else shared.set(key, [...(shared.get(key) ?? []), { field, required: required.includes(key) }]);
       }
       if (Object.keys(specific).length)
         options[module.manifest.provider] = Type.Optional(
           Type.Object(specific, { additionalProperties: false }),
         );
+    }
+    for (const [key, fields] of shared) {
+      // Accept every loaded provider's field range; execution validates the selected provider.
+      const variants = fields.map(({ field }) => {
+        const { "~optional": ignored, ...schema } = field as TSchema & { "~optional"?: unknown };
+        return Type.Unsafe(schema);
+      });
+      const distinct = [...new Map(variants.map((field) => [JSON.stringify(field), field])).values()];
+      const field = distinct.length === 1 ? distinct[0]! : Type.Union(distinct);
+      properties[key] =
+        fields.length === implementations.length && fields.every((field) => field.required)
+          ? field
+          : Type.Optional(field);
     }
     Object.assign(
       properties,

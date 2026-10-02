@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createPiEnhance } from "../packages/hosts/pi/src/index.ts";
 import { PiCredentialResolver } from "../packages/hosts/pi/src/auth.ts";
 import { PreferenceStore, emptyPiPreferences } from "../packages/integrations/services/src/preferences.ts";
@@ -11,6 +12,9 @@ import { StaticCredentialResolver } from "../packages/core/src/auth.ts";
 import { channels } from "../packages/integrations/services/src/sources/channels.ts";
 import { piServiceSource } from "../packages/hosts/pi/src/auth.ts";
 import type { Catalog } from "../packages/integrations/services/src/catalog.ts";
+import { ModuleCatalog } from "../packages/integrations/services/src/catalog.ts";
+import { ServiceRuntime } from "../packages/integrations/services/src/runtime.ts";
+import { CapabilityRegistry } from "../packages/core/src/registry.ts";
 const preferences = (home: string) => new PreferenceStore(home, "pi", emptyPiPreferences);
 async function harness(home: string, initial: string[] = []) {
   let available = initial;
@@ -425,6 +429,7 @@ test("Pi service discovery uses local metadata and binds domestic and internatio
       }),
       getAll: () => [],
       getRegisteredProviderConfig: () => undefined,
+      refresh: async () => {},
       getProviderAuth: async () => {
         resolutions++;
         return undefined;
@@ -544,6 +549,105 @@ test("Pi platform API-key fallback is not discovered as subscription OAuth", asy
     await piServiceSource(ctx, { env: {}, modelConfig: {}, storedCredential: () => undefined }).discover(),
     [],
   );
+});
+
+test("Pi refreshes native model auth after removing a configured key and falls back to the environment", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-pi-native-auth-"));
+  const previousDir = process.env.PI_CODING_AGENT_DIR;
+  const previousKey = process.env.ZAI_API_KEY;
+  process.env.PI_CODING_AGENT_DIR = home;
+  process.env.ZAI_API_KEY = "environment-key";
+  try {
+    const modelsPath = join(home, "models.json");
+    await writeFile(modelsPath, JSON.stringify({ providers: { zai: { apiKey: "configured-key" } } }));
+    const modelRegistry = new ModelRegistry(
+      await ModelRuntime.create({
+        authPath: join(home, "auth.json"),
+        modelsPath,
+        modelsStorePath: join(home, "models-cache.json"),
+        allowModelNetwork: false,
+        refreshOnCreate: false,
+      }),
+    );
+    assert.equal((await modelRegistry.getProviderAuth("zai"))?.auth.apiKey, "configured-key");
+    const ctx = { modelRegistry } as ExtensionCommandContext;
+    const source = piServiceSource(ctx, { env: { ZAI_API_KEY: "environment-key" } });
+    const requirement = {
+      provider: "zai" as const,
+      channel: "coding-plan",
+      acceptedKinds: ["api_key" as const],
+    };
+    for (const config of [{ providers: { zai: {} } }, { providers: {} }]) {
+      await writeFile(modelsPath, JSON.stringify(config));
+      const connection = (await source.discover()).find((c) => c.id === "pi:zai")!;
+      const resolution = await connection.credentials.resolve(requirement, { interactive: false });
+      assert.equal(resolution.status, "ready");
+      if (resolution.status === "ready") assert.equal(resolution.credential.secret, "environment-key");
+      assert.equal((await modelRegistry.getProviderAuth("zai"))?.auth.apiKey, "environment-key");
+    }
+  } finally {
+    if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousDir;
+    if (previousKey === undefined) delete process.env.ZAI_API_KEY;
+    else process.env.ZAI_API_KEY = previousKey;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Pi auth file failures preserve last known connections and missing credentials remove them", async () => {
+  const home = await mkdtemp(join(tmpdir(), "enhance-pi-auth-errors-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = home;
+  const runtime = new ServiceRuntime({
+    modules: new ModuleCatalog({ version: 2, release: "test", modules: [] }, home),
+    registry: new CapabilityRegistry(),
+    services: () => ({}) as any,
+  });
+  const ctx = {
+    modelRegistry: {
+      getProviderAuthStatus: () => ({ configured: false }),
+      getRegisteredProviderConfig: () => undefined,
+    },
+  } as unknown as ExtensionCommandContext;
+  const source = piServiceSource(ctx, { env: {}, modelConfig: {} });
+  const sync = () => runtime.synchronize([source], emptyPiPreferences(), { features: new Set() });
+  const path = join(home, "auth.json");
+  try {
+    await writeFile(path, '\uFEFF{"zai":{"type":"api_key","key":"fixture"}}');
+    await sync();
+    assert.deepEqual(
+      runtime.snapshot.connections.map((c) => c.id),
+      ["pi:zai"],
+    );
+    await writeFile(path, "{broken");
+    await sync();
+    assert.ok(runtime.snapshot.errors.pi);
+    assert.deepEqual(
+      runtime.snapshot.connections.map((c) => c.id),
+      ["pi:zai"],
+    );
+    await rm(path);
+    await mkdir(path);
+    await sync();
+    assert.ok(runtime.snapshot.errors.pi);
+    assert.deepEqual(
+      runtime.snapshot.connections.map((c) => c.id),
+      ["pi:zai"],
+    );
+    await rm(path, { recursive: true });
+    await sync();
+    assert.deepEqual(runtime.snapshot.errors, {});
+    assert.deepEqual(runtime.snapshot.connections, []);
+    await writeFile(path, "{}");
+    await sync();
+    assert.deepEqual(runtime.snapshot.errors, {});
+    assert.deepEqual(runtime.snapshot.connections, []);
+  } finally {
+    await runtime.dispose();
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("invalid persisted request settings are reported without overwriting the file or working tools", async () => {

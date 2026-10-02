@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import stripJsonComments from "strip-json-comments";
 import {
   isConfiguredValue,
@@ -110,7 +110,23 @@ export function piServiceSource(ctx: ExtensionContext, options: PiSourceOptions 
           ? (JSON.parse(stripJsonComments(readFileSync(path, "utf8").replace(/^\uFEFF/, ""))).providers ?? {})
           : {});
       const readStored: NonNullable<PiSourceOptions["storedCredential"]> =
-        options.storedCredential ?? ((id) => readStoredCredential(id));
+        options.storedCredential ??
+        (() => {
+          // Pi's one-off reader also swallows malformed JSON and I/O errors. Only a
+          // missing file means no credentials; other failures must reach discovery.
+          let stored: Record<string, ReturnType<NonNullable<PiSourceOptions["storedCredential"]>>>;
+          try {
+            stored = JSON.parse(
+              readFileSync(join(getAgentDir(), "auth.json"), "utf8").replace(/^\uFEFF/, ""),
+            );
+            if (!stored || typeof stored !== "object" || Array.isArray(stored))
+              throw new Error("Pi auth.json must contain a credential object.");
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            stored = {};
+          }
+          return (id: string) => stored[id];
+        })();
       return Object.entries(channels).flatMap(([providerId, channel]) => {
         const status = ctx.modelRegistry.getProviderAuthStatus(providerId);
         const stored = readStored(providerId);
@@ -146,7 +162,9 @@ export function piServiceSource(ctx: ExtensionContext, options: PiSourceOptions 
             credentials: new PiCredentialResolver(
               ctx.modelRegistry,
               providerId,
-              models[providerId]?.apiKey
+              // Refresh API-key configuration even after its models.json key was
+              // removed, so Pi can fall back to the current environment credential.
+              channel.kind === "api_key"
                 ? async (signal) => {
                     await ctx.modelRegistry.refresh({ allowNetwork: false, providers: [providerId], signal });
                   }

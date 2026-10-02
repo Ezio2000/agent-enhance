@@ -9045,7 +9045,7 @@ Original file is saved. Do not re-read or narrate the clip.`
 // package.json
 var package_default = {
   name: "pi-enhance",
-  version: "0.3.0",
+  version: "0.3.1",
   description: "Host-neutral capabilities with automatic service discovery for Pi and Claude Code",
   type: "module",
   license: "MIT",

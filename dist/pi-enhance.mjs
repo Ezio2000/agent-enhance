@@ -1753,6 +1753,7 @@ var CapabilityRegistry = class {
         })
       );
     const options = {};
+    const shared = /* @__PURE__ */ new Map();
     for (const { module, instance } of implementations) {
       const schema = instance.tool.parameters;
       const specific = {};
@@ -1761,12 +1762,21 @@ var CapabilityRegistry = class {
         const common = definition.commonFields;
         if (common && !common.includes(key))
           specific[key] = required.includes(key) ? field : Type.Optional(field);
-        else if (!properties[key]) properties[key] = required.includes(key) ? field : Type.Optional(field);
+        else shared.set(key, [...shared.get(key) ?? [], { field, required: required.includes(key) }]);
       }
       if (Object.keys(specific).length)
         options[module.manifest.provider] = Type.Optional(
           Type.Object(specific, { additionalProperties: false })
         );
+    }
+    for (const [key, fields] of shared) {
+      const variants = fields.map(({ field: field2 }) => {
+        const { "~optional": ignored, ...schema } = field2;
+        return Type.Unsafe(schema);
+      });
+      const distinct = [...new Map(variants.map((field2) => [JSON.stringify(field2), field2])).values()];
+      const field = distinct.length === 1 ? distinct[0] : Type.Union(distinct);
+      properties[key] = fields.length === implementations.length && fields.every((field2) => field2.required) ? field : Type.Optional(field);
     }
     Object.assign(
       properties,
@@ -2745,7 +2755,7 @@ function watchServiceSources(paths, changed) {
 // packages/hosts/pi/src/auth.ts
 import { readFileSync as readFileSync2, existsSync as existsSync4 } from "node:fs";
 import { join as join6 } from "node:path";
-import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // node_modules/strip-json-comments/index.js
 var singleComment = Symbol("singleComment");
@@ -2907,7 +2917,20 @@ function piServiceSource(ctx, options = {}) {
       const env = options.env ?? process.env;
       const path = join6(getAgentDir(), "models.json");
       const models = options.modelConfig ?? (existsSync4(path) ? JSON.parse(stripJsonComments(readFileSync2(path, "utf8").replace(/^\uFEFF/, ""))).providers ?? {} : {});
-      const readStored = options.storedCredential ?? ((id) => readStoredCredential(id));
+      const readStored = options.storedCredential ?? (() => {
+        let stored;
+        try {
+          stored = JSON.parse(
+            readFileSync2(join6(getAgentDir(), "auth.json"), "utf8").replace(/^\uFEFF/, "")
+          );
+          if (!stored || typeof stored !== "object" || Array.isArray(stored))
+            throw new Error("Pi auth.json must contain a credential object.");
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          stored = {};
+        }
+        return (id) => stored[id];
+      })();
       return Object.entries(channels).flatMap(([providerId, channel]) => {
         const status = ctx.modelRegistry.getProviderAuthStatus(providerId);
         const stored = readStored(providerId);
@@ -2926,7 +2949,9 @@ function piServiceSource(ctx, options = {}) {
             credentials: new PiCredentialResolver(
               ctx.modelRegistry,
               providerId,
-              models[providerId]?.apiKey ? async (signal) => {
+              // Refresh API-key configuration even after its models.json key was
+              // removed, so Pi can fall back to the current environment credential.
+              channel.kind === "api_key" ? async (signal) => {
                 await ctx.modelRegistry.refresh({ allowNetwork: false, providers: [providerId], signal });
               } : void 0
             )

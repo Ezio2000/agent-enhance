@@ -7,6 +7,7 @@ import { StaticCredentialResolver, requireCredential } from "../packages/core/sr
 import type { CapabilityModule, ExecutionContext } from "../packages/core/src/contracts.ts";
 import openai from "../packages/capabilities/gen_image/openai/src/index.ts";
 import xai from "../packages/capabilities/gen_image/xai/src/index.ts";
+import minimax from "../packages/capabilities/gen_image/minimax/src/index.ts";
 import webOpenai from "../packages/capabilities/search_web/openai/src/index.ts";
 import webZai from "../packages/capabilities/search_web/zai/src/index.ts";
 import { transformControlledRequest } from "../packages/core/src/controls.ts";
@@ -121,6 +122,53 @@ test("same capability is merged once; only loaded provider options appear", asyn
   await assert.rejects(first.execute("stale", { prompt: "x" }, undefined, undefined, context), /STALE_TOOL/);
   await registry.unload("gen_image/xai");
   assert.equal(registry.tools().length, 0);
+});
+test("shared image prompts accept every provider's range and enforce the selected provider's limit", async () => {
+  for (const modules of [
+    [minimax, openai, xai],
+    [xai, openai, minimax],
+  ]) {
+    const registry = new CapabilityRegistry();
+    const received: string[] = [];
+    for (const module of modules)
+      registry.load(
+        fake(module, async (args) => {
+          received.push(args.prompt);
+          return { content: [], details: {} };
+        }),
+        services,
+      );
+    const tool = registry.tools()[0]!;
+    const prompt = "x".repeat(32000);
+    assert.ok(Value.Check(tool.parameters, { provider: "openai", prompt }));
+    assert.ok(!Value.Check(tool.parameters, { provider: "openai", prompt: `${prompt}x` }));
+    assert.ok(!Value.Check(tool.parameters, { provider: "openai", prompt: "" }));
+    assert.ok(!Value.Check(tool.parameters, { provider: "openai" }));
+    for (const provider of ["openai", "xai"])
+      await tool.execute("long", { provider, prompt }, undefined, undefined, context);
+    await tool.execute(
+      "short",
+      { provider: "minimax", prompt: "x".repeat(1500) },
+      undefined,
+      undefined,
+      context,
+    );
+    await assert.rejects(
+      tool.execute(
+        "too-long",
+        { provider: "minimax", prompt: "x".repeat(1501) },
+        undefined,
+        undefined,
+        context,
+      ),
+      /PROVIDER_ARGUMENTS/,
+    );
+    assert.deepEqual(
+      received.map((value) => value.length),
+      [32000, 32000, 1500],
+    );
+    await registry.dispose();
+  }
 });
 test("routing is explicit/default/single; cross-provider options and mismatched models are rejected", async () => {
   const registry = new CapabilityRegistry();
