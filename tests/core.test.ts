@@ -321,6 +321,24 @@ test("request controls remain API/model scoped and preserve payloads when off", 
   assert.equal(output.input[0].content[0].detail, "original");
   assert.equal(input.input[0]!.content[0]!.detail, "auto");
 });
+test("GPT-6.1 Sol supports Fast without enabling other request options", () => {
+  const model = {
+    provider: "openai",
+    channel: "codex",
+    api: "codex-responses",
+    id: "gpt-6.1-sol",
+    input: ["text", "image"],
+  };
+  const payload = { model: model.id, input: [{ role: "user", content: "hello" }] };
+  assert.equal(supportsModelOption(model.id, "priority"), true);
+  assert.equal(supportsModelOption(model.id, "verbosity"), false);
+  assert.equal(supportsModelOption(model.id, "originalImages"), false);
+  assert.equal(transformControlledRequest(payload, model, [fastControl], { fast: "off" }), payload);
+  assert.deepEqual(transformControlledRequest(payload, model, [fastControl], { fast: "on" }), {
+    ...payload,
+    service_tier: "priority",
+  });
+});
 test("GPT-6 Sol and Luna support Codex request controls; unknown models remain excluded", () => {
   const controls = [fastControl, verbosityControl, imageDetailControl];
   for (const id of ["gpt-6-sol", "gpt-6-luna"]) {

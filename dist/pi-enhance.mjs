@@ -3157,6 +3157,7 @@ Excluded: ${JSON.stringify(p.excluded)}`;
 var SUPPORT = Object.freeze({
   "gpt-6-astra": { verbosity: true, originalImages: true, priority: true },
   "gpt-6-sol": { verbosity: true, originalImages: true, priority: true },
+  "gpt-6.1-sol": { verbosity: false, originalImages: false, priority: true },
   "gpt-6-luna": { verbosity: true, originalImages: true, priority: true },
   "gpt-5.6-sol": { verbosity: true, originalImages: true, priority: true },
   "gpt-5.6-terra": { verbosity: true, originalImages: true, priority: true },
