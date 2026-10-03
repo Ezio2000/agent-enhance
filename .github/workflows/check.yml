@@ -30,4 +30,8 @@ jobs:
           node -e "const assert = require('node:assert/strict'); const pi = require('./node_modules/@earendil-works/pi-coding-agent/package.json').version; const tui = require('./node_modules/@earendil-works/pi-tui/package.json').version; console.log({ pi, tui }); assert.equal(pi, tui); if (process.env.PI_VERSION !== 'latest') assert.equal(pi, process.env.PI_VERSION)"
       - run: npm run format:check
       - run: npm run check
-      - run: git diff --exit-code -- dist
+      # Only the lockfile-backed build must reproduce committed release artifacts.
+      # The latest compatibility lane can resolve different transitive dependencies.
+      - name: Verify reproducible release artifacts
+        if: matrix.pi-version != 'latest'
+        run: git diff --exit-code -- dist
