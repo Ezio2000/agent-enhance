@@ -13,11 +13,8 @@ export type Artifact = {
   size: number
 }
 
-/** Connection status drawn above the prompt: what is available, or why not. */
-export type Status = { caps: string[]; connections: number } | { error: string }
-
 declare module 'claude-code' {
   interface PluginState {
-    'enhance-companion': { artifacts: Artifact[]; status: Status | null }
+    'enhance-companion': { artifacts: Artifact[] }
   }
 }

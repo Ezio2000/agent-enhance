@@ -15,7 +15,7 @@
     {
       "name": "enhance-companion",
       "source": "./mods/enhance-companion",
-      "description": "Companion mod for cc-enhance: connection status band above the prompt and a pane browsing generated artifacts"
+      "description": "Companion mod for cc-enhance: a pane browsing generated artifacts"
     }
   ]
 }
