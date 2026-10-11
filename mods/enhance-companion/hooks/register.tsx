@@ -47,6 +47,21 @@ async function scanArtifacts($: EngineInterface): Promise<Artifact[]> {
   return found.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, ARTIFACT_LIMIT)
 }
 
+/** Opens a file in its default app: `open` on macOS, `xdg-open` elsewhere. */
+async function openFile($: EngineInterface, path: string): Promise<string | undefined> {
+  let reason = 'no opener found'
+  for (const opener of ['open', 'xdg-open']) {
+    try {
+      const { exitCode, stderr } = await $.process.run([opener, path])
+      if (exitCode === 0) return
+      reason = stderr.trim() || `${opener} exited ${exitCode}`
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error)
+    }
+  }
+  return reason
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -59,7 +74,13 @@ export const register: Register = on => {
   on('command.run', { command: 'enhance-artifacts' }, async $ => {
     const found = await scanArtifacts($)
     await update($, artifacts, () => found)
-    const opened = await $.ui.open({ id: PANE, title: 'Enhance artifacts' })
+    // focus hands the pane the keyboard so Escape closes it at once.
+    const opened = await $.ui.open({
+      id: PANE,
+      title: 'Enhance artifacts',
+      focus: true,
+      closeOnEscape: true,
+    })
     if (!opened.isPlaced) {
       return { text: `Artifact pane could not open: ${opened.reason}` }
     }
@@ -87,6 +108,13 @@ export const register: Register = on => {
               await update($, artifacts, () => found)
             }}
           />
+          <Text> </Text>
+          <Button
+            key="close"
+            role="dismiss"
+            label="Close"
+            onPress={() => $.ui.close({ id: PANE })}
+          />
         </Box>
         {list.length === 0 && (
           <Text dimColor>No artifacts under ~/.agent-enhance/artifacts yet.</Text>
@@ -95,8 +123,18 @@ export const register: Register = on => {
           <Box key={a.path}>
             <Text dimColor>{formatTime(a.mtimeMs)}  </Text>
             <Text>
-              {a.tool}/{a.provider} {a.file} ({formatSize(a.size)}){' '}
+              {a.tool}/{a.provider}{' '}
             </Text>
+            <Button
+              key={`open:${i}`}
+              plain
+              label={a.file}
+              onPress={async () => {
+                const failed = await openFile($, a.path)
+                $.ui.toast(failed ? `open failed: ${failed}` : `opened: ${a.file}`)
+              }}
+            />
+            <Text> ({formatSize(a.size)}) </Text>
             <Button
               key={`copy:${i}`}
               plain
