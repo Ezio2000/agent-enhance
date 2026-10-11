@@ -15,7 +15,7 @@
     {
       "name": "enhance-companion",
       "source": "./mods/enhance-companion",
-      "description": "Companion mod for cc-enhance: a pane browsing generated artifacts"
+      "description": "Companion mod for cc-enhance: the /enhance command and pane for preferences and the computer bridge, and a pane browsing generated artifacts"
     }
   ]
 }

@@ -5,14 +5,17 @@ import { ServiceRuntime } from "../../../integrations/services/src/runtime.ts";
 import { fileSources } from "../../../integrations/services/src/sources/files.ts";
 import {
   manageServicePreferences,
+  capabilityServices,
   serviceHelp,
   serviceOverview,
+  summarize,
 } from "../../../integrations/services/src/management.ts";
 import { send, sessionSockets } from "./control.ts";
 import { HOST_ID, SERVER_NAME, artifactRoot } from "./paths.ts";
 import { SUPPORTED_REQUIREMENTS } from "./server.ts";
 
-const COMMAND = "/cc-enhance";
+/** Served by the enhance-companion mod, which runs this CLI and shows its output directly. */
+const COMMAND = "/enhance";
 export const USAGE = serviceHelp(COMMAND, [
   ["computer status|reset|ask|auto|revoke", "manage the use_computer bridge"],
 ]);
@@ -52,6 +55,23 @@ export async function manage(args: string[], options: ManageOptions): Promise<st
     await runtime.synchronize(fileSources({ home: options.home }), store.load(), {
       features: SUPPORTED_REQUIREMENTS,
     });
+    // Machine-readable overview for the companion pane; not part of the human help.
+    if (action === "json" && args.length === 1) {
+      const preferences = store.load();
+      return JSON.stringify({
+        capabilities: summarize(runtime, preferences, COMMAND).map((summary) => ({
+          ...summary,
+          services: capabilityServices(runtime, summary.capability),
+          preferred: preferences.preferred[summary.capability],
+          excluded: preferences.excluded.includes(summary.capability),
+          excludedServices: preferences.excluded.flatMap((key) =>
+            key.startsWith(`${summary.capability}@`) ? [key.slice(summary.capability.length + 1)] : [],
+          ),
+        })),
+        connections: runtime.snapshot.connections.length,
+        errors: runtime.snapshot.errors,
+      });
+    }
     if (!action) return `${serviceOverview(runtime, store.load(), COMMAND)}\n\nCommands:\n${USAGE}`;
     if (action === "refresh" && args.length === 1) {
       const live = await notify();

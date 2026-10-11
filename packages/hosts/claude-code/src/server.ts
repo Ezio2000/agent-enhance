@@ -196,7 +196,7 @@ export async function serve(options: ServeOptions): Promise<void> {
         return { content: [{ type: "text", text: await target.instance.manage!(action) }] };
       }
       const tool = tools.find((t) => t.name === name);
-      if (!tool) throw new Error(`Tool ${name} has no available service connection; use /cc-enhance status.`);
+      if (!tool) throw new Error(`Tool ${name} has no available service connection; use /enhance status.`);
       const token = extra._meta?.progressToken;
       let progress = 0;
       const onUpdate =

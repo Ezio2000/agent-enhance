@@ -85,7 +85,7 @@ test("Claude Code discovers existing credentials and stores only optional prefer
       preferred: { view_pdf: "pi:opencode-go" },
       excluded: ["view_pdf"],
     });
-    assert.match(await box.cli("status"), /– view_pdf\s+excluded · \/cc-enhance include view_pdf/);
+    assert.match(await box.cli("status"), /– view_pdf\s+excluded · \/enhance include view_pdf/);
     assert.match(await box.cli("include", "view_pdf"), /Included/);
     assert.match(await box.cli("login", "import-pi"), /Unknown command[\s\S]*status/);
     assert.match(await box.cli("openai", "gen_image", "enable"), /Unknown command[\s\S]*status/);
@@ -187,11 +187,11 @@ test("Claude Code exposes discovered providers once and descriptions fit its MCP
   }
 });
 
-test("Claude Code plugin declares existing commands and one MCP server", async () => {
+test("Claude Code plugin declares hooks and one MCP server; management lives in the companion mod", async () => {
   const manifest = JSON.parse(await readFile(".claude-plugin/plugin.json", "utf8"));
-  assert.equal(manifest.commands.length, 2);
-  for (const path of [...manifest.commands, manifest.hooks, manifest.mcpServers])
-    assert.ok((await readFile(path, "utf8")).length);
+  assert.equal(manifest.commands, undefined);
+  assert.match(await readFile("mods/enhance-companion/hooks/register.tsx", "utf8"), /name: 'enhance',/);
+  for (const path of [manifest.hooks, manifest.mcpServers]) assert.ok((await readFile(path, "utf8")).length);
   const mcp = JSON.parse(await readFile(manifest.mcpServers, "utf8"));
   assert.deepEqual(Object.keys(mcp.mcpServers), ["x"]);
 });

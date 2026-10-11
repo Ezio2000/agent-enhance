@@ -6,10 +6,6 @@
   },
   "repository": "https://github.com/Ezio2000/agent-enhance",
   "license": "MIT",
-  "commands": [
-    "./packages/hosts/claude-code/plugin/commands/cc-enhance.md",
-    "./packages/hosts/claude-code/plugin/commands/manage_computer.md"
-  ],
   "hooks": "./packages/hosts/claude-code/plugin/hooks.json",
   "mcpServers": "./packages/hosts/claude-code/plugin/mcp.json"
 }

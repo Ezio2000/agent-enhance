@@ -25,7 +25,10 @@ The plugin runs `dist/cc-enhance.mjs` from its checkout. Validate the plugin and
 ```bash
 claude plugin marketplace update agent-enhance
 claude plugin update cc-enhance@agent-enhance
+claude plugin update enhance-companion@agent-enhance
 ```
+
+The `/enhance` management command and pane belong to the `enhance-companion` mod, which runs this CLI from the installed `cc-enhance` (`cli json` feeds its pane). Validate it with `claude plugin validate mods/enhance-companion` and `claude plugin test mods/enhance-companion`.
 
 Use `/reload-plugins` or a new session for new code. Local source and preference changes update tools live within the current release. Updating code still requires reloading the host.
 

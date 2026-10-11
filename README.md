@@ -17,10 +17,15 @@ Claude Code：
 ```bash
 claude plugin marketplace add Ezio2000/agent-enhance
 claude plugin install cc-enhance@agent-enhance
+# 管理命令 /enhance 与产物面板 /enhance-artifacts
+claude plugin install enhance-companion@agent-enhance
 # 更新后 /reload-plugins 或开启新会话
 claude plugin marketplace update agent-enhance
 claude plugin update cc-enhance@agent-enhance
+claude plugin update enhance-companion@agent-enhance
 ```
+
+`cc-enhance` 提供工具；`enhance-companion` 是 Claude Code mod，提供管理命令和面板，未安装时工具照常可用。
 
 日常安装和更新使用 Git 远端，避免把开发工作树注册为持久包来源。所有能力代码随同一版本分发，工具按需创建实例，云请求和桌面运行时仅在实际执行时启动。更新宿主即更新能力。
 
@@ -49,7 +54,7 @@ Pi 凭据默认位于 `~/.pi/agent/auth.json`，可由 `PI_CODING_AGENT_DIR` 改
 
 ## 服务与偏好
 
-Pi 打开 `/pi-enhance` 面板；Claude Code 使用 `/cc-enhance`。两宿主共享以下命令语义：
+Pi 打开 `/pi-enhance` 面板；Claude Code 使用 enhance-companion 的 `/enhance`。两宿主共享以下命令语义：
 
 ```text
 /pi-enhance services
@@ -63,7 +68,7 @@ Pi 打开 `/pi-enhance` 面板；Claude Code 使用 `/cc-enhance`。两宿主共
 /pi-enhance exclude gen_image pi:openai-codex
 ```
 
-Claude Code 将前缀换为 `/cc-enhance`，不带参数时显示概览和命令帮助。`status` 按能力逐行显示省略 `service` 时实际使用的连接及其来由（偏好或内置默认）和备选数量；不可用的能力说明原因与下一步：缺少连接时给出登录方式或环境变量，保存的偏好失效时提示恢复 `auto`，以及已排除、宿主不支持、模型已支持该输入、加载失败和正在退出的调用。`services` 列出每个连接及其提供的能力。`prefer <能力>` 不带连接时按自动选择顺序列出可选连接并标出当前项。能力名或连接 ID 拼写错误时提示相近名称和全部可选值。
+Claude Code 将前缀换为 `/enhance`：带参数时直接显示结果，不经过模型；不带参数时打开面板，选中能力即可切换连接、恢复 `auto` 或排除/恢复，底部按钮管理 computer 桥接，Esc 关闭。`status` 按能力逐行显示省略 `service` 时实际使用的连接及其来由（偏好或内置默认）和备选数量；不可用的能力说明原因与下一步：缺少连接时给出登录方式或环境变量，保存的偏好失效时提示恢复 `auto`，以及已排除、宿主不支持、模型已支持该输入、加载失败和正在退出的调用。`services` 列出每个连接及其提供的能力。`prefer <能力>` 不带连接时按自动选择顺序列出可选连接并标出当前项。能力名或连接 ID 拼写错误时提示相近名称和全部可选值。
 
 所有能力内置默认连接顺序，首次安装无需创建偏好文件。省略 `provider` / `service` 时先使用保存的偏好，否则按下表选择已发现且未排除的连接：
 
@@ -159,7 +164,7 @@ Claude Code 将前缀换为 `/cc-enhance`，不带参数时显示概览和命令
 /pi-enhance computer revoke
 ```
 
-Claude Code 使用 `/cc-enhance computer ...` 或 `manage_computer` 工具。首次工具调用使用 `await cua.getState()` 或 `await cua.getApp('bundle.id')`，读取返回 API 后继续。任务结束清理私有运行时；授权和 JS 状态不跨会话共享。长任务可在 Claude Code 设置 `MCP_TOOL_TIMEOUT=600000`。
+Claude Code 使用 `/enhance computer ...`、`/enhance` 面板或 `manage_computer` 工具。首次工具调用使用 `await cua.getState()` 或 `await cua.getApp('bundle.id')`，读取返回 API 后继续。任务结束清理私有运行时；授权和 JS 状态不跨会话共享。长任务可在 Claude Code 设置 `MCP_TOOL_TIMEOUT=600000`。
 
 ## 配置和 SDK
 

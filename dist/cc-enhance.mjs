@@ -28468,7 +28468,7 @@ async function serve(options) {
         return { content: [{ type: "text", text: await target.instance.manage(action) }] };
       }
       const tool = tools.find((t) => t.name === name);
-      if (!tool) throw new Error(`Tool ${name} has no available service connection; use /cc-enhance status.`);
+      if (!tool) throw new Error(`Tool ${name} has no available service connection; use /enhance status.`);
       const token = extra._meta?.progressToken;
       let progress = 0;
       const onUpdate = token === void 0 ? void 0 : (update) => {
@@ -28792,7 +28792,7 @@ function manageServicePreferences(args, store, runtime, command = "") {
 }
 
 // packages/hosts/claude-code/src/manage.ts
-var COMMAND = "/cc-enhance";
+var COMMAND = "/enhance";
 var USAGE = serviceHelp(COMMAND, [
   ["computer status|reset|ask|auto|revoke", "manage the use_computer bridge"]
 ]);
@@ -28825,6 +28825,22 @@ async function manage(args, options) {
     await runtime.synchronize(fileSources({ home: options.home }), store.load(), {
       features: SUPPORTED_REQUIREMENTS
     });
+    if (action === "json" && args.length === 1) {
+      const preferences = store.load();
+      return JSON.stringify({
+        capabilities: summarize(runtime, preferences, COMMAND).map((summary) => ({
+          ...summary,
+          services: capabilityServices(runtime, summary.capability),
+          preferred: preferences.preferred[summary.capability],
+          excluded: preferences.excluded.includes(summary.capability),
+          excludedServices: preferences.excluded.flatMap(
+            (key) => key.startsWith(`${summary.capability}@`) ? [key.slice(summary.capability.length + 1)] : []
+          )
+        })),
+        connections: runtime.snapshot.connections.length,
+        errors: runtime.snapshot.errors
+      });
+    }
     if (!action) return `${serviceOverview(runtime, store.load(), COMMAND)}
 
 Commands:
