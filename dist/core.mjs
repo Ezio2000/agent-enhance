@@ -8466,6 +8466,33 @@ function defineModule(definition, manifest, create) {
 // packages/core/src/registry.ts
 var strings = (values) => typebox_exports.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+function schemaProblems(schema, value, limit = 4) {
+  const byPath = /* @__PURE__ */ new Map();
+  const at = (path) => {
+    const key = path || "/";
+    if (!byPath.has(key)) byPath.set(key, { allowed: [], messages: [] });
+    return byPath.get(key);
+  };
+  for (const error of value_exports.Errors(schema, value)) {
+    const params = error.params;
+    if (error.keyword === "required")
+      for (const name of params.requiredProperties ?? [])
+        at(`${error.instancePath}/${name}`).messages.push("is required");
+    else if (error.keyword === "additionalProperties")
+      for (const name of params.additionalProperties ?? [])
+        at(`${error.instancePath}/${name}`).messages.push("is not a supported parameter");
+    else if (error.keyword === "const") at(error.instancePath).allowed.push(params.allowedValue);
+    else if (error.keyword === "enum")
+      at(error.instancePath).allowed.push(...params.allowedValues);
+    else if (error.keyword !== "anyOf") at(error.instancePath).messages.push(error.message);
+  }
+  const lines = [...byPath].map(([path, { allowed, messages }]) => {
+    const message = messages.length ? [...new Set(messages)].join("; ") : `must be one of ${[...new Set(allowed)].map((v) => JSON.stringify(v)).join(", ")}`;
+    return `${path} ${message}`;
+  });
+  return lines.length > limit ? `${lines.slice(0, limit).join("; ")}; and ${lines.length - limit} more` : lines.join("; ");
+}
+var bindingId = (e) => e.binding?.id ?? e.module.manifest.provider;
 var CapabilityRegistry = class {
   entries = /* @__PURE__ */ new Map();
   pending = /* @__PURE__ */ new Map();
@@ -8561,22 +8588,61 @@ var CapabilityRegistry = class {
       )
     );
   }
+  /** The binding a call with these routing arguments would use now, and why. */
+  route(capability, args = {}) {
+    return this.select(
+      capability,
+      this.list().filter((e) => e.module.manifest.capability === capability && !this.suspended.has(e.id)),
+      args
+    );
+  }
+  select(capability, entries, args) {
+    const candidates = entries.filter((e) => !args.provider || e.module.manifest.provider === args.provider);
+    const saved = this.preferred[capability];
+    const service = args.service ?? saved;
+    const matches = service ? candidates.filter((e) => bindingId(e) === service) : candidates;
+    const overridden = !args.service && !!args.provider && !matches.length;
+    let selectable = overridden ? candidates : matches;
+    let via = args.service ? "service" : service && !overridden ? "preferred" : "sole";
+    if (selectable.length > 1 && !args.service && (!service || overridden)) {
+      const selected = this.defaults[capability]?.find((id) => selectable.some((e) => bindingId(e) === id));
+      if (selected) {
+        selectable = selectable.filter((e) => bindingId(e) === selected);
+        via = "default";
+      }
+    }
+    if (selectable.length === 1) return { entry: selectable[0], via };
+    const available = candidates.map(bindingId).join(", ") || "none";
+    if (selectable.length)
+      return {
+        error: `Several connections can run ${capability} (${selectable.map(bindingId).join(", ")}); pass provider or service.`
+      };
+    if (args.service)
+      return {
+        error: `Service ${String(args.service)} is not available for ${capability}${args.provider ? ` with provider ${String(args.provider)}` : ""}. Available: ${available}.`
+      };
+    if (service)
+      return {
+        error: `Saved preference ${capability} \u2192 ${String(service)} is not available. Pass service explicitly (available: ${available}) or reset the preference to auto.`
+      };
+    return { error: `No connection is available for ${capability}.` };
+  }
   merge(capability, entries) {
     const implementations = [...new Map(entries.map((e) => [e.module.manifest.provider, e])).values()];
     const providers = implementations.map((e) => e.module.manifest.provider);
     const definition = entries[0].module.definition;
     const first = entries[0].instance.tool;
     const properties = { provider: typebox_exports.Optional(strings(providers)) };
-    if (entries.some((e) => e.binding))
+    if (entries.some((e) => e.binding)) {
+      const route = this.select(capability, entries, {});
       properties.service = typebox_exports.Optional(
         typebox_exports.Unsafe({
           type: "string",
-          enum: [...new Set(entries.map((e) => e.binding?.id ?? e.module.manifest.provider))],
-          description: "Select an exact service connection: " + entries.map(
-            (e) => `${e.binding?.id ?? e.module.manifest.provider} (${e.binding?.label ?? e.module.manifest.provider})`
-          ).join(", ")
+          enum: [...new Set(entries.map(bindingId))],
+          description: "Select an exact service connection: " + entries.map((e) => `${bindingId(e)} (${e.binding?.label ?? e.module.manifest.provider})`).join(", ") + ("entry" in route ? `. Used when omitted: ${bindingId(route.entry)}.` : "")
         })
       );
+    }
     const options = {};
     const shared = /* @__PURE__ */ new Map();
     for (const { module, instance } of implementations) {
@@ -8623,42 +8689,30 @@ var CapabilityRegistry = class {
         if (!value_exports.Check(parameters, raw))
           throw new EnhanceError(
             "INVALID_ARGUMENTS",
-            "Arguments do not match the current loaded capability schema."
+            `Arguments do not match the ${capability} schema: ${schemaProblems(parameters, raw)}.`
           );
         const args = raw;
-        const candidates = entries.filter(
-          (e) => !args.provider || e.module.manifest.provider === args.provider
-        );
-        const service = args.service ?? this.preferred[capability];
-        const matches = service ? candidates.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === service) : candidates;
-        let selectable = !args.service && args.provider && !matches.length ? candidates : matches;
-        if (selectable.length > 1 && !args.service && (!service || args.provider && !matches.length)) {
-          const selected = this.defaults[capability]?.find(
-            (id2) => selectable.some((e) => (e.binding?.id ?? e.module.manifest.provider) === id2)
-          );
-          if (selected)
-            selectable = selectable.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === selected);
-        }
-        if (selectable.length !== 1)
-          throw new EnhanceError(
-            "PROVIDER_SELECTION",
-            `Choose an exact provider/service for ${capability}; ${selectable.length ? "several connections match" : "selected connection is unavailable"}.`
-          );
-        const entry = selectable[0];
+        const route = this.select(capability, entries, args);
+        if ("error" in route) throw new EnhanceError("PROVIDER_SELECTION", route.error);
+        const entry = route.entry;
         const provider = entry.module.manifest.provider;
         const id = entry.id;
         if (this.entries.get(id) !== entry || this.suspended.has(id))
           throw new EnhanceError("STALE_TOOL", "Capability changed; use the refreshed tool schema.");
         const { provider: ignored, service: ignoredService, options: rawOptions, ...common } = args;
         const selectedOptions = object(rawOptions) ? rawOptions : {};
-        if (Object.keys(selectedOptions).some((key) => key !== provider))
-          throw new EnhanceError("PROVIDER_OPTIONS", "Only options for the selected provider are accepted.");
+        const foreign = Object.keys(selectedOptions).filter((key) => key !== provider);
+        if (foreign.length)
+          throw new EnhanceError(
+            "PROVIDER_OPTIONS",
+            `The call routed to ${provider} (${bindingId(entry)}), so only options.${provider} is accepted; remove options.${foreign.join(", options.")} or select that provider.`
+          );
         const backendOptions = selectedOptions[String(provider)];
         const native = { ...common, ...object(backendOptions) ? backendOptions : {} };
         if (!value_exports.Check(entry.instance.tool.parameters, native))
           throw new EnhanceError(
             "PROVIDER_ARGUMENTS",
-            `Arguments are unsupported by ${provider}; check model and input limits.`
+            `Arguments are unsupported by ${provider}: ${schemaProblems(entry.instance.tool.parameters, native)}.`
           );
         const activeContext = {
           ...context,
@@ -8704,5 +8758,6 @@ export {
   createProgressTicker,
   defineModule,
   requireCredential,
+  schemaProblems,
   transformControlledRequest
 };

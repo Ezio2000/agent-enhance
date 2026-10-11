@@ -321,7 +321,7 @@ test("Pi discovers credentials automatically, merges providers and updates after
     await h.command("refresh");
     assert.ok(!h.active().includes("gen_image"));
     assert.ok(h.active().includes("unrelated"));
-    assert.match(await h.command("openai gen_image enable"), /services.*status/);
+    assert.match(await h.command("openai gen_image enable"), /Unknown command[\s\S]*status/);
     await h.emit("session_shutdown");
   } finally {
     await rm(home, { recursive: true, force: true });

@@ -19,6 +19,8 @@ const connections: Readonly<Record<string, readonly string[]>> = {
   zai: ["pi:zai", "pi:zai-coding-cn", "env:ZAI_API_KEY", "env:ZAI_CODING_CN_API_KEY"],
   opencode: ["pi:opencode-go", "opencode:opencode-go", "env:OPENCODE_API_KEY"],
 };
+/** Providers of a capability, most preferred first. */
+export const providerOrder = (capability: string): readonly string[] => providers[capability] ?? [];
 const rank = (order: readonly string[], value: string) => {
   const index = order.indexOf(value);
   return index < 0 ? order.length : index;

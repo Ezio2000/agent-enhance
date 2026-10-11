@@ -1645,6 +1645,33 @@ var StaticCredentialResolver = class {
 // packages/core/src/registry.ts
 var strings = (values) => Type.Unsafe({ type: "string", enum: [...new Set(values)] });
 var object = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+function schemaProblems(schema, value, limit = 4) {
+  const byPath = /* @__PURE__ */ new Map();
+  const at = (path) => {
+    const key = path || "/";
+    if (!byPath.has(key)) byPath.set(key, { allowed: [], messages: [] });
+    return byPath.get(key);
+  };
+  for (const error of Value.Errors(schema, value)) {
+    const params = error.params;
+    if (error.keyword === "required")
+      for (const name of params.requiredProperties ?? [])
+        at(`${error.instancePath}/${name}`).messages.push("is required");
+    else if (error.keyword === "additionalProperties")
+      for (const name of params.additionalProperties ?? [])
+        at(`${error.instancePath}/${name}`).messages.push("is not a supported parameter");
+    else if (error.keyword === "const") at(error.instancePath).allowed.push(params.allowedValue);
+    else if (error.keyword === "enum")
+      at(error.instancePath).allowed.push(...params.allowedValues);
+    else if (error.keyword !== "anyOf") at(error.instancePath).messages.push(error.message);
+  }
+  const lines = [...byPath].map(([path, { allowed, messages }]) => {
+    const message = messages.length ? [...new Set(messages)].join("; ") : `must be one of ${[...new Set(allowed)].map((v) => JSON.stringify(v)).join(", ")}`;
+    return `${path} ${message}`;
+  });
+  return lines.length > limit ? `${lines.slice(0, limit).join("; ")}; and ${lines.length - limit} more` : lines.join("; ");
+}
+var bindingId = (e) => e.binding?.id ?? e.module.manifest.provider;
 var CapabilityRegistry = class {
   entries = /* @__PURE__ */ new Map();
   pending = /* @__PURE__ */ new Map();
@@ -1740,22 +1767,61 @@ var CapabilityRegistry = class {
       )
     );
   }
+  /** The binding a call with these routing arguments would use now, and why. */
+  route(capability, args = {}) {
+    return this.select(
+      capability,
+      this.list().filter((e) => e.module.manifest.capability === capability && !this.suspended.has(e.id)),
+      args
+    );
+  }
+  select(capability, entries, args) {
+    const candidates = entries.filter((e) => !args.provider || e.module.manifest.provider === args.provider);
+    const saved = this.preferred[capability];
+    const service = args.service ?? saved;
+    const matches = service ? candidates.filter((e) => bindingId(e) === service) : candidates;
+    const overridden = !args.service && !!args.provider && !matches.length;
+    let selectable = overridden ? candidates : matches;
+    let via = args.service ? "service" : service && !overridden ? "preferred" : "sole";
+    if (selectable.length > 1 && !args.service && (!service || overridden)) {
+      const selected = this.defaults[capability]?.find((id) => selectable.some((e) => bindingId(e) === id));
+      if (selected) {
+        selectable = selectable.filter((e) => bindingId(e) === selected);
+        via = "default";
+      }
+    }
+    if (selectable.length === 1) return { entry: selectable[0], via };
+    const available = candidates.map(bindingId).join(", ") || "none";
+    if (selectable.length)
+      return {
+        error: `Several connections can run ${capability} (${selectable.map(bindingId).join(", ")}); pass provider or service.`
+      };
+    if (args.service)
+      return {
+        error: `Service ${String(args.service)} is not available for ${capability}${args.provider ? ` with provider ${String(args.provider)}` : ""}. Available: ${available}.`
+      };
+    if (service)
+      return {
+        error: `Saved preference ${capability} \u2192 ${String(service)} is not available. Pass service explicitly (available: ${available}) or reset the preference to auto.`
+      };
+    return { error: `No connection is available for ${capability}.` };
+  }
   merge(capability, entries) {
     const implementations = [...new Map(entries.map((e) => [e.module.manifest.provider, e])).values()];
     const providers2 = implementations.map((e) => e.module.manifest.provider);
     const definition = entries[0].module.definition;
     const first = entries[0].instance.tool;
     const properties = { provider: Type.Optional(strings(providers2)) };
-    if (entries.some((e) => e.binding))
+    if (entries.some((e) => e.binding)) {
+      const route = this.select(capability, entries, {});
       properties.service = Type.Optional(
         Type.Unsafe({
           type: "string",
-          enum: [...new Set(entries.map((e) => e.binding?.id ?? e.module.manifest.provider))],
-          description: "Select an exact service connection: " + entries.map(
-            (e) => `${e.binding?.id ?? e.module.manifest.provider} (${e.binding?.label ?? e.module.manifest.provider})`
-          ).join(", ")
+          enum: [...new Set(entries.map(bindingId))],
+          description: "Select an exact service connection: " + entries.map((e) => `${bindingId(e)} (${e.binding?.label ?? e.module.manifest.provider})`).join(", ") + ("entry" in route ? `. Used when omitted: ${bindingId(route.entry)}.` : "")
         })
       );
+    }
     const options = {};
     const shared = /* @__PURE__ */ new Map();
     for (const { module, instance } of implementations) {
@@ -1802,42 +1868,30 @@ var CapabilityRegistry = class {
         if (!Value.Check(parameters, raw))
           throw new EnhanceError(
             "INVALID_ARGUMENTS",
-            "Arguments do not match the current loaded capability schema."
+            `Arguments do not match the ${capability} schema: ${schemaProblems(parameters, raw)}.`
           );
         const args = raw;
-        const candidates = entries.filter(
-          (e) => !args.provider || e.module.manifest.provider === args.provider
-        );
-        const service = args.service ?? this.preferred[capability];
-        const matches = service ? candidates.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === service) : candidates;
-        let selectable = !args.service && args.provider && !matches.length ? candidates : matches;
-        if (selectable.length > 1 && !args.service && (!service || args.provider && !matches.length)) {
-          const selected = this.defaults[capability]?.find(
-            (id2) => selectable.some((e) => (e.binding?.id ?? e.module.manifest.provider) === id2)
-          );
-          if (selected)
-            selectable = selectable.filter((e) => (e.binding?.id ?? e.module.manifest.provider) === selected);
-        }
-        if (selectable.length !== 1)
-          throw new EnhanceError(
-            "PROVIDER_SELECTION",
-            `Choose an exact provider/service for ${capability}; ${selectable.length ? "several connections match" : "selected connection is unavailable"}.`
-          );
-        const entry = selectable[0];
+        const route = this.select(capability, entries, args);
+        if ("error" in route) throw new EnhanceError("PROVIDER_SELECTION", route.error);
+        const entry = route.entry;
         const provider = entry.module.manifest.provider;
         const id = entry.id;
         if (this.entries.get(id) !== entry || this.suspended.has(id))
           throw new EnhanceError("STALE_TOOL", "Capability changed; use the refreshed tool schema.");
         const { provider: ignored, service: ignoredService, options: rawOptions, ...common } = args;
         const selectedOptions = object(rawOptions) ? rawOptions : {};
-        if (Object.keys(selectedOptions).some((key) => key !== provider))
-          throw new EnhanceError("PROVIDER_OPTIONS", "Only options for the selected provider are accepted.");
+        const foreign = Object.keys(selectedOptions).filter((key) => key !== provider);
+        if (foreign.length)
+          throw new EnhanceError(
+            "PROVIDER_OPTIONS",
+            `The call routed to ${provider} (${bindingId(entry)}), so only options.${provider} is accepted; remove options.${foreign.join(", options.")} or select that provider.`
+          );
         const backendOptions = selectedOptions[String(provider)];
         const native = { ...common, ...object(backendOptions) ? backendOptions : {} };
         if (!Value.Check(entry.instance.tool.parameters, native))
           throw new EnhanceError(
             "PROVIDER_ARGUMENTS",
-            `Arguments are unsupported by ${provider}; check model and input limits.`
+            `Arguments are unsupported by ${provider}: ${schemaProblems(entry.instance.tool.parameters, native)}.`
           );
         const activeContext = {
           ...context,
@@ -2061,6 +2115,7 @@ var connections = {
   zai: ["pi:zai", "pi:zai-coding-cn", "env:ZAI_API_KEY", "env:ZAI_CODING_CN_API_KEY"],
   opencode: ["pi:opencode-go", "opencode:opencode-go", "env:OPENCODE_API_KEY"]
 };
+var providerOrder = (capability) => providers[capability] ?? [];
 var rank = (order, value) => {
   const index = order.indexOf(value);
   return index < 0 ? order.length : index;
@@ -3164,42 +3219,215 @@ function installEnhanceFooter(ctx, statusKey, getLabels) {
 }
 
 // packages/integrations/services/src/management.ts
-var serviceUsage = "services | status | refresh | prefer <capability> <service|auto> | exclude|include <capability> [service]";
-function manageServicePreferences(args, store, runtime) {
-  const [action, capability, service, ...rest] = args;
-  if (action === "services")
-    return runtime.snapshot.connections.map((c) => `${c.id} \xB7 ${c.label}`).join("\n") || "No service connections discovered. Sign in using the original provider application or configure an API key in the host/environment.";
-  if (action === "status") {
-    const p = store.load();
-    return `${runtime.describe() || "No services discovered."}
-Preferred: ${JSON.stringify(p.preferred)}
-Excluded: ${JSON.stringify(p.excluded)}`;
+function serviceHelp(command2, extra = []) {
+  const rows = [
+    ["status", "capability overview: which connection each tool uses"],
+    ["services", "discovered connections and the capabilities they provide"],
+    ["refresh", "re-scan credentials and update live tools"],
+    [
+      "prefer <capability> [service|auto]",
+      "choose the connection a capability uses (no service: list choices)"
+    ],
+    ["exclude <capability> [service]", "hide a capability, or only one of its connections"],
+    ["include <capability> [service]", "undo the matching exclude"],
+    ...extra
+  ];
+  const width = Math.max(...rows.map(([usage2]) => usage2.length));
+  return rows.map(([usage2, purpose]) => `${command2} ${usage2.padEnd(width)}  ${purpose}`).join("\n");
+}
+var setup = {
+  openai: "run `codex login` (or Pi /login \u2192 openai-codex)",
+  xai: "sign in with Pi /login \u2192 xai",
+  minimax: "set MINIMAX_CN_API_KEY / MINIMAX_API_KEY (or Pi /login \u2192 minimax-cn)",
+  zai: "set ZAI_API_KEY / ZAI_CODING_CN_API_KEY (or Pi /login \u2192 zai)",
+  opencode: "set OPENCODE_API_KEY, sign in to OpenCode (or Pi /login \u2192 opencode-go)"
+};
+var runtimeSetup = {
+  "chatgpt-desktop": "install the ChatGPT desktop app"
+};
+function distance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
   }
-  if (!["prefer", "exclude", "include"].includes(action ?? "")) return;
-  if (!capability || rest.length || !runtime.options.modules.catalog.modules.some((e) => e.capability === capability))
-    throw new Error(serviceUsage);
-  if (service && !(action === "prefer" && service === "auto") && !runtime.snapshot.connections.some(
-    (c) => c.id === service && runtime.options.modules.catalog.modules.some(
-      (e) => e.capability === capability && e.provider === c.provider && (e.auth?.channel ?? e.runtime) === c.channel
+  return row[b.length];
+}
+function suggest(input, options) {
+  const needle = input.toLowerCase();
+  const close = options.filter((o) => o.includes(needle) || distance(needle, o) <= 2);
+  return close.length ? ` Did you mean ${close.slice(0, 3).join(" or ")}?` : "";
+}
+var capabilitiesOf = (runtime) => [
+  ...new Set(runtime.options.modules.catalog.modules.map((e) => e.capability))
+];
+var statesOf = (runtime, capability) => runtime.states.filter((s) => s.module.startsWith(`${capability}/`));
+function capabilityServices(runtime, capability) {
+  const ids = new Set(
+    statesOf(runtime, capability).flatMap(
+      (s) => s.service && s.status !== "unsupported" ? [s.service] : []
     )
-  ))
-    throw new Error(`Service ${service} does not provide ${capability}.`);
+  );
+  return defaultServiceOrder(
+    capability,
+    runtime.snapshot.connections.filter((c) => ids.has(c.id))
+  );
+}
+var isExcluded = (preferences, capability, service) => preferences.excluded.some((key) => [capability, `${capability}@${service}`].includes(key));
+function summarize(runtime, preferences, command2) {
+  const catalog = runtime.options.modules.catalog.modules;
+  return capabilitiesOf(runtime).map((capability) => {
+    const label = catalog.find((e) => e.capability === capability).label;
+    const states = statesOf(runtime, capability);
+    const active = states.filter((s) => s.status === "available");
+    const route = runtime.options.registry.route(capability);
+    const saved = preferences.preferred[capability];
+    const base = { capability, label, alternatives: Math.max(0, active.length - 1) };
+    if ("entry" in route) {
+      const service = route.entry.binding?.id ?? route.entry.module.manifest.provider;
+      return { ...base, service, via: route.via, state: "ready" };
+    }
+    if (preferences.excluded.includes(capability))
+      return { ...base, state: "off", note: `excluded \xB7 ${command2} include ${capability}` };
+    if (saved && active.length)
+      return {
+        ...base,
+        state: "problem",
+        note: `saved preference ${saved} is unavailable, so calls fail \xB7 ${command2} prefer ${capability} auto`
+      };
+    const failed = states.find((s) => s.status === "error" || s.status === "busy");
+    if (failed) return { ...base, state: "problem", note: `${failed.status}: ${failed.reason ?? "unknown"}` };
+    const hidden = states.find((s) => s.status === "hidden");
+    if (hidden) return { ...base, state: "off", note: `hidden \xB7 ${hidden.reason}` };
+    if (states.some((s) => s.status === "excluded"))
+      return { ...base, state: "off", note: `all connections excluded \xB7 ${command2} include ${capability}` };
+    const rank2 = (module) => {
+      const index = providerOrder(capability).indexOf(module.split("/")[1]);
+      return index < 0 ? Infinity : index;
+    };
+    const missing = states.filter((s) => s.status === "missing").sort((a, b) => rank2(a.module) - rank2(b.module));
+    if (missing.length) {
+      const hints = [
+        ...new Set(
+          missing.map((s) => {
+            const entry = catalog.find((e) => e.id === s.module);
+            return (entry.runtime && runtimeSetup[entry.runtime]) ?? setup[entry.provider] ?? `configure ${entry.provider}`;
+          })
+        )
+      ];
+      return { ...base, state: "problem", note: `no connection \xB7 ${hints.join("; or ")}` };
+    }
+    const unsupported = states.find((s) => s.status === "unsupported");
+    return { ...base, state: "off", note: `unsupported here \xB7 ${unsupported?.reason ?? "unknown"}` };
+  });
+}
+var mark = { ready: "\u2713", off: "\u2013", problem: "\u2717" };
+function serviceOverview(runtime, preferences, command2) {
+  const rows = summarize(runtime, preferences, command2);
+  const width = Math.max(...rows.map((r) => r.capability.length));
+  const lines = [
+    `Capabilities (${rows.filter((r) => r.state === "ready").length}/${rows.length} ready):`,
+    ...rows.map((r) => {
+      const detail = r.state === "ready" ? [
+        r.service,
+        r.via === "preferred" ? "preferred" : r.via === "default" ? "default" : void 0,
+        r.alternatives ? `+${r.alternatives} alternative${r.alternatives > 1 ? "s" : ""}` : void 0
+      ].filter(Boolean).join(" \xB7 ") : r.note;
+      return `  ${mark[r.state]} ${r.capability.padEnd(width)}  ${detail}`;
+    })
+  ];
+  const count = runtime.snapshot.connections.length;
+  lines.push(
+    count ? `Connections: ${count} discovered (${command2} services for details).` : "No service connections discovered. Sign in with the provider's own app (e.g. `codex login`, Pi /login) or set its API key environment variable, then run refresh."
+  );
+  const errors = Object.entries(runtime.snapshot.errors);
+  if (errors.length)
+    lines.push("Discovery errors:", ...errors.map(([source, error]) => `  ${source}: ${error}`));
+  return lines.join("\n");
+}
+function serviceList(runtime) {
+  const provides = (id) => [
+    ...new Set(
+      runtime.states.filter((s) => s.service === id && s.status !== "unsupported").map((s) => s.module.split("/")[0])
+    )
+  ].sort();
+  const lines = runtime.snapshot.connections.map((c) => {
+    const capabilities = provides(c.id);
+    return `${c.id} \xB7 ${c.label}${capabilities.length ? `
+    provides: ${capabilities.join(", ")}` : ""}`;
+  });
+  if (!lines.length)
+    lines.push(
+      "No service connections discovered. Sign in using the original provider application or configure an API key in the host/environment."
+    );
+  const errors = Object.entries(runtime.snapshot.errors);
+  if (errors.length)
+    lines.push("Discovery errors:", ...errors.map(([source, error]) => `  ${source}: ${error}`));
+  return lines.join("\n");
+}
+function manageServicePreferences(args, store, runtime, command2 = "") {
+  const prefix = command2 ? `${command2} ` : "";
+  const [action, capability, service, ...rest] = args;
+  if (action === "services" && args.length === 1) return serviceList(runtime);
+  if (action === "status" && args.length === 1) return serviceOverview(runtime, store.load(), command2);
+  if (!["prefer", "exclude", "include"].includes(action ?? "")) return;
+  const capabilities = capabilitiesOf(runtime);
+  if (!capability)
+    throw new Error(
+      `Name a capability: ${prefix}${action} <capability>. Capabilities: ${capabilities.join(", ")}.`
+    );
+  if (rest.length) throw new Error(`Too many arguments. Usage: ${prefix}${action} <capability> [service].`);
+  if (!capabilities.includes(capability))
+    throw new Error(
+      `Unknown capability "${capability}".${suggest(capability, capabilities)} Capabilities: ${capabilities.join(", ")}.`
+    );
+  const services = capabilityServices(runtime, capability);
+  if (service && !(action === "prefer" && service === "auto") && !services.includes(service))
+    throw new Error(
+      `Service ${service} does not provide ${capability}.${suggest(service, services)} ${services.length ? `Services for ${capability}: ${services.join(", ")}.` : `No discovered connection provides ${capability}; see ${prefix}status.`}`
+    );
+  const preferences = store.load();
   if (action === "prefer") {
-    if (!service) throw new Error(serviceUsage);
+    if (!service) {
+      const route = runtime.options.registry.route(capability);
+      const current = "entry" in route ? route.entry.binding?.id ?? route.entry.module.manifest.provider : void 0;
+      if (!services.length) return `No discovered connection provides ${capability}; see ${prefix}status.`;
+      return [
+        current ? `${capability} currently uses ${current} (${preferences.preferred[capability] ? "saved preference" : "automatic"}). Choose:` : `Choose a connection for ${capability}:`,
+        ...services.map(
+          (id) => `  ${prefix}prefer ${capability} ${id}${id === current ? "   \u2190 current" : ""}${isExcluded(preferences, capability, id) ? "   (excluded)" : ""}`
+        ),
+        `  ${prefix}prefer ${capability} auto${preferences.preferred[capability] ? "" : "   \u2190 current"}`
+      ].join("\n");
+    }
     store.update((p) => {
       const preferred = { ...p.preferred };
       if (service === "auto") delete preferred[capability];
       else preferred[capability] = service;
       return { ...p, preferred };
     });
-    return `Preferred ${capability}: ${service}.`;
+    if (service === "auto") return `Preferred ${capability}: auto (built-in order chooses the connection).`;
+    return isExcluded(preferences, capability, service) ? `Preferred ${capability}: ${service}. It is excluded, so calls fail until ${prefix}include ${capability} ${service}.` : `Preferred ${capability}: ${service}.`;
   }
   const key = service ? `${capability}@${service}` : capability;
-  store.update((p) => ({
-    ...p,
-    excluded: action === "exclude" ? [.../* @__PURE__ */ new Set([...p.excluded, key])] : p.excluded.filter((k) => k !== key)
-  }));
-  return `${action === "exclude" ? "Excluded" : "Included"} ${key}.`;
+  if (action === "exclude") {
+    if (preferences.excluded.includes(key)) return `${key} is already excluded.`;
+    store.update((p) => ({ ...p, excluded: [.../* @__PURE__ */ new Set([...p.excluded, key])] }));
+    return service ? `Excluded ${key}. ${capability} keeps its other connections.` : `Excluded ${capability}. The tool is hidden until ${prefix}include ${capability}.`;
+  }
+  if (!preferences.excluded.includes(key)) {
+    const partial = service ? [] : preferences.excluded.flatMap(
+      (k) => k.startsWith(`${capability}@`) ? [k.slice(capability.length + 1)] : []
+    );
+    return partial.length ? `${capability} is not excluded as a whole; only these connections are: ${partial.join(", ")}. Restore one with ${prefix}include ${capability} <service>.` : `${key} is not excluded; nothing changed.`;
+  }
+  store.update((p) => ({ ...p, excluded: p.excluded.filter((k) => k !== key) }));
+  return `Included ${key}.`;
 }
 
 // packages/transports/openai/src/model-support.ts
@@ -3328,7 +3556,16 @@ function verifyRequestPreferences(preferences) {
 }
 
 // packages/hosts/pi/src/management.ts
-var usage = `/pi-enhance ${serviceUsage}; fast on|off; verbosity off|low|medium|high; image_detail off|original; subagents enable|disable|status|model [provider/id|inherit]|cancel <batch-id>; computer status|reset|ask|auto|revoke`;
+var COMMAND = "/pi-enhance";
+var usage = serviceHelp(COMMAND, [
+  ["fast on|off", "Codex priority tier"],
+  ["verbosity off|low|medium|high", "Codex response verbosity"],
+  ["image_detail off|original", "Codex image detail"],
+  ["subagents enable|disable|status", "Pi subagent tools"],
+  ["subagents model [provider/id|inherit]", "subagent default model"],
+  ["subagents cancel <batch-id>", "cancel a running batch"],
+  ["computer status|reset|ask|auto|revoke", "manage the use_computer bridge"]
+]);
 function registerManagement(pi, options) {
   const { store, subagents, report } = options;
   const subagentsPanel = async (ctx) => {
@@ -3348,9 +3585,11 @@ function registerManagement(pi, options) {
     const capabilities = [
       ...new Map(runtime.options.modules.catalog.modules.map((e) => [e.capability, e])).values()
     ];
-    const labels = capabilities.map(
-      (e) => `${e.label} / ${e.capability} \xB7 ${runtime.states.filter((s) => s.module.startsWith(`${e.capability}/`) && s.status === "available").length} \u4E2A\u53EF\u7528\u8FDE\u63A5`
-    );
+    const summaries = summarize(runtime, options.preferences(), COMMAND);
+    const labels = capabilities.map((e) => {
+      const summary = summaries.find((s) => s.capability === e.capability);
+      return `${e.label} / ${e.capability} \xB7 ${summary.state === "ready" ? `${summary.service}${summary.alternatives ? ` \xB7 \u53E6\u6709 ${summary.alternatives} \u4E2A\u8FDE\u63A5` : ""}` : summary.note}`;
+    });
     const choice = await ctx.ui.select("\u80FD\u529B / Capabilities", labels);
     const entry = capabilities[labels.indexOf(choice ?? "")];
     if (!entry) return;
@@ -3372,7 +3611,8 @@ function registerManagement(pi, options) {
         runtime.states.filter((s) => s.module.startsWith(`${entry.capability}/`) && s.service).map((s) => s.service)
       );
       const connections2 = runtime.snapshot.connections.filter((c) => ids.has(c.id));
-      const labels2 = connections2.map((c) => `${c.id} \xB7 ${c.label}`);
+      const current = summaries.find((s) => s.capability === entry.capability)?.service;
+      const labels2 = connections2.map((c) => `${c.id} \xB7 ${c.label}${c.id === current ? " \xB7 \u5F53\u524D" : ""}`);
       const selected = await ctx.ui.select("\u9009\u62E9\u670D\u52A1\u8FDE\u63A5", labels2);
       const connection2 = connections2[labels2.indexOf(selected ?? "")];
       if (connection2) await run(`prefer ${entry.capability} ${connection2.id}`, ctx);
@@ -3410,7 +3650,14 @@ function registerManagement(pi, options) {
     const words = text.trim().split(/\s+/).filter(Boolean);
     if (!words.length) {
       if (ctx.mode === "tui") await panel(ctx);
-      else report(ctx, usage);
+      else
+        report(
+          ctx,
+          `${serviceOverview(options.runtime(), options.preferences(), COMMAND)}
+
+Commands:
+${usage}`
+        );
       return;
     }
     const [action, value, extra] = words;
@@ -3504,16 +3751,21 @@ function registerManagement(pi, options) {
     }
     if (action === "refresh" && words.length === 1) {
       await options.synchronize(ctx);
-      report(ctx, options.runtime().describe() || "No services discovered.");
+      report(ctx, serviceOverview(options.runtime(), options.preferences(), COMMAND));
       return;
     }
-    const result = manageServicePreferences(words, store, options.runtime());
-    if (result === void 0) throw new Error(usage);
+    if (action === "help" && words.length === 1) {
+      report(ctx, usage);
+      return;
+    }
+    const result = manageServicePreferences(words, store, options.runtime(), COMMAND);
+    if (result === void 0) throw new Error(`Unknown command "${words.join(" ")}".
+${usage}`);
     if (!["status", "services"].includes(action)) await options.synchronize(ctx);
     report(
       ctx,
       action === "status" ? `${result}
-Requests: ${JSON.stringify(options.preferences().requests)}
+Requests: ${Object.entries(options.preferences().requests).map(([id, value2]) => `${id}=${value2}`).join(", ") || "no overrides"}
 ${subagents.status(ctx)}` : result
     );
   };

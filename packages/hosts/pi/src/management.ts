@@ -5,7 +5,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { PiPreferences, PreferenceStore } from "../../../integrations/services/src/preferences.ts";
 import type { ServiceRuntime } from "../../../integrations/services/src/runtime.ts";
-import { manageServicePreferences, serviceUsage } from "../../../integrations/services/src/management.ts";
+import {
+  manageServicePreferences,
+  serviceHelp,
+  serviceOverview,
+  summarize,
+} from "../../../integrations/services/src/management.ts";
 import { requestControls } from "./requests/index.ts";
 import type { Subagents } from "./subagents/index.ts";
 
@@ -19,7 +24,16 @@ interface ManagementOptions {
   report(ctx: ExtensionContext, text: string, error?: boolean): void;
   signal(): AbortSignal;
 }
-const usage = `/pi-enhance ${serviceUsage}; fast on|off; verbosity off|low|medium|high; image_detail off|original; subagents enable|disable|status|model [provider/id|inherit]|cancel <batch-id>; computer status|reset|ask|auto|revoke`;
+const COMMAND = "/pi-enhance";
+const usage = serviceHelp(COMMAND, [
+  ["fast on|off", "Codex priority tier"],
+  ["verbosity off|low|medium|high", "Codex response verbosity"],
+  ["image_detail off|original", "Codex image detail"],
+  ["subagents enable|disable|status", "Pi subagent tools"],
+  ["subagents model [provider/id|inherit]", "subagent default model"],
+  ["subagents cancel <batch-id>", "cancel a running batch"],
+  ["computer status|reset|ask|auto|revoke", "manage the use_computer bridge"],
+]);
 export function registerManagement(pi: ExtensionAPI, options: ManagementOptions): void {
   const { store, subagents, report } = options;
   const subagentsPanel = async (ctx: ExtensionCommandContext) => {
@@ -38,10 +52,15 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
     const capabilities = [
       ...new Map(runtime.options.modules.catalog.modules.map((e) => [e.capability, e])).values(),
     ];
-    const labels = capabilities.map(
-      (e) =>
-        `${e.label} / ${e.capability} · ${runtime.states.filter((s) => s.module.startsWith(`${e.capability}/`) && s.status === "available").length} 个可用连接`,
-    );
+    const summaries = summarize(runtime, options.preferences(), COMMAND);
+    const labels = capabilities.map((e) => {
+      const summary = summaries.find((s) => s.capability === e.capability)!;
+      return `${e.label} / ${e.capability} · ${
+        summary.state === "ready"
+          ? `${summary.service}${summary.alternatives ? ` · 另有 ${summary.alternatives} 个连接` : ""}`
+          : summary.note
+      }`;
+    });
     const choice = await ctx.ui.select("能力 / Capabilities", labels);
     const entry = capabilities[labels.indexOf(choice ?? "")];
     if (!entry) return;
@@ -68,7 +87,8 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
           .map((s) => s.service),
       );
       const connections = runtime.snapshot.connections.filter((c) => ids.has(c.id));
-      const labels = connections.map((c) => `${c.id} · ${c.label}`);
+      const current = summaries.find((s) => s.capability === entry.capability)?.service;
+      const labels = connections.map((c) => `${c.id} · ${c.label}${c.id === current ? " · 当前" : ""}`);
       const selected = await ctx.ui.select("选择服务连接", labels);
       const connection = connections[labels.indexOf(selected ?? "")];
       if (connection) await run(`prefer ${entry.capability} ${connection.id}`, ctx);
@@ -106,7 +126,11 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
     const words = text.trim().split(/\s+/).filter(Boolean);
     if (!words.length) {
       if (ctx.mode === "tui") await panel(ctx);
-      else report(ctx, usage);
+      else
+        report(
+          ctx,
+          `${serviceOverview(options.runtime(), options.preferences(), COMMAND)}\n\nCommands:\n${usage}`,
+        );
       return;
     }
     const [action, value, extra] = words;
@@ -206,16 +230,24 @@ export function registerManagement(pi: ExtensionAPI, options: ManagementOptions)
     }
     if (action === "refresh" && words.length === 1) {
       await options.synchronize(ctx);
-      report(ctx, options.runtime().describe() || "No services discovered.");
+      report(ctx, serviceOverview(options.runtime(), options.preferences(), COMMAND));
       return;
     }
-    const result = manageServicePreferences(words, store, options.runtime());
-    if (result === undefined) throw new Error(usage);
+    if (action === "help" && words.length === 1) {
+      report(ctx, usage);
+      return;
+    }
+    const result = manageServicePreferences(words, store, options.runtime(), COMMAND);
+    if (result === undefined) throw new Error(`Unknown command "${words.join(" ")}".\n${usage}`);
     if (!["status", "services"].includes(action!)) await options.synchronize(ctx);
     report(
       ctx,
       action === "status"
-        ? `${result}\nRequests: ${JSON.stringify(options.preferences().requests)}\n${subagents.status(ctx)}`
+        ? `${result}\nRequests: ${
+            Object.entries(options.preferences().requests)
+              .map(([id, value]) => `${id}=${value}`)
+              .join(", ") || "no overrides"
+          }\n${subagents.status(ctx)}`
         : result,
     );
   };

@@ -74,7 +74,7 @@ test("Claude Code discovers existing credentials and stores only optional prefer
     assert.match(await box.cli("services"), /No service connections/);
     await writePi(box, { "opencode-go": { type: "api_key", key: "fixture" } });
     assert.match(await box.cli("services"), /pi:opencode-go/);
-    assert.match(await box.cli("status"), /view_pdf\/opencode @ pi:opencode-go: available/);
+    assert.match(await box.cli("status"), /✓ view_pdf\s+pi:opencode-go/);
     assert.match(await box.cli("prefer", "view_pdf", "pi:opencode-go"), /Preferred/);
     assert.match(await box.cli("exclude", "view_pdf"), /Excluded/);
     const preferences = JSON.parse(
@@ -85,10 +85,10 @@ test("Claude Code discovers existing credentials and stores only optional prefer
       preferred: { view_pdf: "pi:opencode-go" },
       excluded: ["view_pdf"],
     });
-    assert.match(await box.cli("status"), /view_pdf\/opencode @ pi:opencode-go: excluded/);
+    assert.match(await box.cli("status"), /– view_pdf\s+excluded · \/cc-enhance include view_pdf/);
     assert.match(await box.cli("include", "view_pdf"), /Included/);
-    assert.match(await box.cli("login", "import-pi"), /services.*status/);
-    assert.match(await box.cli("openai", "gen_image", "enable"), /services.*status/);
+    assert.match(await box.cli("login", "import-pi"), /Unknown command[\s\S]*status/);
+    assert.match(await box.cli("openai", "gen_image", "enable"), /Unknown command[\s\S]*status/);
   } finally {
     await box.cleanup();
   }
@@ -144,7 +144,7 @@ test(
         await readFile(join(box.env.CC_ENHANCE_RUN_DIR, `${process.pid}.session.json`), "utf8"),
       );
       assert.equal(session.sessionId, "s-1");
-      assert.match(await box.cli("status"), /loaded: .*view_pdf\/opencode@pi:opencode-go/);
+      assert.match(await box.cli("status"), /Live session: 2 tools loaded \(view_pdf, view_video\)/);
       const removed = waitForChange(client);
       await writePi(box, {});
       await removed;

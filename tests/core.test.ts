@@ -219,7 +219,7 @@ test("routing is explicit/default/single; cross-provider options and mismatched 
   const tool = registry.tools()[0]!;
   await assert.rejects(
     tool.execute("x", { prompt: "x" }, undefined, undefined, context),
-    /PROVIDER_SELECTION/,
+    /PROVIDER_SELECTION: Several connections can run gen_image \(openai, xai\); pass provider or service/,
   );
   await assert.rejects(
     tool.execute(
@@ -229,11 +229,11 @@ test("routing is explicit/default/single; cross-provider options and mismatched 
       undefined,
       context,
     ),
-    /PROVIDER_OPTIONS/,
+    /PROVIDER_OPTIONS: The call routed to xai .*remove options\.openai/,
   );
   await assert.rejects(
     tool.execute("x", { provider: "xai", prompt: "x", model: "gpt-image-2" }, undefined, undefined, context),
-    /PROVIDER_ARGUMENTS/,
+    /PROVIDER_ARGUMENTS: Arguments are unsupported by xai: \/model must be one of/,
   );
   await assert.rejects(
     tool.execute(
@@ -243,7 +243,11 @@ test("routing is explicit/default/single; cross-provider options and mismatched 
       undefined,
       context,
     ),
-    /INVALID_ARGUMENTS/,
+    /INVALID_ARGUMENTS: .*\/options\/xai\/quality must be one of "auto", "low", "medium"/,
+  );
+  await assert.rejects(
+    tool.execute("x", { provider: "xai" }, undefined, undefined, context),
+    /INVALID_ARGUMENTS: .*\/prompt is required/,
   );
   assert.equal(calls, 0);
   registry.setPreferred({ gen_image: "xai" });
@@ -458,8 +462,21 @@ test("exact service bindings distinguish accounts and use the chosen resolver wi
   assert.deepEqual(tool.parameters.properties.service.enum, ["account:a", "account:b"]);
   await assert.rejects(
     tool.execute("ambiguous", { prompt: "x" }, undefined, undefined, context),
-    /PROVIDER_SELECTION/,
+    /PROVIDER_SELECTION: Several connections .*account:a, account:b/,
   );
+  await assert.rejects(
+    tool.execute("unknown", { prompt: "x", service: "account:c" }, undefined, undefined, context),
+    /INVALID_ARGUMENTS: .*\/service must be one of "account:a", "account:b"/,
+  );
+  assert.ok(!("entry" in registry.route("gen_image")));
+  registry.setDefaults({ gen_image: ["account:b", "account:a"] });
+  const routed = registry.route("gen_image");
+  assert.ok("entry" in routed && routed.entry.binding?.id === "account:b" && routed.via === "default");
+  assert.match(
+    registry.tools()[0]!.parameters.properties.service.description,
+    /Used when omitted: account:b/,
+  );
+  registry.setDefaults({});
   const result = await tool.execute(
     "selected",
     { prompt: "x", service: "account:b" },

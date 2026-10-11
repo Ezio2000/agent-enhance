@@ -56,13 +56,14 @@ Pi 打开 `/pi-enhance` 面板；Claude Code 使用 `/cc-enhance`。两宿主共
 /pi-enhance status
 /pi-enhance refresh
 /pi-enhance prefer gen_image pi:xai
+/pi-enhance prefer gen_image
 /pi-enhance prefer gen_image auto
 /pi-enhance exclude gen_image
 /pi-enhance include gen_image
 /pi-enhance exclude gen_image pi:openai-codex
 ```
 
-Claude Code 将前缀换为 `/cc-enhance`。`services` 列出连接；`status` 区分可用、缺少连接、已排除、宿主不支持、模型已支持该输入、加载失败和正在退出的调用。
+Claude Code 将前缀换为 `/cc-enhance`，不带参数时显示概览和命令帮助。`status` 按能力逐行显示省略 `service` 时实际使用的连接及其来由（偏好或内置默认）和备选数量；不可用的能力说明原因与下一步：缺少连接时给出登录方式或环境变量，保存的偏好失效时提示恢复 `auto`，以及已排除、宿主不支持、模型已支持该输入、加载失败和正在退出的调用。`services` 列出每个连接及其提供的能力。`prefer <能力>` 不带连接时按自动选择顺序列出可选连接并标出当前项。能力名或连接 ID 拼写错误时提示相近名称和全部可选值。
 
 所有能力内置默认连接顺序，首次安装无需创建偏好文件。省略 `provider` / `service` 时先使用保存的偏好，否则按下表选择已发现且未排除的连接：
 
@@ -81,7 +82,7 @@ Claude Code 将前缀换为 `/cc-enhance`。`services` 列出连接；`status` �
 
 显式 `service` 优先；仅指定 `provider` 时，在该供应商内使用适用的保存偏好或默认顺序。`prefer <能力> auto` 清除手动偏好并恢复内置规则。保存的偏好或显式连接不可用时直接报错。自动选择只发生在调用前，失败不会换连接重发。
 
-排除项可针对整个能力或一个能力的特定连接。排除立即阻止新调用，已有调用完成后释放实例。Pi 原生工具排除规则仍然有效。`view_image` 在主模型已经支持图片时隐藏；Claude Code 无法取得主模型信息，因此保持提供。
+排除项可针对整个能力或一个能力的特定连接，`include` 撤销对应的那一项。排除立即阻止新调用，已有调用完成后释放实例。Pi 原生工具排除规则仍然有效。`view_image` 在主模型已经支持图片时隐藏；Claude Code 无法取得主模型信息，因此保持提供。
 
 ## 工具
 

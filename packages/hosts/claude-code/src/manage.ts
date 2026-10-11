@@ -3,12 +3,19 @@ import { ModuleCatalog, type Catalog } from "../../../integrations/services/src/
 import { CapabilityRegistry } from "../../../core/src/registry.ts";
 import { ServiceRuntime } from "../../../integrations/services/src/runtime.ts";
 import { fileSources } from "../../../integrations/services/src/sources/files.ts";
-import { manageServicePreferences, serviceUsage } from "../../../integrations/services/src/management.ts";
+import {
+  manageServicePreferences,
+  serviceHelp,
+  serviceOverview,
+} from "../../../integrations/services/src/management.ts";
 import { send, sessionSockets } from "./control.ts";
 import { HOST_ID, SERVER_NAME, artifactRoot } from "./paths.ts";
 import { SUPPORTED_REQUIREMENTS } from "./server.ts";
 
-export const USAGE = `/cc-enhance ${serviceUsage}; computer status|reset|ask|auto|revoke`;
+const COMMAND = "/cc-enhance";
+export const USAGE = serviceHelp(COMMAND, [
+  ["computer status|reset|ask|auto|revoke", "manage the use_computer bridge"],
+]);
 export interface ManageOptions {
   home: string;
   catalog: Catalog;
@@ -35,8 +42,9 @@ export async function manage(args: string[], options: ManageOptions): Promise<st
   };
   try {
     const [action, value] = args;
-    if (!action || action === "help") return USAGE;
-    if (action === "computer" && args.length === 2) {
+    if (action === "help" || action === "--help") return USAGE;
+    if (action === "computer") {
+      if (args.length !== 2) return `Usage: ${COMMAND} computer status|reset|ask|auto|revoke`;
       const path = sessionSockets()?.sockets[SERVER_NAME];
       if (!path) return "cc-enhance server is not running in this Claude Code session.";
       return String(await send(path, { op: "manage", action: value! }, 60_000));
@@ -44,29 +52,31 @@ export async function manage(args: string[], options: ManageOptions): Promise<st
     await runtime.synchronize(fileSources({ home: options.home }), store.load(), {
       features: SUPPORTED_REQUIREMENTS,
     });
+    if (!action) return `${serviceOverview(runtime, store.load(), COMMAND)}\n\nCommands:\n${USAGE}`;
     if (action === "refresh" && args.length === 1) {
       const live = await notify();
-      return [runtime.describe() || "No services discovered.", live].filter(Boolean).join("\n");
+      return [serviceOverview(runtime, store.load(), COMMAND), live].filter(Boolean).join("\n");
     }
-    const result = manageServicePreferences(args, store, runtime);
-    if (result === undefined) throw new Error(USAGE);
+    const result = manageServicePreferences(args, store, runtime, COMMAND);
+    if (result === undefined) throw new Error(`Unknown command "${args.join(" ")}".\n${USAGE}`);
     if (!["status", "services"].includes(action)) return [result, await notify()].filter(Boolean).join("\n");
     if (action === "status") {
       const session = sessionSockets();
-      if (!session) return `${result}\nLive session: no cc-enhance server found.`;
-      const lines = [result, `Live session (Claude Code pid ${session.pid}):`];
+      if (!session) return `${result}\nLive session: no cc-enhance server found in this Claude Code session.`;
+      const lines = [result];
       for (const path of Object.values(session.sockets)) {
         try {
           const state = (await send(path, { op: "status" })) as {
             loaded: string[];
             errors: Record<string, string>;
           };
+          const tools = [...new Set(state.loaded.map((id) => id.split("/")[0]!))].sort();
           lines.push(
-            `  loaded: ${state.loaded.join(", ") || "none"}`,
+            `Live session: ${tools.length} tool${tools.length === 1 ? "" : "s"} loaded${tools.length ? ` (${tools.join(", ")})` : ""}.`,
             ...Object.entries(state.errors).map(([id, error]) => `  ${id}: ${error}`),
           );
         } catch (error) {
-          lines.push(`  server unreachable: ${String(error)}`);
+          lines.push(`Live session: server unreachable (${String(error)}).`);
         }
       }
       return lines.join("\n");

@@ -18,6 +18,10 @@ import {
 } from "../packages/integrations/services/src/preferences.ts";
 import { ModuleCatalog, type Catalog } from "../packages/integrations/services/src/catalog.ts";
 import { ServiceRuntime } from "../packages/integrations/services/src/runtime.ts";
+import {
+  manageServicePreferences,
+  serviceOverview,
+} from "../packages/integrations/services/src/management.ts";
 import { watchServiceSources } from "../packages/integrations/services/src/watch.ts";
 import { CapabilityRegistry } from "../packages/core/src/registry.ts";
 import { StaticCredentialResolver } from "../packages/core/src/auth.ts";
@@ -223,6 +227,53 @@ function runtimeFixture(run = async () => ({ content: [], details: {} }), base =
     },
   };
 }
+
+test("management explains the routed connection, lists choices and guides recovery", async () => {
+  const f = runtimeFixture();
+  const root = await mkdtemp(join(tmpdir(), "enhance-management-test-"));
+  const store = new PreferenceStore(root, "claude-code", emptyPreferences);
+  const conditions = { features: new Set<string>() };
+  const sync = () => f.runtime.synchronize([f.source], store.load(), conditions);
+  const manage = (line: string) => manageServicePreferences(line.split(" "), store, f.runtime, "/x");
+  f.setConnections(["agent-enhance:xai/imagine", "pi:xai"].map((id) => ({ ...f.connection, id, label: id })));
+  try {
+    await sync();
+    assert.match(manage("status")!, /✓ gen_image\s+pi:xai · default · \+1 alternative/);
+    assert.match(manage("services")!, /pi:xai · pi:xai\n\s+provides: gen_image/);
+    assert.match(manage("prefer gen_image")!, /currently uses pi:xai \(automatic\)[\s\S]*pi:xai\s+← current/);
+    assert.throws(() => manage("prefer imag"), /Unknown capability "imag"\. Did you mean gen_image\?/);
+    assert.throws(
+      () => manage("prefer gen_image pi:xia"),
+      /does not provide gen_image\. Did you mean pi:xai\? Services for gen_image: pi:xai, agent-enhance:xai\/imagine/,
+    );
+    assert.match(manage("prefer gen_image agent-enhance:xai/imagine")!, /^Preferred/);
+    await sync();
+    assert.match(manage("status")!, /agent-enhance:xai\/imagine · preferred/);
+    assert.match(manage("exclude gen_image agent-enhance:xai/imagine")!, /keeps its other connections/);
+    assert.match(manage("exclude gen_image agent-enhance:xai/imagine")!, /already excluded/);
+    await sync();
+    assert.match(
+      manage("status")!,
+      /✗ gen_image\s+saved preference agent-enhance:xai\/imagine is unavailable.*\/x prefer gen_image auto/,
+    );
+    assert.match(manage("exclude gen_image")!, /hidden until \/x include gen_image/);
+    assert.match(manage("include gen_image")!, /^Included gen_image\.$/);
+    assert.match(
+      manage("include gen_image")!,
+      /not excluded as a whole; only these connections are: agent-enhance:xai\/imagine\. Restore one with \/x include gen_image <service>/,
+    );
+    assert.match(manage("include gen_image agent-enhance:xai/imagine")!, /^Included gen_image@agent-enhance/);
+    assert.deepEqual(store.load().excluded, []);
+    assert.match(manage("include gen_image")!, /not excluded; nothing changed/);
+    f.setConnections([]);
+    await sync();
+    assert.match(manage("status")!, /✗ gen_image\s+no connection · sign in with Pi \/login → xai/);
+    assert.match(serviceOverview(f.runtime, store.load(), "/x"), /No service connections discovered/);
+  } finally {
+    await f.runtime.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 for (const module of [space, sites]) {
   test(`${module.manifest.capability} defaults to native Codex OAuth and respects explicit selection and exclusions`, async () => {
