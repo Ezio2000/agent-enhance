@@ -19,13 +19,18 @@ claude plugin marketplace add Ezio2000/agent-enhance
 claude plugin install cc-enhance@agent-enhance
 # 管理命令 /enhance 与产物面板 /enhance-artifacts
 claude plugin install enhance-companion@agent-enhance
+# 可选：/read 朗读上一条回答（macOS）
+claude plugin install read-aloud@agent-enhance
 # 更新后 /reload-plugins 或开启新会话
 claude plugin marketplace update agent-enhance
 claude plugin update cc-enhance@agent-enhance
 claude plugin update enhance-companion@agent-enhance
+claude plugin update read-aloud@agent-enhance
 ```
 
 `cc-enhance` 提供工具；`enhance-companion` 是 Claude Code mod，提供管理命令和面板，未安装时工具照常可用。
+
+`read-aloud` 是独立的 Claude Code mod，不依赖 `cc-enhance`：`/read` 用 macOS `say` 朗读上一条主回答（代码块和链接地址略过），朗读中再次执行则停止。`/config` 可选声音 Tingting（普通话）、Sinji（粤语）、Meijia（台湾腔）和语速；换声音后自动试听一句。
 
 日常安装和更新使用 Git 远端，避免把开发工作树注册为持久包来源。所有能力代码随同一版本分发，工具按需创建实例，云请求和桌面运行时仅在实际执行时启动。更新宿主即更新能力。
 

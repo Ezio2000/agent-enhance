@@ -16,6 +16,11 @@
       "name": "enhance-companion",
       "source": "./mods/enhance-companion",
       "description": "Companion mod for cc-enhance: the /enhance command and pane for preferences and the computer bridge, and a pane browsing generated artifacts"
+    },
+    {
+      "name": "read-aloud",
+      "source": "./mods/read-aloud",
+      "description": "Mod that reads the last answer aloud with a macOS Chinese system voice (Tingting, Sinji or Meijia) via /read"
     }
   ]
 }

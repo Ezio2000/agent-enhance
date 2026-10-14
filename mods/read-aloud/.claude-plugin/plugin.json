@@ -1,0 +1,25 @@
+{
+  "name": "read-aloud",
+  "version": "0.1.0",
+  "description": "The /read command reads the last answer aloud with a macOS system voice; run it again to stop",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "voice": {
+      "type": "string",
+      "title": "朗读声音",
+      "description": "Tingting 普通话 · Sinji 粤语 · Meijia 台湾腔",
+      "default": "Tingting",
+      "options": [
+        "Tingting",
+        "Sinji",
+        "Meijia"
+      ]
+    },
+    "rate": {
+      "type": "number",
+      "title": "语速",
+      "description": "每分钟字数，say 的 -r 参数",
+      "default": 220
+    }
+  }
+}
